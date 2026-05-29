@@ -1,0 +1,15 @@
+title = "LevelFour CLI Gitleaks Config"
+
+[[rules]]
+id = "levelfour-api-key"
+description = "LevelFour API Key"
+regex = '''l4_(live|test)_[a-zA-Z0-9]{16,}'''
+tags = ["key", "levelfour"]
+
+[allowlist]
+paths = [
+  '''_test\.go$''',
+  '''testdata/''',
+  '''vendor/''',
+  '''README\.md$''',
+]

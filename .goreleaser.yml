@@ -1,0 +1,77 @@
+version: 2
+
+builds:
+  - id: levelfour
+    main: ./cmd/levelfour
+    binary: levelfour
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/LevelFourAI/levelfour-cli/internal/cli.Version={{.Version}} -X github.com/LevelFourAI/levelfour-cli/internal/cli.Commit={{.Commit}} -X github.com/LevelFourAI/levelfour-cli/internal/sentryx.sentryDSN={{.Env.LEVELFOUR_CLI_SENTRY_DSN}}
+
+  - id: l4
+    main: ./cmd/levelfour
+    binary: l4
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/LevelFourAI/levelfour-cli/internal/cli.Version={{.Version}} -X github.com/LevelFourAI/levelfour-cli/internal/cli.Commit={{.Commit}} -X github.com/LevelFourAI/levelfour-cli/internal/sentryx.sentryDSN={{.Env.LEVELFOUR_CLI_SENTRY_DSN}}
+
+archives:
+  - ids:
+      - levelfour
+      - l4
+    formats: ['tar.gz']
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+homebrew_casks:
+  - name: levelfour
+    binaries:
+      - levelfour
+      - l4
+    repository:
+      owner: LevelFourAI
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://levelfour.ai"
+    description: "LevelFour CLI: cloud cost optimization from the terminal"
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/levelfour"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/l4"]
+          end
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: LevelFourAI
+    name: levelfour-cli

@@ -1,0 +1,41 @@
+# Binaries (root-level only, so cmd/levelfour/ is not matched)
+/levelfour
+/l4
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+
+# Module cache
+.levelfour/
+
+# Environment
+.env
+.env.*
+
+# Deployment / infra
+.deploy/
+
+# Local agent/editor state
+.claude/
+.cursor/
+.aider*

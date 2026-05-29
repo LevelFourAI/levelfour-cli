@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Cross-compile (linux/darwin/windows x amd64/arm64)
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          for os in linux darwin windows; do
+            for arch in amd64 arm64; do
+              GOOS=$os GOARCH=$arch go build -o /dev/null ./cmd/levelfour
+            done
+          done
+
+      - name: Test with coverage
+        run: go test -v -race -coverprofile=coverage.out ./internal/...
+
+      - name: Enforce coverage threshold
+        run: |
+          TOTAL=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${TOTAL}%"
+          echo "## Test Coverage: ${TOTAL}%" >> "$GITHUB_STEP_SUMMARY"
+          if (( $(echo "$TOTAL < 100.0" | bc -l) )); then
+            echo "::error::Coverage ${TOTAL}% is below 100% threshold"
+            exit 1
+          fi
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        with:
+          go-version-file: go.mod
+
+      - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20  # v9.2.0
+        with:
+          version: v2.11
+          args: --timeout=5m
+
+  go-security:
+    name: Go Security & Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Security lint (gosec)
+        if: always()
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -severity high -confidence high -exclude=G704 ./...
+
+      - name: Vulnerability check (govulncheck)
+        if: always()
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: License compliance
+        if: always()
+        run: |
+          go install github.com/google/go-licenses@latest
+          go-licenses check ./... \
+            --ignore github.com/LevelFourAI/levelfour-cli \
+            --allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MIT,MPL-2.0,Unlicense
+
+      - name: Report licenses
+        if: always()
+        run: |
+          {
+            echo "## Dependency Licenses"
+            echo '```'
+            go-licenses report ./... --ignore github.com/LevelFourAI/levelfour-cli 2>/dev/null | sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep@sha256:50b839b576d76426efd3e5cffda2db0d8c403f53aa76e91d42ccf51485ac336c
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - name: Run Semgrep
+        run: >-
+          semgrep scan
+          --config p/golang
+          --config p/security-audit
+          --exclude-rule go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface
+          --error
+
+  security-scans:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: No nolint pragmas
+        if: always()
+        run: |
+          if grep -rn 'nolint' --include='*.go' .; then
+            echo "::error::Found nolint directives. Remove them or fix the underlying issue."
+            exit 1
+          fi
+
+      - name: Secret scanning (Gitleaks)
+        if: always()
+        uses: gacts/gitleaks@9d471d3bda7ee95b6fa416fdfe7e87cf393554d5
+        with:
+          config-path: .gitleaks.toml
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        if: always()
+        with:
+          go-version-file: go.mod
+
+      - name: OSV dependency scan
+        if: always()
+        uses: google/osv-scanner-action/osv-scanner-action@764c91816374ff2d8fc2095dab36eecd42d61638  # v1.9.2
+        with:
+          scan-args: |-
+            --recursive
+            .
+
+      - name: Workflow security audit (zizmor)
+        if: always()
+        uses: zizmorcore/zizmor-action@0dce2577a4760a2749d8cfb7a84b7d5585ebcb7d  # v0.5.0
+        with:
+          config: .zizmor.yml
+          advanced-security: false
+
+      - name: Workflow lint (actionlint)
+        if: always()
+        uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8

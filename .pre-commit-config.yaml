@@ -1,0 +1,42 @@
+repos:
+  - repo: local
+    hooks:
+      - id: golangci-lint
+        name: golangci-lint
+        entry: bash -c 'export GOTOOLCHAIN=auto PATH="$(go env GOPATH)/bin:$PATH" && golangci-lint run --fix --whole-files'
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: gofmt
+        name: gofmt
+        entry: gofmt -w
+        language: system
+        types: [go]
+
+      - id: gosec
+        name: gosec
+        entry: bash -c 'export GOTOOLCHAIN=auto PATH="$(go env GOPATH)/bin:$PATH" && gosec -severity high -confidence high -exclude=G704 ./...'
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: actionlint
+        name: actionlint
+        entry: actionlint
+        language: system
+        files: \.github/workflows/.*\.yml$
+
+      - id: zizmor
+        name: zizmor
+        entry: zizmor --no-online-audits --config .zizmor.yml
+        language: system
+        files: \.github/workflows/.*\.yml$
+
+      - id: go-test
+        name: go-test
+        entry: ./scripts/check-coverage.sh
+        language: script
+        types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
