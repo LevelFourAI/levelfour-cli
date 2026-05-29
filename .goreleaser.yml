@@ -75,3 +75,4 @@ release:
   github:
     owner: LevelFourAI
     name: levelfour-cli
+  mode: keep-existing

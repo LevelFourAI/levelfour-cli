@@ -60,7 +60,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20  # v9.2.0
+      - uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee  # v9.2.1
         with:
           version: v2.11
           args: --timeout=5m
@@ -144,7 +144,7 @@ jobs:
 
       - name: Secret scanning (Gitleaks)
         if: always()
-        uses: gacts/gitleaks@9d471d3bda7ee95b6fa416fdfe7e87cf393554d5
+        uses: gacts/gitleaks@c9a0338361dc45a01aa7ebaaa5330179f3c62873
         with:
           config-path: .gitleaks.toml
 
@@ -155,7 +155,7 @@ jobs:
 
       - name: OSV dependency scan
         if: always()
-        uses: google/osv-scanner-action/osv-scanner-action@764c91816374ff2d8fc2095dab36eecd42d61638  # v1.9.2
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2  # v2.3.8
         with:
           scan-args: |-
             --recursive
@@ -163,7 +163,7 @@ jobs:
 
       - name: Workflow security audit (zizmor)
         if: always()
-        uses: zizmorcore/zizmor-action@0dce2577a4760a2749d8cfb7a84b7d5585ebcb7d  # v0.5.0
+        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d  # v0.5.6
         with:
           config: .zizmor.yml
           advanced-security: false
