@@ -81,7 +81,7 @@ func installGateway() (string, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(dst, bin, 0o700); err != nil { //nolint:gosec // G306: an executable must carry the exec bit; 0700 is owner-only
+	if err := os.WriteFile(dst, bin, 0o700); err != nil {
 		return "", err
 	}
 	return dst, nil
