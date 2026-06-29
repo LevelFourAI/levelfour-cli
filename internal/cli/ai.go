@@ -7,6 +7,8 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/config"
@@ -52,16 +55,17 @@ var (
 	execCommand   = exec.Command
 	lookPathFn    = exec.LookPath
 	listenFn      = net.Listen
-	dialFn        = net.DialTimeout
 	sleepFn       = time.Sleep
+	randomNonceFn = randomNonce
+	healthCheckFn = healthOK
 )
 
 var aiCmd = &cobra.Command{
 	Use:   "ai",
 	Short: "Cut your AI coding bill by routing through the LevelFour gateway",
-	Long: "LevelFour AI Spend routes Claude Code through a local gateway that downgrades the safe " +
-		"turns to a cheaper model (Sonnet, Haiku) and keeps a holdout control, cutting cost without " +
-		"changing how you work. The gateway runs entirely on your machine; this CLI only launches it.",
+	Long: "LevelFour AI Spend routes Claude Code through a local gateway that cuts your token bill " +
+		"on the turns that do not need the frontier model, and measures the verified savings. The " +
+		"gateway runs entirely on your machine; this CLI only launches it.",
 }
 
 var aiRunCmd = &cobra.Command{
@@ -96,6 +100,10 @@ func runAIRun(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Hand the gateway a per-run token and require the port to echo it back, so a local process
+	// that raced for the port cannot impersonate the gateway and capture the Anthropic key.
+	nonce := randomNonceFn()
+	_ = os.Setenv("L4_HEALTH_TOKEN", nonce)
 	stop, err := startGwFn(bin, port, config.ResolveAPI(flagAPI), tokenOrEmpty())
 	if err != nil {
 		return err
@@ -103,7 +111,7 @@ func runAIRun(_ *cobra.Command, args []string) error {
 	defer stop()
 
 	addr := "127.0.0.1:" + port
-	if err := waitReadyFn(addr); err != nil {
+	if err := waitReadyFn(addr, nonce); err != nil {
 		output.Warning("gateway did not start (" + err.Error() + "); running " + agent + " without tiering")
 		return runAgentFn(agent, rest)
 	}
@@ -222,16 +230,27 @@ func startGateway(bin, port, controlPlaneURL, token string) (func(), error) {
 	return func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }, nil
 }
 
-func waitReady(addr string) error {
+func waitReady(addr, token string) error {
 	for i := 0; i < readyAttempts; i++ {
-		c, err := dialFn("tcp", addr, 200*time.Millisecond)
-		if err == nil {
-			_ = c.Close()
+		if healthCheckFn(addr, token) {
 			return nil
 		}
 		sleepFn(readyInterval)
 	}
-	return fmt.Errorf("not listening at %s", addr)
+	return fmt.Errorf("gateway did not confirm at %s", addr)
+}
+
+// healthOK reports whether /healthz at addr echoes the expected per-run token. A bare TCP listener
+// or any process that does not know the token fails this, which is what defeats the port race.
+func healthOK(addr, token string) bool {
+	body, err := aiHTTPGet("http://"+addr+"/healthz", "")
+	return err == nil && strings.TrimSpace(string(body)) == token
+}
+
+func randomNonce() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func runAgent(name string, args []string) error {

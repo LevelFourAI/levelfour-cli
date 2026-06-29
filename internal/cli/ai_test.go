@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,14 +25,18 @@ func TestAIHelperProcess(t *testing.T) {
 func saveAISeams(t *testing.T) {
 	t.Helper()
 	lg, fp, sg, wr, ra, hg := lookGatewayFn, freePortFn, startGwFn, waitReadyFn, runAgentFn, aiHTTPGetFn
-	ec, lp, ln, dl, sl := execCommand, lookPathFn, listenFn, dialFn, sleepFn
+	ec, lp, ln, sl := execCommand, lookPathFn, listenFn, sleepFn
+	rn, hc := randomNonceFn, healthCheckFn
 	ats, itv := readyAttempts, readyInterval
 	ig, gcp, st := installGatewayFn, gatewayCachePathFn, statFn
 	t.Cleanup(func() {
 		lookGatewayFn, freePortFn, startGwFn, waitReadyFn, runAgentFn, aiHTTPGetFn = lg, fp, sg, wr, ra, hg
-		execCommand, lookPathFn, listenFn, dialFn, sleepFn = ec, lp, ln, dl, sl
+		execCommand, lookPathFn, listenFn, sleepFn = ec, lp, ln, sl
+		randomNonceFn, healthCheckFn = rn, hc
 		readyAttempts, readyInterval = ats, itv
 		installGatewayFn, gatewayCachePathFn, statFn = ig, gcp, st
+		_ = os.Unsetenv("L4_HEALTH_TOKEN")
+		_ = os.Unsetenv("ANTHROPIC_BASE_URL")
 	})
 }
 
@@ -66,7 +71,7 @@ func TestRunAIRunAutoInstalls(t *testing.T) {
 	installGatewayFn = func() (string, error) { installed = true; return "/cache/l4-gateway", nil }
 	freePortFn = func() (string, error) { return "1234", nil }
 	startGwFn = func(_, _, _, _ string) (func(), error) { return func() {}, nil }
-	waitReadyFn = func(string) error { return nil }
+	waitReadyFn = func(string, string) error { return nil }
 	ran := false
 	runAgentFn = func(string, []string) error { ran = true; return nil }
 	if err := runAIRun(nil, []string{"claude"}); err != nil {
@@ -102,7 +107,7 @@ func TestRunAIRunWaitFailsOpen(t *testing.T) {
 	freePortFn = func() (string, error) { return "1234", nil }
 	stopped := false
 	startGwFn = func(_, _, _, _ string) (func(), error) { return func() { stopped = true }, nil }
-	waitReadyFn = func(string) error { return errors.New("not ready") }
+	waitReadyFn = func(string, string) error { return errors.New("not ready") }
 	ran := false
 	runAgentFn = func(string, []string) error { ran = true; return nil }
 	if err := runAIRun(nil, []string{"claude"}); err != nil {
@@ -119,7 +124,7 @@ func TestRunAIRunSuccess(t *testing.T) {
 	lookGatewayFn = func() (string, error) { return "gw", nil }
 	freePortFn = func() (string, error) { return "1234", nil }
 	startGwFn = func(_, _, _, _ string) (func(), error) { return func() {}, nil }
-	waitReadyFn = func(string) error { return nil }
+	waitReadyFn = func(string, string) error { return nil }
 	var base string
 	runAgentFn = func(string, []string) error { base = os.Getenv("ANTHROPIC_BASE_URL"); return nil }
 	if err := runAIRun(nil, []string{"claude"}); err != nil {
@@ -258,11 +263,8 @@ func TestStartGatewayStartError(t *testing.T) {
 
 func TestWaitReadySuccess(t *testing.T) {
 	saveAISeams(t)
-	dialFn = func(string, string, time.Duration) (net.Conn, error) {
-		c, _ := net.Pipe()
-		return c, nil
-	}
-	if err := waitReady("127.0.0.1:1234"); err != nil {
+	healthCheckFn = func(string, string) bool { return true }
+	if err := waitReady("127.0.0.1:1234", "tok"); err != nil {
 		t.Fatalf("want ready: %v", err)
 	}
 }
@@ -270,10 +272,34 @@ func TestWaitReadySuccess(t *testing.T) {
 func TestWaitReadyTimeout(t *testing.T) {
 	saveAISeams(t)
 	readyAttempts = 2
-	dialFn = func(string, string, time.Duration) (net.Conn, error) { return nil, errors.New("refused") }
+	healthCheckFn = func(string, string) bool { return false }
 	sleepFn = func(time.Duration) {}
-	if err := waitReady("127.0.0.1:1234"); err == nil {
+	if err := waitReady("127.0.0.1:1234", "tok"); err == nil {
 		t.Fatal("want a timeout error")
+	}
+}
+
+func TestHealthOK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("the-token\n"))
+	}))
+	defer srv.Close()
+	addr := strings.TrimPrefix(srv.URL, "http://")
+	if !healthOK(addr, "the-token") {
+		t.Fatal("matching token should be ok")
+	}
+	if healthOK(addr, "wrong-token") {
+		t.Fatal("mismatched token must not be ok")
+	}
+	if healthOK("127.0.0.1:1", "the-token") {
+		t.Fatal("an unreachable gateway must not be ok")
+	}
+}
+
+func TestRandomNonce(t *testing.T) {
+	a, b := randomNonce(), randomNonce()
+	if len(a) != 32 || a == b {
+		t.Fatalf("nonce should be 32 hex chars and unique: %q %q", a, b)
 	}
 }
 
