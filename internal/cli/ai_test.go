@@ -341,3 +341,30 @@ func TestAIHTTPGetNon200(t *testing.T) {
 		t.Fatal("want a non-200 error")
 	}
 }
+
+func TestAIHTTPGetNotEntitled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	if _, err := aiHTTPGet(srv.URL, "k"); !errors.Is(err, errNotEntitled) {
+		t.Fatalf("a 403 must map to errNotEntitled, got %v", err)
+	}
+}
+
+func TestRunAIStatusNotEntitled(t *testing.T) {
+	saveAISeams(t)
+	lookGatewayFn = func() (string, error) { return "/gw", nil }
+	aiHTTPGetFn = func(string, string) ([]byte, error) { return nil, errNotEntitled }
+	if err := runAIStatus(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunAIReportNotEntitled(t *testing.T) {
+	saveAISeams(t)
+	aiHTTPGetFn = func(string, string) ([]byte, error) { return nil, errNotEntitled }
+	if err := runAIReport(nil, nil); err != nil {
+		t.Fatalf("a not-entitled report must not error: %v", err)
+	}
+}

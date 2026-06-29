@@ -30,6 +30,9 @@ const (
 	savingsPath       = "/api/v1/ai-spend/savings"
 )
 
+// errNotEntitled means the control plane returned 403: the org has no active ai_spend module.
+var errNotEntitled = errors.New("AI Spend is not enabled for your organization")
+
 // readyAttempts/readyInterval bound the wait for the gateway to start listening. They are vars so
 // tests can shrink them.
 var (
@@ -128,6 +131,10 @@ type aiSavings struct {
 
 func runAIReport(_ *cobra.Command, _ []string) error {
 	body, err := aiHTTPGetFn(config.ResolveAPI(flagAPI)+savingsPath, tokenOrEmpty())
+	if errors.Is(err, errNotEntitled) {
+		output.Info("AI Spend is not enabled for your organization. Contact sales to turn it on.")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -159,9 +166,13 @@ func runAIStatus(_ *cobra.Command, _ []string) error {
 		output.KeyValue("Gateway", bin)
 	}
 	cpURL := config.ResolveAPI(flagAPI)
-	if _, err := aiHTTPGetFn(cpURL+policyPath, tokenOrEmpty()); err != nil {
+	switch _, err := aiHTTPGetFn(cpURL+policyPath, tokenOrEmpty()); {
+	case errors.Is(err, errNotEntitled):
+		output.KeyValue("AI Spend", output.StatusBadge("not enabled"))
+		output.Info("AI Spend is not enabled for your organization. Contact sales to turn it on.")
+	case err != nil:
 		output.KeyValue("Control plane", output.StatusBadge("unreachable"))
-	} else {
+	default:
 		output.KeyValue("Control plane", cpURL)
 	}
 	return nil
@@ -246,6 +257,9 @@ func aiHTTPGet(url, key string) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, errNotEntitled
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("control plane returned status %d", resp.StatusCode)
 	}
