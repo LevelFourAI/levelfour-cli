@@ -45,6 +45,7 @@ linters:
         - G104
         - G204
         - G704
+        - G306 # we cache a downloaded executable; it must carry the exec bit
     revive:
       rules:
         - name: exported
