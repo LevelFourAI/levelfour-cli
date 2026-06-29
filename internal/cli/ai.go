@@ -8,6 +8,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,7 +25,7 @@ import (
 
 const (
 	agentClaude       = "claude"
-	defaultGatewayBin = "levelfour-ai-gateway"
+	defaultGatewayBin = "l4-gateway"
 	policyPath        = "/api/v1/ai-spend/policy"
 	savingsPath       = "/api/v1/ai-spend/savings"
 )
@@ -79,8 +80,13 @@ func runAIRun(_ *cobra.Command, args []string) error {
 
 	bin, err := lookGatewayFn()
 	if err != nil {
-		output.Warning("gateway not installed (" + err.Error() + "); running " + agent + " without tiering")
-		return runAgentFn(agent, rest)
+		output.Info("Installing the LevelFour gateway (first run)...")
+		bin, err = installGatewayFn()
+		if err != nil {
+			output.Warning("could not install the gateway (" + err.Error() + "); running " + agent + " without tiering")
+			return runAgentFn(agent, rest)
+		}
+		output.Success("Gateway installed at " + bin)
 	}
 
 	port, err := freePortFn()
@@ -172,7 +178,14 @@ func lookGateway() (string, error) {
 	if bin := os.Getenv("L4_GATEWAY_BIN"); bin != "" {
 		return bin, nil
 	}
-	return lookPathFn(defaultGatewayBin)
+	if p, err := lookPathFn(defaultGatewayBin); err == nil {
+		return p, nil
+	}
+	cached := gatewayCachePathFn()
+	if _, err := statFn(cached); err == nil {
+		return cached, nil
+	}
+	return "", errors.New("gateway not installed")
 }
 
 func freePort() (string, error) {
@@ -242,7 +255,7 @@ func aiHTTPGet(url, key string) ([]byte, error) {
 const groupAI = "ai"
 
 func init() {
-	aiCmd.AddCommand(aiRunCmd, aiReportCmd, aiStatusCmd)
+	aiCmd.AddCommand(aiRunCmd, aiReportCmd, aiStatusCmd, aiInstallCmd)
 	rootCmd.AddGroup(&cobra.Group{ID: groupAI, Title: "AI Spend:"})
 	aiCmd.GroupID = groupAI
 	rootCmd.AddCommand(aiCmd)

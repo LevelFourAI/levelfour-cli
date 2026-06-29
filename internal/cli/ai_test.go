@@ -26,10 +26,12 @@ func saveAISeams(t *testing.T) {
 	lg, fp, sg, wr, ra, hg := lookGatewayFn, freePortFn, startGwFn, waitReadyFn, runAgentFn, aiHTTPGetFn
 	ec, lp, ln, dl, sl := execCommand, lookPathFn, listenFn, dialFn, sleepFn
 	ats, itv := readyAttempts, readyInterval
+	ig, gcp, st := installGatewayFn, gatewayCachePathFn, statFn
 	t.Cleanup(func() {
 		lookGatewayFn, freePortFn, startGwFn, waitReadyFn, runAgentFn, aiHTTPGetFn = lg, fp, sg, wr, ra, hg
 		execCommand, lookPathFn, listenFn, dialFn, sleepFn = ec, lp, ln, dl, sl
 		readyAttempts, readyInterval = ats, itv
+		installGatewayFn, gatewayCachePathFn, statFn = ig, gcp, st
 	})
 }
 
@@ -43,16 +45,35 @@ func TestRunAIRunRejectsOtherAgents(t *testing.T) {
 	}
 }
 
-func TestRunAIRunFailsOpenWhenNoGateway(t *testing.T) {
+func TestRunAIRunInstallFailsOpen(t *testing.T) {
 	saveAISeams(t)
 	lookGatewayFn = func() (string, error) { return "", errors.New("not found") }
+	installGatewayFn = func() (string, error) { return "", errors.New("offline") }
 	ran := false
 	runAgentFn = func(string, []string) error { ran = true; return nil }
 	if err := runAIRun(nil, []string{"claude", "-p", "hi"}); err != nil {
-		t.Fatalf("fail-open must not error: %v", err)
+		t.Fatalf("a failed install must fail open, not error: %v", err)
 	}
 	if !ran {
-		t.Fatal("the agent must still run without the gateway")
+		t.Fatal("the agent must still run when the gateway cannot be installed")
+	}
+}
+
+func TestRunAIRunAutoInstalls(t *testing.T) {
+	saveAISeams(t)
+	lookGatewayFn = func() (string, error) { return "", errors.New("not found") }
+	installed := false
+	installGatewayFn = func() (string, error) { installed = true; return "/cache/l4-gateway", nil }
+	freePortFn = func() (string, error) { return "1234", nil }
+	startGwFn = func(_, _, _, _ string) (func(), error) { return func() {}, nil }
+	waitReadyFn = func(string) error { return nil }
+	ran := false
+	runAgentFn = func(string, []string) error { ran = true; return nil }
+	if err := runAIRun(nil, []string{"claude"}); err != nil {
+		t.Fatalf("auto-install path errored: %v", err)
+	}
+	if !installed || !ran {
+		t.Fatalf("installed=%v ran=%v", installed, ran)
 	}
 }
 
@@ -173,6 +194,29 @@ func TestLookGatewayPathLookup(t *testing.T) {
 	got, err := lookGateway()
 	if err != nil || got != "/found/"+defaultGatewayBin {
 		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestLookGatewayCacheHit(t *testing.T) {
+	saveAISeams(t)
+	t.Setenv("L4_GATEWAY_BIN", "")
+	lookPathFn = func(string) (string, error) { return "", errors.New("not on PATH") }
+	gatewayCachePathFn = func() string { return "/cache/l4-gateway" }
+	statFn = func(string) (os.FileInfo, error) { return nil, nil }
+	got, err := lookGateway()
+	if err != nil || got != "/cache/l4-gateway" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestLookGatewayNotFound(t *testing.T) {
+	saveAISeams(t)
+	t.Setenv("L4_GATEWAY_BIN", "")
+	lookPathFn = func(string) (string, error) { return "", errors.New("not on PATH") }
+	gatewayCachePathFn = func() string { return "/cache/l4-gateway" }
+	statFn = func(string) (os.FileInfo, error) { return nil, errors.New("missing") }
+	if _, err := lookGateway(); err == nil {
+		t.Fatal("want a not-installed error")
 	}
 }
 
