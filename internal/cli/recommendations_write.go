@@ -156,10 +156,10 @@ func init() {
 		c.Flags().BoolVarP(&flagRecYes, "yes", "y", false, "Skip the confirmation prompt")
 	}
 
-	recommendationsRejectCmd.Flags().StringVar(&flagRecReason, "reason", "", "Rejection reason: operational, strategy, not_applicable, other")
+	recommendationsRejectCmd.Flags().StringVar(&flagRecReason, "reason", "", "Rejection reason: "+strings.Join(rejectionReasons, ", "))
 	recommendationsRejectCmd.Flags().StringVar(&flagRecExplanation, "explanation", "", "Free text explanation, used when --reason is 'other'")
 
-	recommendationsExecuteCmd.Flags().StringVar(&flagRecMethod, "method", defaultImplementationMethod, "Implementation method: one-click, iac, one-click-plus-iac, manual")
+	recommendationsExecuteCmd.Flags().StringVar(&flagRecMethod, "method", defaultImplementationMethod, "Implementation method: "+strings.Join(implementationMethods, ", "))
 
 	recommendationsCmd.AddCommand(recommendationsAcceptCmd)
 	recommendationsCmd.AddCommand(recommendationsRejectCmd)

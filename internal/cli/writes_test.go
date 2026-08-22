@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,9 +70,8 @@ func TestPostWriteSendsIdempotencyKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotKey = r.Header.Get("Idempotency-Key")
 		gotMethod = r.Method
-		buf := make([]byte, r.ContentLength)
-		r.Body.Read(buf)
-		gotBody = string(buf)
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
 		w.Write([]byte(`{"success":true,"data":{"ok":"yes"}}`))
 	}))
 	defer srv.Close()

@@ -384,6 +384,15 @@ func TestClassifyStatusError(t *testing.T) {
 	}
 }
 
+func TestClassifyStatusErrorPassesOtherStatusesThrough(t *testing.T) {
+	// Anything that is not 401 or 403 must come back untouched, so an API message
+	// such as a 409 conflict is never dressed up as an auth problem.
+	sentinel := errors.New("conflict")
+	if got := classifyStatusError(http.StatusConflict, sentinel); got != sentinel {
+		t.Errorf("classifyStatusError(409, err) = %v, want the error returned untouched", got)
+	}
+}
+
 func TestPostAnalysis_Non401Error(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(500)

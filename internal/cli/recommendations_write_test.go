@@ -50,12 +50,11 @@ func decisionEnvelope(decision string) map[string]interface{} {
 
 func TestRecommendationDecisionCommands(t *testing.T) {
 	tests := []struct {
-		name      string
-		args      []string
-		wantPath  string
-		wantBody  map[string]interface{}
-		wantOut   []string
-		unwantOut []string
+		name     string
+		args     []string
+		wantPath string
+		wantBody map[string]interface{}
+		wantOut  []string
 	}{
 		{
 			name:     "accept",
@@ -65,12 +64,11 @@ func TestRecommendationDecisionCommands(t *testing.T) {
 			wantOut:  []string{"CLICK-243 accepted", "bruno@levelfour.ai"},
 		},
 		{
-			name:      "reject without a reason",
-			args:      []string{"rec", "reject", "CLICK-243", "--yes"},
-			wantPath:  "/api/v1/recommendations/CLICK-243/decision",
-			wantBody:  map[string]interface{}{"decision": "rejected"},
-			wantOut:   []string{"CLICK-243 rejected"},
-			unwantOut: nil,
+			name:     "reject without a reason",
+			args:     []string{"rec", "reject", "CLICK-243", "--yes"},
+			wantPath: "/api/v1/recommendations/CLICK-243/decision",
+			wantBody: map[string]interface{}{"decision": "rejected"},
+			wantOut:  []string{"CLICK-243 rejected"},
 		},
 		{
 			name:     "reject with a reason and explanation",
@@ -300,6 +298,8 @@ func TestRecommendationWriteConfirmation(t *testing.T) {
 		{"accept confirmed", []string{"rec", "accept", "CLICK-243"}, "y\n", true, "accepted"},
 		{"execute declined", []string{"rec", "execute", "CLICK-243"}, "n\n", false, "Aborted."},
 		{"execute confirmed", []string{"rec", "execute", "CLICK-243"}, "y\n", true, "Execution requested"},
+		{"accept with --yes never prompts", []string{"rec", "accept", "CLICK-243", "--yes"}, "n\n", true, "accepted"},
+		{"execute with --yes never prompts", []string{"rec", "execute", "CLICK-243", "--yes"}, "n\n", true, "Execution requested"},
 	}
 
 	for _, tt := range tests {
