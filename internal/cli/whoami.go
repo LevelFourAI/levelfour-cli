@@ -59,7 +59,19 @@ var whoamiCmd = &cobra.Command{
 		if key != "" {
 			output.KeyValue("Auth", fmt.Sprintf("%s (%s)", source, maskKey(key)))
 		}
+		// The API only started returning the credential scope recently, so read
+		// it off the extra properties and stay quiet when it is not there.
+		if scope := extraString(data.GetExtraProperties(), "scope"); scope != "" {
+			output.KeyValue("Scope", scope)
+		}
 		output.KeyValue("CLI", fmt.Sprintf("v%s (commit: %s)", Version, Commit))
 		return nil
 	},
+}
+
+// extraString reads a string field the SDK model does not declare yet. It
+// returns an empty string when the field is absent or is not a string.
+func extraString(extra map[string]interface{}, key string) string {
+	s, _ := extra[key].(string)
+	return s
 }

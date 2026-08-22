@@ -301,6 +301,89 @@ func TestPostAnalysis_401Error(t *testing.T) {
 	}
 }
 
+// A 403 means the key is valid but read-only. Telling the user to log in again
+// would send them chasing the wrong problem.
+func TestPostAnalysis_403Error(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(403)
+		w.Write([]byte(`{"error":{"message":"API key scope 'read' is insufficient"}}`))
+	}))
+	defer srv.Close()
+
+	client, _ := api.NewSDKClient(srv.URL, "l4_test_readonly123456789", "0.0.0-test")
+	_, err := postAnalysis(client, nil, nil, "us-east-1", nil, nil)
+	if err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("error = %q, want 'permission denied'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "read-write key") {
+		t.Errorf("error = %q, want it to mention minting a read-write key", err.Error())
+	}
+	if strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("403 must not be reported as an auth failure, got %q", err.Error())
+	}
+	if strings.Contains(err.Error(), "l4 auth login") {
+		t.Errorf("403 must not suggest re-authenticating, got %q", err.Error())
+	}
+}
+
+func TestClassifyAPIError(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		want    string
+		notWant string
+	}{
+		{"nil stays nil", nil, "", ""},
+		{"403 by status", errors.New("API error (403): forbidden"), "permission denied", "authentication failed"},
+		{"403 by phrase", errors.New("Forbidden"), "permission denied", "authentication failed"},
+		{"401 by status", errors.New("API error (401): bad key"), "authentication failed", "permission denied"},
+		{"401 by phrase", errors.New("Unauthorized"), "authentication failed", "permission denied"},
+		{"500 passes through", errors.New("API error (500): boom"), "boom", "permission denied"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyAPIError(tt.err)
+			if tt.err == nil {
+				if got != nil {
+					t.Fatalf("classifyAPIError(nil) = %v, want nil", got)
+				}
+				return
+			}
+			if !strings.Contains(got.Error(), tt.want) {
+				t.Errorf("error = %q, want it to contain %q", got.Error(), tt.want)
+			}
+			if strings.Contains(got.Error(), tt.notWant) {
+				t.Errorf("error = %q, must not contain %q", got.Error(), tt.notWant)
+			}
+		})
+	}
+}
+
+func TestClassifyStatusError(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		want   string
+	}{
+		{"401", 401, "authentication failed"},
+		{"403", 403, "permission denied"},
+		{"409", 409, "conflict"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyStatusError(tt.status, errors.New("conflict"))
+			if !strings.Contains(got.Error(), tt.want) {
+				t.Errorf("error = %q, want it to contain %q", got.Error(), tt.want)
+			}
+		})
+	}
+}
+
 func TestPostAnalysis_Non401Error(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(500)

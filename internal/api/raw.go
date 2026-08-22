@@ -47,6 +47,12 @@ type RawResponse struct {
 }
 
 func (c *RawClient) DoRaw(method, path string, body io.Reader) (*RawResponse, error) {
+	return c.DoRawWithHeaders(method, path, body, nil)
+}
+
+// DoRawWithHeaders behaves like DoRaw and additionally sets the given request
+// headers. Write commands use it to carry an Idempotency-Key.
+func (c *RawClient) DoRawWithHeaders(method, path string, body io.Reader, headers map[string]string) (*RawResponse, error) {
 	req, err := http.NewRequestWithContext(context.Background(), method, c.BaseURL+path, body)
 	if err != nil {
 		return nil, err
@@ -60,6 +66,10 @@ func (c *RawClient) DoRaw(method, path string, body io.Reader) (*RawResponse, er
 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	resp, err := c.httpClient.Do(req)

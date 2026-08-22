@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,12 +143,46 @@ func postAnalysis(client *api.SDKClient, snapshots []api.ResourceSnapshot, chang
 	}
 	resp, err := client.Raw().AnalyzeIaC(context.Background(), req)
 	if err != nil {
-		if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "Unauthorized") {
-			return nil, fmt.Errorf("authentication failed: verify your API key with 'l4 auth status --verify' or re-authenticate with 'l4 auth login': %w", err)
-		}
-		return nil, err
+		return nil, classifyAPIError(err)
 	}
 	return resp, nil
+}
+
+// A 401 means the credential is not valid, so re-authenticating fixes it. A 403
+// means the credential is valid but not allowed to do this, and telling the user
+// to log in again would send them down the wrong path.
+const (
+	authFailedHint = "authentication failed: verify your API key with 'l4 auth status --verify' or re-authenticate with 'l4 auth login'"
+	forbiddenHint  = "permission denied: this API key lacks permission for this operation. Mint a read-write key in the dashboard under Settings, API Keys"
+)
+
+// classifyStatusError wraps an API error with the hint that matches its HTTP
+// status. Any other status is returned untouched.
+func classifyStatusError(status int, err error) error {
+	switch status {
+	case http.StatusUnauthorized:
+		return fmt.Errorf("%s: %w", authFailedHint, err)
+	case http.StatusForbidden:
+		return fmt.Errorf("%s: %w", forbiddenHint, err)
+	}
+	return err
+}
+
+// classifyAPIError is the same mapping for call paths that only hand back an
+// error string. The client formats API failures as "API error (<status>): ...",
+// so the status is recoverable from the message.
+func classifyAPIError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "(403)") || strings.Contains(msg, "Forbidden"):
+		return classifyStatusError(http.StatusForbidden, err)
+	case strings.Contains(msg, "(401)") || strings.Contains(msg, "Unauthorized"):
+		return classifyStatusError(http.StatusUnauthorized, err)
+	}
+	return err
 }
 
 func toAttributesChanged(attrs map[string]interface{}, side string) map[string]interface{} {
