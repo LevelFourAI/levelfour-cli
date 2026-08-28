@@ -11,17 +11,9 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// The official Go SDK (github.com/modelcontextprotocol/go-sdk) is the library
-// here for two reasons. It is the implementation the protocol maintainers ship
-// with Google, so a spec revision lands in it rather than being chased in a
-// fork, and it is the only Go library that lets a server hand over a raw JSON
-// Schema for a tool. That second point decides it: these schemas have to be the
-// hosted server's Pydantic output verbatim, and a library that infers a schema
-// from a Go struct would quietly produce a near-miss instead.
-//
-// Server.AddTool is the non-generic entry point. mcp.AddTool[In, Out] is the
-// friendlier one, but it derives the input schema from In, which is exactly the
-// inference this package cannot use.
+// Server.AddTool is used rather than the generic mcp.AddTool[In, Out] because
+// the latter derives the input schema from a Go struct. These schemas have to
+// match the hosted server's output exactly, and inference produces a near-miss.
 
 var readOnly = &sdk.ToolAnnotations{
 	ReadOnlyHint:    true,
@@ -32,7 +24,6 @@ var readOnly = &sdk.ToolAnnotations{
 
 func boolPtr(b bool) *bool { return &b }
 
-// NewServer builds the local MCP server over an already-authenticated Fetcher.
 func NewServer(f Fetcher, version string) *sdk.Server {
 	server := sdk.NewServer(&sdk.Implementation{
 		Name:        ServerName,
@@ -102,35 +93,36 @@ func errorResult(message string) *sdk.CallToolResult {
 	}
 }
 
-// Serve runs the server over one newline-delimited JSON stream until the client
-// disconnects or ctx is cancelled.
-//
-// notices is where the startup line goes. A stdio server's stderr is captured by
-// the client into its own log (Claude Desktop writes mcp-server-<name>.log), so
-// this is the one place a user can confirm which binary answered and how much of
-// the surface it carries without going and reading the source.
-func Serve(ctx context.Context, f Fetcher, version string, in io.ReadCloser, out io.WriteCloser, notices io.Writer) error {
-	config := "the LevelFour API"
-	fmt.Fprintf(notices, "levelfour mcp %s serving %d tools over stdio\n", version, len(tools))
-	fmt.Fprintf(notices, "reading %s with the stored credential\n", config)
+// Session is one stdio serving session. Notices goes to stderr, which the client
+// captures into its own log, and is where a user confirms which binary answered.
+type Session struct {
+	Fetcher Fetcher
+	Version string
+	In      io.ReadCloser
+	Out     io.WriteCloser
+	Notices io.Writer
+}
 
-	err := NewServer(f, version).Run(ctx, &sdk.IOTransport{Reader: in, Writer: out})
+func Serve(ctx context.Context, s Session) error {
+	s.announce()
+	err := NewServer(s.Fetcher, s.Version).Run(ctx, &sdk.IOTransport{Reader: s.In, Writer: s.Out})
 	if isCleanShutdown(err) {
 		return nil
 	}
 	return err
 }
 
-// errServerClosing is the JSON-RPC error the SDK reports when the peer hangs up.
-// The SDK formats the underlying EOF with %v rather than %w, so the EOF itself
-// is not recoverable from the chain and the code is what is left to match on.
-// jsonrpc.Error compares by code.
+func (s Session) announce() {
+	fmt.Fprintf(s.Notices, "levelfour mcp %s serving %d tools over stdio\n", s.Version, len(tools))
+	fmt.Fprintln(s.Notices, "reading the LevelFour API with the stored credential")
+}
+
+// The SDK formats the underlying EOF with %v rather than %w, so the code is all
+// that is left to match on.
 var errServerClosing = &jsonrpc.Error{Code: -32004, Message: "server is closing"}
 
-// isCleanShutdown reports whether the server stopped because the client hung up
-// or the process was asked to stop. Both are normal endings for a stdio server:
-// returning an error for either would make every ordinary exit non-zero, and the
-// client logs that as a crashed server.
+// A client hanging up is a normal ending for a stdio server. Returning an error
+// would make every ordinary exit non-zero, which clients log as a crash.
 func isCleanShutdown(err error) bool {
 	return err == nil ||
 		errors.Is(err, io.EOF) ||
@@ -138,7 +130,6 @@ func isCleanShutdown(err error) bool {
 		errors.Is(err, errServerClosing)
 }
 
-// ToolNames lists the tools this binary serves, in catalog order.
 func ToolNames() []string {
 	names := make([]string, 0, len(tools))
 	for _, t := range tools {
@@ -147,10 +138,8 @@ func ToolNames() []string {
 	return names
 }
 
-// Summary is the one-line surface description `l4 mcp status` prints. It counts
-// what this binary registers, which is the read half of the hosted catalog. A
-// user comparing this against the hosted server with a read-scoped key reads the
-// same numbers; with a read-write key the hosted server shows two more.
+// Counts what this binary registers, which is the read half of the hosted
+// catalog. A read-write key sees more on the hosted server.
 func Summary() string {
 	return fmt.Sprintf("%d tools, %d prompts", len(tools), len(prompts))
 }

@@ -111,7 +111,7 @@ func (c call) shape(payload any, args map[string]any) (any, string) {
 	if c.paged {
 		page := argInt(args, argPage, 1)
 		size := clampPageSize(argInt(args, argPageSize, defaultPageSize))
-		object = paginate(object, page, size, c.rows)
+		object = paginate(object, pageSpec{page: page, size: size, itemsKey: c.rows})
 	}
 
 	rowsKey := c.rowsKey(object)

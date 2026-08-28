@@ -80,7 +80,7 @@ func Install(ctx context.Context, c Client, o Options) (Result, error) {
 
 	if c.Delegated {
 		result.Target = fmt.Sprintf("claude mcp add %s (user scope, %s)", o.Name, path)
-		result.Action, err = installViaClaudeCLI(ctx, c, o, path)
+		result.Action, err = c.installViaCLI(ctx, o, entryRef{path, c.Section, o.Name})
 		return result, err
 	}
 
@@ -229,24 +229,14 @@ func writeConfig(path string, root map[string]any) error {
 	return os.Chmod(path, configMode)
 }
 
-// installViaClaudeCLI delegates to the tool that owns the file. Claude Code's
-// own `mcp add` refuses a name that is already there, so an existing entry is
-// removed first, which is what makes re-running this after `l4 auth login`
-// refresh the credential instead of failing.
+// `claude mcp add` refuses a name that already exists, so an existing entry is
+// removed first and restored if the add then fails.
 //
-// The positionals come before --header, and that ordering is load bearing. The
-// usage is `claude mcp add [options] <name> <commandOrUrl>` and -H, --header is
-// variadic, so a header placed ahead of the positionals consumes both of them
-// and the command exits with "missing required argument 'name'" having done
-// nothing. The vendor's own documented example puts the header last.
-//
-// Removing before adding means a failed add would otherwise leave the user with
-// no entry at all, so the previous one is read out of the config first and put
-// back if the add fails. That write touches a single key through the same parse
-// and merge path every other client uses, which is what keeps the project
-// history this file also holds out of it.
-func installViaClaudeCLI(ctx context.Context, c Client, o Options, path string) (string, error) {
-	previous := existingEntry(path, c.Section, o.Name)
+// The positionals must precede --header: -H is variadic, so a header placed
+// first consumes <name> and <commandOrUrl> and the command exits with "missing
+// required argument 'name'".
+func (c Client) installViaCLI(ctx context.Context, o Options, ref entryRef) (string, error) {
+	previous := ref.read()
 
 	action := actionAdded
 	if claudeCLIHasServer(ctx, o.Name) {
@@ -269,55 +259,59 @@ func installViaClaudeCLI(ctx context.Context, c Client, o Options, path string) 
 	if previous == nil {
 		return action, failed
 	}
-	if restoreErr := restoreEntry(path, c.Section, o.Name, previous); restoreErr != nil {
+	if restoreErr := ref.restore(previous); restoreErr != nil {
 		return action, fmt.Errorf("%w. Restoring the previous entry also failed: %v", failed, restoreErr)
 	}
 	return action, fmt.Errorf("%w. The previous entry was put back", failed)
 }
 
-// existingEntry reads one server entry out of a client-owned config so a failed
-// delegated install can put it back. Anything unreadable returns nil: this is a
-// rollback aid, and refusing to install because a rollback might not be possible
-// would trade a rare failure for a certain one.
-func existingEntry(path, section, name string) map[string]any {
-	data, existed, err := readConfig(path)
+// Anything unreadable returns nil: refusing to install because a rollback might
+// not be possible would trade a rare failure for a certain one.
+// entryRef locates one server entry inside a client-owned config file.
+type entryRef struct {
+	path    string
+	section string
+	name    string
+}
+
+func (r entryRef) read() map[string]any {
+	data, existed, err := readConfig(r.path)
 	if err != nil || !existed {
 		return nil
 	}
-	root, err := decodeConfig(path, data)
+	root, err := decodeConfig(r.path, data)
 	if err != nil {
 		return nil
 	}
-	entries, ok := root[section].(map[string]any)
+	entries, ok := root[r.section].(map[string]any)
 	if !ok {
 		return nil
 	}
-	entry, ok := entries[name].(map[string]any)
+	entry, ok := entries[r.name].(map[string]any)
 	if !ok {
 		return nil
 	}
 	return entry
 }
 
-// restoreEntry puts one server entry back after a failed delegated install. It
-// re-reads rather than reusing the earlier decode, so a change the vendor CLI
+// Re-reads rather than reusing the earlier decode, so a change the vendor CLI
 // made between the remove and the failure survives.
-func restoreEntry(path, section, name string, entry map[string]any) error {
-	data, _, err := readConfig(path)
+func (r entryRef) restore(entry map[string]any) error {
+	data, _, err := readConfig(r.path)
 	if err != nil {
 		return err
 	}
-	root, err := decodeConfig(path, data)
+	root, err := decodeConfig(r.path, data)
 	if err != nil {
 		return err
 	}
-	entries, err := sectionOf(root, section, path)
+	entries, err := sectionOf(root, r.section, r.path)
 	if err != nil {
 		return err
 	}
-	entries[name] = entry
-	root[section] = entries
-	return writeConfig(path, root)
+	entries[r.name] = entry
+	root[r.section] = entries
+	return writeConfig(r.path, root)
 }
 
 func claudeCLIHasServer(ctx context.Context, name string) bool {

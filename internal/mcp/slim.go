@@ -3,7 +3,6 @@ package mcp
 import "fmt"
 
 // The two places the REST payload and the hosted tool payload genuinely differ.
-// Both are ports, not inventions: they mirror the hosted server's own slimming.
 
 // detailActionDuplicates are returned at the top level of a recommendation
 // already, so echoing them inside actions ships the same payload twice.
@@ -11,10 +10,8 @@ var detailActionDuplicates = map[string]bool{
 	"metrics": true, "comparison_data": true, "risk_assessment": true, "implementation_steps": true,
 }
 
-// detailOperatorFields are operator artifacts. Applying happens in the dashboard
-// or the CLI, so an agent has no use for them and they are the largest fields in
-// the payload. Dropping iam_policy also keeps a permissions document out of a
-// model's context, which is the reason it is dropped on the hosted side too.
+// Operator artifacts: applying happens in the dashboard or the CLI, so an agent
+// has no use for them and they are the largest fields in the payload.
 var detailOperatorFields = map[string]bool{
 	"iam_policy": true, "iam_role_arn": true, "manual_instructions": true,
 }
@@ -65,13 +62,10 @@ func capSeries(series any) any {
 	return capped
 }
 
-// shapeWhoami maps GET /api/v1/auth/whoami onto the field names the hosted
-// whoami tool returns. The REST route builds its accounts list straight from the
-// tenant's enabled providers (one entry per provider, no account id), so those
-// entries are the provider list under a name that would mislead a model here.
-// Evaluation counters are not included: they come from a route this credential
-// cannot read, so they are absent rather than guessed, and get-identity's
-// description does not promise them.
+// The REST route's "accounts" list is one entry per enabled provider with no
+// account id, so it is renamed rather than passed through under a name that
+// would mislead a model. Evaluation counters come from a route this credential
+// cannot read, so they are absent rather than guessed.
 func shapeWhoami(payload map[string]any) map[string]any {
 	providers := []any{}
 	if accounts, ok := payload["accounts"].([]any); ok {

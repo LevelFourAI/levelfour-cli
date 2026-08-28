@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"testing"
 
@@ -35,9 +34,7 @@ func stubMCP(t *testing.T) {
 	mcpInstall = func(_ context.Context, c mcpinstall.Client, o mcpinstall.Options) (mcpinstall.Result, error) {
 		return mcpinstall.Result{Client: c.ID, Label: c.Label, Target: "/tmp/" + c.ID, Action: "added", Note: c.Note}, nil
 	}
-	mcpServe = func(context.Context, mcp.Fetcher, string, io.ReadCloser, io.WriteCloser, io.Writer) error {
-		return nil
-	}
+	mcpServe = func(context.Context, mcp.Session) error { return nil }
 }
 
 func TestMCPInstallWritesTheNamedClient(t *testing.T) {
@@ -312,21 +309,20 @@ func TestMCPServeRunsTheLocalServer(t *testing.T) {
 	flagAPI = "https://api.levelfour.ai"
 	defer resetFlags()
 
-	var version string
-	var fetcher mcp.Fetcher
-	mcpServe = func(_ context.Context, f mcp.Fetcher, v string, _ io.ReadCloser, _ io.WriteCloser, _ io.Writer) error {
-		fetcher, version = f, v
+	var session mcp.Session
+	mcpServe = func(_ context.Context, s mcp.Session) error {
+		session = s
 		return nil
 	}
 
 	if _, _, err := executeCommand(t, "mcp", "serve"); err != nil {
 		t.Fatalf("serve: %v", err)
 	}
-	if fetcher == nil {
+	if session.Fetcher == nil {
 		t.Error("serve was handed no REST fetcher")
 	}
-	if version != Version {
-		t.Errorf("version = %q, want %q", version, Version)
+	if session.Version != Version {
+		t.Errorf("version = %q, want %q", session.Version, Version)
 	}
 }
 

@@ -5,11 +5,9 @@ import (
 	"fmt"
 )
 
-// Port of the hosted server's own result shaping. The result envelope is
-// part of the contract, not decoration: a model pages by reading has_next_page
-// and next_page off the payload, and if the local surface returned the REST
-// layer's own pagination fields instead, a client that learned to page against
-// the hosted server would stop paging here.
+// The result envelope is part of the contract: a model pages by reading
+// has_next_page and next_page, so returning the REST layer's own pagination
+// fields instead would stop a client that learned to page on the hosted server.
 
 const (
 	// maxPageSize is the caller-facing bound on a page, sized to stay inside the
@@ -25,7 +23,6 @@ const (
 	maxResultChars = 60000
 )
 
-// The count fields REST listings arrive with, which the shared envelope replaces.
 const (
 	keyTotal      = "total"
 	keyTotalCount = "total_count"
@@ -42,32 +39,36 @@ func clampPageSize(size int) int {
 	return size
 }
 
-// pageEnvelope is the set of pagination fields every list tool returns, under
-// the same names. total is nil for a service that does not count its rows;
-// has_next_page then reports whether this page came back full, which is the only
-// signal available.
-func pageEnvelope(page, pageSize int, total *int, returned int) map[string]any {
+// total is nil for a service that does not count its rows; has_next_page then
+// reports whether the page came back full, which is the only signal available.
+// pageSpec is the page a caller asked for, and where its rows live.
+type pageSpec struct {
+	page     int
+	size     int
+	itemsKey string
+}
+
+func pageEnvelope(p pageSpec, total *int, returned int) map[string]any {
 	envelope := map[string]any{
-		argPage:     page,
-		argPageSize: pageSize,
+		argPage:     p.page,
+		argPageSize: p.size,
 		"returned":  returned,
 	}
-	hasNext := returned >= pageSize
+	hasNext := returned >= p.size
 	if total != nil {
 		envelope[keyTotal] = *total
-		hasNext = page*pageSize < *total
+		hasNext = p.page*p.size < *total
 	}
 	envelope["has_next_page"] = hasNext
 	if hasNext {
-		envelope["next_page"] = page + 1
+		envelope["next_page"] = p.page + 1
 	} else {
 		envelope["next_page"] = nil
 	}
 	return envelope
 }
 
-// paginationKeys are the shapes the REST layer returns pagination in. They are
-// stripped before the shared envelope is applied so a payload never carries two
+// Stripped before the shared envelope is applied, so a payload never carries two
 // competing answers to "is there another page".
 var paginationKeys = map[string]bool{
 	keyTotal: true, keyTotalCount: true, argPage: true, argPageSize: true,
@@ -75,8 +76,8 @@ var paginationKeys = map[string]bool{
 	"has_next": true, "has_more": true,
 }
 
-func paginate(listing map[string]any, page, pageSize int, itemsKey string) map[string]any {
-	rows, _ := listing[itemsKey].([]any)
+func paginate(listing map[string]any, p pageSpec) map[string]any {
+	rows, _ := listing[p.itemsKey].([]any)
 	if rows == nil {
 		rows = []any{}
 	}
@@ -86,8 +87,8 @@ func paginate(listing map[string]any, page, pageSize int, itemsKey string) map[s
 			shaped[k] = v
 		}
 	}
-	shaped[itemsKey] = rows
-	for k, v := range pageEnvelope(page, pageSize, totalFrom(listing), len(rows)) {
+	shaped[p.itemsKey] = rows
+	for k, v := range pageEnvelope(p, totalFrom(listing), len(rows)) {
 		shaped[k] = v
 	}
 	return shaped

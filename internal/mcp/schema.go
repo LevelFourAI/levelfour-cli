@@ -5,15 +5,11 @@ import (
 	"strings"
 )
 
-// JSON Schema fragments are built here rather than written out as literals so the
-// shapes stay identical across sixteen tools. The hosted server derives its schemas
-// from Pydantic models, and these builders reproduce what Pydantic emits: a "title"
-// per field, an anyOf against null for an optional, and the default carried in the
-// schema rather than only in the description. A client that renders an argument form
-// from the schema then renders the same form against either surface.
+// Built rather than written as literals so the shapes stay identical across
+// sixteen tools, and so they match what the hosted server emits: a "title" per
+// field, an anyOf against null for an optional, and the default in the schema.
 
-// The JSON Schema vocabulary these builders emit, named once so a typo in one
-// builder cannot produce a fragment that differs from its neighbours.
+// Named once so a typo in one builder cannot diverge from its neighbours.
 const (
 	kwType        = "type"
 	kwTitle       = "title"
@@ -35,8 +31,7 @@ type prop struct {
 	required bool
 }
 
-// title turns a field name into the title Pydantic derives from it, so "page_size"
-// becomes "Page Size" and "recommendation_id" becomes "Recommendation Id".
+// "page_size" becomes "Page Size", "recommendation_id" becomes "Recommendation Id".
 func title(name string) string {
 	words := strings.Split(name, "_")
 	for i, w := range words {

@@ -200,7 +200,7 @@ func TestServeSpeaksTheProtocolOverAPipeAndExitsCleanly(t *testing.T) {
 	var notices bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(context.Background(), &fakeFetcher{}, "1.2.3", inReader, outWriter, &notices)
+		done <- Serve(context.Background(), Session{Fetcher: &fakeFetcher{}, Version: "1.2.3", In: inReader, Out: outWriter, Notices: &notices})
 	}()
 
 	request := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":` +
@@ -249,7 +249,7 @@ func TestServeReportsABrokenStream(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(context.Background(), &fakeFetcher{}, "1.2.3", inReader, outWriter, io.Discard)
+		done <- Serve(context.Background(), Session{Fetcher: &fakeFetcher{}, Version: "1.2.3", In: inReader, Out: outWriter, Notices: io.Discard})
 	}()
 
 	// A pipe that fails rather than ending is a genuine fault, and has to reach

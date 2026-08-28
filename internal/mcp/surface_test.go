@@ -9,22 +9,12 @@ import (
 	"testing"
 )
 
-// hostedCatalog is the hosted server's own generated tool snapshot, vendored.
-// testdata/hosted_catalog.provenance.json records what it was derived from and
-// the sha256 of both sides, and TestVendoredCatalogIsIntact checks the hash, so
-// editing this file to make a failure go away fails louder than the failure it
-// was hiding.
+// The hosted server's generated tool snapshot, vendored and derived: tools this
+// surface never serves keep only name and annotation, since this repository is
+// public and does not ship them. The provenance file's hash is checked, so
+// hand-editing the copy fails louder than the failure it would hide.
 //
-// It is derived rather than verbatim. Tools this surface never serves keep their
-// name and annotation, which is all the gate needs to refuse them, and drop
-// their description and schema: this repository is public and does not ship
-// them.
-//
-// Nothing yet checks the copy against a moving upstream. That job belongs on the
-// API side, because only it knows when its surface changed and only it can read
-// this public repository without a secret. Until it exists, this file is as
-// fresh as the last person made it, and saying so here beats a comment implying
-// CI covers it.
+// Freshness against a moving upstream is not checked anywhere yet.
 type hostedCatalog struct {
 	Tools []hostedTool `json:"tools"`
 }
@@ -98,39 +88,20 @@ func TestVendoredCatalogIsIntact(t *testing.T) {
 			"Regenerate it from the hosted server's tool snapshot and update the "+
 			"provenance file, rather than editing the copy in place", got, provenance.SHA256)
 	}
-	// The hash of the upstream snapshot, not a branch or a commit id. It is the
-	// anchor that says which generated catalog this was derived from, and unlike
-	// an internal revision it means nothing to a reader of this public repository.
 	if provenance.Upstream == "" {
 		t.Error("provenance records no upstream hash, so there is no way to tell what this was derived from")
 	}
 }
 
-// TestSurfaceMatchesTheCatalogForThisCredential is the drift gate.
+// The drift gate. The hosted catalog is computed per caller, so this surface has
+// to match the read half: the credential `l4 mcp install` mints is read scoped
+// and the local Fetcher issues GET only. Both directions come from
+// read_only_hint in the vendored snapshot rather than a hand-maintained
+// exception list.
 //
-// The hosted catalog is not one list. The server computes it per caller: a
-// read-write credential is shown all eighteen tools, a read credential the
-// sixteen whose read_only_hint annotation is not false.
-// This server holds exactly one credential and reaches everything over REST with
-// a GET-only Fetcher, so the catalog it has to match is the read one.
-//
-// Both directions below are derived from read_only_hint in the vendored
-// snapshot, so there is still no exception list to escape into: a hosted read
-// tool this surface leaves out fails, and so does a name this surface invents.
-// The exception is the hosted server's own annotation, and it travels in the
-// file rather than being restated here.
-//
-// A write tool is therefore not a gap to declare, it is a question this gate
-// answers on its own. Serving one here would show a model a tool it cannot
-// call: every credential `l4 mcp install` mints is read scoped, and the local
-// Fetcher issues GET only. Whether either of them should ever be served from
-// this binary is a question about the API rather than about this surface, and
-// it is tracked there.
-//
-// What this gate cannot see: the hosted server calls its services directly and
-// makes no REST calls, so the snapshot describes neither the routes this surface
-// calls nor the payload keys it reads. Every rows-key, pagination and byte-budget
-// defect lives in that gap, and a green run here is not parity on its own.
+// It compares names only. The snapshot describes the hosted server's own tools,
+// not the REST routes this surface calls, so payload-shape drift is invisible
+// here.
 func TestSurfaceMatchesTheCatalogForThisCredential(t *testing.T) {
 	read, write := loadHostedCatalog(t).partition()
 

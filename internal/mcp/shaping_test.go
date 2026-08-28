@@ -16,12 +16,12 @@ func TestClampPageSize(t *testing.T) {
 
 func TestPageEnvelopeWithTotal(t *testing.T) {
 	total := 25
-	got := pageEnvelope(1, 10, &total, 10)
+	got := pageEnvelope(pageSpec{page: 1, size: 10}, &total, 10)
 	if got["has_next_page"] != true || got["next_page"] != 2 || got["total"] != 25 {
 		t.Errorf("envelope = %v", got)
 	}
 
-	got = pageEnvelope(3, 10, &total, 5)
+	got = pageEnvelope(pageSpec{page: 3, size: 10}, &total, 5)
 	if got["has_next_page"] != false || got["next_page"] != nil {
 		t.Errorf("last page envelope = %v", got)
 	}
@@ -30,7 +30,7 @@ func TestPageEnvelopeWithTotal(t *testing.T) {
 func TestPageEnvelopeWithoutTotal(t *testing.T) {
 	// With no count from the service, a full page is the only signal that
 	// another page might exist.
-	got := pageEnvelope(2, 10, nil, 10)
+	got := pageEnvelope(pageSpec{page: 2, size: 10}, nil, 10)
 	if got["has_next_page"] != true || got["next_page"] != 3 {
 		t.Errorf("full page = %v", got)
 	}
@@ -38,7 +38,7 @@ func TestPageEnvelopeWithoutTotal(t *testing.T) {
 		t.Error("envelope invented a total")
 	}
 
-	got = pageEnvelope(2, 10, nil, 4)
+	got = pageEnvelope(pageSpec{page: 2, size: 10}, nil, 4)
 	if got["has_next_page"] != false {
 		t.Errorf("short page = %v", got)
 	}
@@ -53,7 +53,7 @@ func TestPaginateStripsCompetingPaginationFields(t *testing.T) {
 		"other_key":  "kept",
 		"pagination": map[string]any{"total": float64(2)},
 	}
-	got := paginate(listing, 1, 10, "items")
+	got := paginate(listing, pageSpec{page: 1, size: 10, itemsKey: "items"})
 	for _, dropped := range []string{"pages", "has_more", "pagination"} {
 		if _, present := got[dropped]; present {
 			t.Errorf("paginate kept %q", dropped)
@@ -68,7 +68,7 @@ func TestPaginateStripsCompetingPaginationFields(t *testing.T) {
 }
 
 func TestPaginateWithMissingItems(t *testing.T) {
-	got := paginate(map[string]any{"items": "not a list"}, 1, 10, "items")
+	got := paginate(map[string]any{"items": "not a list"}, pageSpec{page: 1, size: 10, itemsKey: "items"})
 	rows, ok := got["items"].([]any)
 	if !ok || len(rows) != 0 {
 		t.Errorf("items = %v, want an empty list", got["items"])

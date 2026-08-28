@@ -151,7 +151,13 @@ var mcpServeCmd = &cobra.Command{
 		// helpers would print to it would be read as a malformed JSON-RPC frame
 		// and drop the session, so send them where the client keeps its log.
 		output.Stdout = os.Stderr
-		return mcpServe(cmd.Context(), mcp.NewRESTFetcher(client), Version, os.Stdin, os.Stdout, os.Stderr)
+		return mcpServe(cmd.Context(), mcp.Session{
+			Fetcher: mcp.NewRESTFetcher(client),
+			Version: Version,
+			In:      os.Stdin,
+			Out:     os.Stdout,
+			Notices: os.Stderr,
+		})
 	},
 }
 

@@ -1,12 +1,10 @@
 // Package mcpinstall writes the LevelFour MCP server into the config of the
 // agent clients installed on this machine.
 //
-// Every client wants the same three facts (a name, an endpoint, a credential)
-// in a different file under a different key with a different field name for the
-// URL, and getting one of them wrong fails silently: the client starts, lists
-// zero tools, and says nothing. The shapes below are transcribed from each
-// vendor's current documentation, cited on the client, and are the whole reason
-// this package exists rather than a paragraph in the README.
+// Each vendor wants the same name, endpoint and credential in a different file
+// under a different key, and getting one wrong fails silently: the client starts
+// and lists zero tools. The shapes below are transcribed from each vendor's
+// documentation, cited on the client.
 package mcpinstall
 
 import (
@@ -40,84 +38,54 @@ const (
 	fieldArgs      = "args"
 )
 
-// KeySource decides how the credential reaches a client that talks to the
-// hosted server over HTTP.
 type KeySource string
 
 const (
-	// KeyInline writes the credential itself, at 0600. One command and done, at
-	// the cost of a bearer token sitting in a file the client owns. This is the
-	// default because it is the only shape verified against every vendor: an
-	// indirection a client does not resolve fails the way this whole package
-	// exists to prevent, with the client starting, listing zero tools, and
-	// saying nothing.
+	// Default because it is the only shape verified against every vendor. An
+	// indirection a client does not resolve fails silently.
 	KeyInline KeySource = "inline"
-	// KeyFromEnv writes a reference the client resolves at launch, so the
-	// credential is never in the file. Each vendor spells the reference
-	// differently, which is what Client.keyRef carries.
+	// Writes a reference the client resolves at launch, spelled per vendor in
+	// Client.keyRef, so the credential is never in the file.
 	KeyFromEnv KeySource = "env"
 )
 
-// CredentialEnvVar is the variable the indirected entries point at. It is the
-// one `l4` itself reads, so a user who exports it once has the CLI and every
-// client working off a single value.
+// The variable `l4` itself reads, so one export serves the CLI and every client.
 const CredentialEnvVar = "LEVELFOUR_TOKEN"
 
-// vsCodeInputID ties the ${input:...} reference in the entry to the id declared
-// in the top-level inputs array. The two have to agree or the header resolves to
-// an empty string and every request is unauthenticated.
+// Must match the id in the top-level inputs array, or the header resolves to an
+// empty string and every request goes out unauthenticated.
 const vsCodeInputID = "levelfour-api-key"
 
-// Options carry what an entry is built from.
 type Options struct {
-	// Name of the entry. One API key belongs to one organization, so a user in
-	// several organizations installs one entry per organization.
-	Name string
-	// Endpoint is the hosted streamable HTTP server.
-	Endpoint string
-	// APIKey is sent as an Authorization header by the remote clients. It is not
-	// written at all for a client configured to run the local stdio server, nor
-	// for any client when KeySource is KeyFromEnv.
-	APIKey string
-	// Binary is the absolute path to this l4 binary, for the stdio clients.
-	Binary string
-	// KeySource decides between the credential and a reference to it. The zero
-	// value is KeyInline.
+	Name      string
+	Endpoint  string
+	APIKey    string
+	Binary    string
 	KeySource KeySource
 }
 
-// Client is one agent client this command knows how to configure.
 type Client struct {
 	ID    string
 	Label string
-	// Section is the top-level key entries live under. VS Code says "servers";
-	// everyone else says "mcpServers".
+	// VS Code says "servers"; everyone else says "mcpServers".
 	Section string
-	// Note explains the transport chosen, and is printed after an install.
-	Note string
+	Note    string
 	// Delegated clients own their own config format and are configured by
 	// running their CLI rather than by editing a file.
 	Delegated bool
 
-	// keyRef is how this client spells "read the credential from somewhere other
-	// than this file", used when KeySource is KeyFromEnv. The spellings are not
-	// interchangeable: Claude Code and Windsurf expand ${VAR}, Cursor and VS Code
-	// expand ${env:VAR}, and VS Code additionally offers ${input:id}, which
-	// prompts once and stores the value in the editor's own secret storage
-	// rather than in the environment.
+	// Not interchangeable: Claude Code and Windsurf expand ${VAR}, Cursor and VS
+	// Code expand ${env:VAR}, and VS Code also offers ${input:id}, which prompts
+	// once and stores the value itself.
 	keyRef string
 
-	// bins and app are how Presence proves the client is really here. A config
-	// file proves it too, but VS Code and Cursor do not write one until someone
-	// configures MCP, so without these the only remaining signal is a directory
-	// that outlives an uninstall.
+	// VS Code and Cursor write no config until someone configures MCP, so without
+	// these the only signal left is a directory that outlives an uninstall.
 	bins []string
 	app  string
 
-	path  func() (string, error)
-	entry func(Client, Options) map[string]any
-	// rootPatch mutates the config root beyond this client's own entry. Only VS
-	// Code needs it, for the inputs array that sits beside "servers".
+	path      func() (string, error)
+	entry     func(Client, Options) map[string]any
 	rootPatch func(Client, Options, map[string]any)
 }
 
@@ -130,16 +98,14 @@ var (
 	lookPath    = exec.LookPath
 )
 
-// Clients is the supported set, in the order results are printed.
 var Clients = []Client{
 	{
 		ID:      ClaudeCode,
 		Label:   "Claude Code",
 		Note:    "remote HTTP, added with `claude mcp add --scope user` so it loads in every project",
 		Section: sectionMCPServers,
-		// Claude Code stores user-scope servers inside ~/.claude.json, which also
-		// holds per-project state the CLI owns. Writing that file by hand is how
-		// you lose someone's project history, so the vendor CLI does it.
+		// ~/.claude.json also holds per-project state the vendor CLI owns, so
+		// editing it by hand loses someone's project history.
 		// https://code.claude.com/docs/en/mcp
 		Delegated: true,
 		keyRef:    "${" + CredentialEnvVar + "}",
@@ -197,7 +163,6 @@ var Clients = []Client{
 	},
 }
 
-// Find returns the client with this id.
 func Find(id string) (Client, bool) {
 	for _, c := range Clients {
 		if c.ID == id {
@@ -207,7 +172,6 @@ func Find(id string) (Client, bool) {
 	return Client{}, false
 }
 
-// IDs lists the accepted --client values.
 func IDs() []string {
 	ids := make([]string, 0, len(Clients))
 	for _, c := range Clients {
@@ -216,7 +180,6 @@ func IDs() []string {
 	return ids
 }
 
-// ConfigPath is the file this client's entry is written to on this OS.
 func (c Client) ConfigPath() (string, error) { return c.path() }
 
 // Presence is how much evidence there is that a client is on this machine.
@@ -298,9 +261,6 @@ var applicationDirs = func() []string {
 	return dirs
 }
 
-// Detected returns the clients a bare `l4 mcp install` should configure. Only
-// proof counts: this writes credentials, and doing that for a client the user
-// does not have is a leak rather than a convenience.
 func Detected() []Client {
 	var found []Client
 	for _, c := range Clients {
@@ -324,7 +284,6 @@ func Suggested() []Client {
 	return found
 }
 
-// Entry builds the config block for this client.
 func (c Client) Entry(o Options) map[string]any { return c.entry(c, o) }
 
 // PatchRoot applies whatever this client needs beyond its own entry. Most
