@@ -1,0 +1,1051 @@
+{
+ "prompts": [
+  {
+   "arguments": [
+    {
+     "description": "Month to review, YYYY-MM. Omit for the most recently completed month.",
+     "name": "month",
+     "required": false,
+     "title": null
+    }
+   ],
+   "description": "Review a month's cloud spend: what changed, what drove it, what to do",
+   "name": "monthly_bill_review"
+  },
+  {
+   "arguments": [
+    {
+     "description": "End of the period to look at, YYYY-MM-DD.",
+     "name": "quarter_end",
+     "required": false,
+     "title": null
+    }
+   ],
+   "description": "Assess commitment coverage and find expiry cliffs before they hit the bill",
+   "name": "quarterly_commitment_review"
+  },
+  {
+   "arguments": [
+    {
+     "description": "Cost allocation tag key that identifies a team, for example 'team' or 'owner'.",
+     "name": "tag_key",
+     "required": false,
+     "title": null
+    }
+   ],
+   "description": "Attribute spend and savings opportunity by team, with the missing join stated",
+   "name": "waste_by_team"
+  }
+ ],
+ "resources": [
+  {
+   "description": "Values the commitment filters accept for this organization.",
+   "mime_type": "application/json",
+   "name": "Commitment filter values",
+   "uri": "levelfour://filters/commitments"
+  },
+  {
+   "description": "Services, accounts, regions and tags that appear in this organization's cost data. Dimensions cross-constrain each other the way Cost Explorer's do.",
+   "mime_type": "application/json",
+   "name": "Cost filter values",
+   "uri": "levelfour://filters/costs"
+  },
+  {
+   "description": "Services, environments, accounts and tags that appear on this organization's savings recommendations. Use these as the values for `list-recommendations` filters.",
+   "mime_type": "application/json",
+   "name": "Recommendation filter values",
+   "uri": "levelfour://filters/recommendations"
+  },
+  {
+   "description": "Cloud providers this organization has cost data for. Read this before passing a provider argument.",
+   "mime_type": "application/json",
+   "name": "Connected providers",
+   "uri": "levelfour://providers"
+  }
+ ],
+ "tools": [
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false,
+    "title": null
+   },
+   "name": "decide-recommendation"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Reserved Instance and Savings Plan position, in aggregate.\n\n**Returns:** coverage, utilization and the per-service split, plus how many commitments expire soon.\n**When to use:** \"How well are we covered.\" For the individual commitments and their expiry dates,\nfollow with `list-commitments`.\n**NOT for:** On-demand spend, use `get-cost-breakdown`.",
+   "input_schema": {
+    "properties": {
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws, gcp, azure or k8s. This tool reports on one provider at a time: omit it and the organization's first connected provider is used, which is not the whole bill for a multi-cloud organization. Call `get-identity` to see which are available.",
+      "title": "Provider"
+     }
+    },
+    "title": "get_commitment_overviewArguments",
+    "type": "object"
+   },
+   "name": "get-commitment-overview"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Break spend down into its largest components over a period.\n\n**Returns:** a paginated, sorted list of cost lines with amounts and shares.\n**When to use:** After `get-cost-summary`, to answer \"what is driving it\". Ask one broad\nquestion first rather than one call per service. The window is one calendar month unless\nstart_date and end_date are both given.\n**Examples:** top services this month: no arguments. Largest accounts in July: period=\"2026-07\",\nsort_by=\"account_id\".\n**NOT for:** Explaining a change over time, use `get-cost-growth`. Dating when a jump\nstarted, use `get-cost-series`. Savings opportunities, use `list-recommendations`.",
+   "input_schema": {
+    "properties": {
+     "end_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "End of the range, YYYY-MM-DD. Takes effect only together with start_date: on its own it is ignored and the month in period is reported instead.",
+      "title": "End Date"
+     },
+     "page": {
+      "default": 1,
+      "description": "1-indexed page number.",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Rows per page.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     },
+     "period": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Month to report on, YYYY-MM. Omit for the current month, or pass start_date and end_date together to report on an arbitrary window instead.",
+      "title": "Period"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws or gcp. Omit and the breakdown covers AWS only, which is not the whole bill for a multi-cloud organization. Call `get-identity` to see which are available.",
+      "title": "Provider"
+     },
+     "sort_by": {
+      "default": "cost",
+      "description": "Field to sort by.",
+      "enum": [
+       "cost",
+       "service",
+       "region",
+       "account_id",
+       "change_percentage"
+      ],
+      "title": "Sort By",
+      "type": "string"
+     },
+     "sort_order": {
+      "default": "desc",
+      "description": "Sort direction.",
+      "enum": [
+       "asc",
+       "desc"
+      ],
+      "title": "Sort Order",
+      "type": "string"
+     },
+     "start_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Start of the range, YYYY-MM-DD. Takes effect only together with end_date: on its own it is ignored and the month in period is reported instead.",
+      "title": "Start Date"
+     }
+    },
+    "title": "get_cost_breakdownArguments",
+    "type": "object"
+   },
+   "name": "get-cost-breakdown"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Projected spend for the end of the month or the next 30 or 90 days.\n\n**Returns:** the forecast figure and the basis it was derived from.\n**When to use:** \"Where will we land this month.\"\n**NOT for:** Historical spend, use `get-cost-summary`. LevelFour has no budget object, so\nif the user asks whether they will exceed a budget you must ask them for the number.",
+   "input_schema": {
+    "properties": {
+     "horizon": {
+      "default": "eom",
+      "description": "Forecast horizon: end of month, next 30 days, or next 90 days.",
+      "enum": [
+       "eom",
+       "30d",
+       "90d"
+      ],
+      "title": "Horizon",
+      "type": "string"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws, gcp, azure or k8s. This tool reports on one provider at a time: omit it and the organization's first connected provider is used, which is not the whole bill for a multi-cloud organization. Call `get-identity` to see which are available.",
+      "title": "Provider"
+     }
+    },
+    "title": "get_cost_forecastArguments",
+    "type": "object"
+   },
+   "name": "get-cost-forecast"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Which services grew the most, and by how much.\n\n**Returns:** services ranked by absolute and percentage increase, plus the two windows compared\nand how many days each covers, so a partial month is visible rather than silent.\n**When to use:** \"Why did the bill go up.\" Keep the default compare_to unless the user asked\nspecifically about calendar months.\n**NOT for:** Absolute spend ranking, use `get-cost-breakdown`. Unexpected spikes\nspecifically, use `list-anomalies`.",
+   "input_schema": {
+    "properties": {
+     "compare_to": {
+      "default": "previous_period",
+      "description": "Baseline window. 'previous_period' compares the last 30 days against the 30 before them and is the reliable default. 'previous_month' compares this month so far against the whole of last month, so early in a month it understates growth.",
+      "enum": [
+       "previous_period",
+       "previous_month"
+      ],
+      "title": "Compare To",
+      "type": "string"
+     },
+     "limit": {
+      "default": 10,
+      "description": "Maximum rows to return.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws, gcp, azure or k8s. This tool reports on one provider at a time: omit it and the organization's first connected provider is used, which is not the whole bill for a multi-cloud organization. Call `get-identity` to see which are available.",
+      "title": "Provider"
+     }
+    },
+    "title": "get_cost_growthArguments",
+    "type": "object"
+   },
+   "name": "get-cost-growth"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Daily spend over a date range, as a time series.\n\n**Returns:** one point per day with the total for that day.\n**When to use:** To date a step change. When the bill jumped and you need to know which day it\nstarted, this is the only tool that can tell you. Pair it with `get-cost-breakdown` over\nthe same window to attribute the jump.\n**NOT for:** Month totals, use `get-cost-summary`. Splitting a day by service, use\n`get-cost-breakdown` for that window.",
+   "input_schema": {
+    "properties": {
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "End of the range, YYYY-MM-DD. Omit for today.",
+      "title": "End"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Start of the range, YYYY-MM-DD. Omit for the first of the current month.",
+      "title": "Start"
+     }
+    },
+    "title": "get_cost_seriesArguments",
+    "type": "object"
+   },
+   "name": "get-cost-series"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Current cloud spend and where it is heading.\n\n**Returns:** total spend, per-provider totals, month-over-month change, and the monthly series.\n**When to use:** The opening question, \"what are we spending\". Start here before drilling in.\n**NOT for:** Spend split by service, account or tag, use `get-cost-breakdown`. A day-level\nseries, use `get-cost-series`.",
+   "input_schema": {
+    "properties": {},
+    "title": "get_cost_summaryArguments",
+    "type": "object"
+   },
+   "name": "get-cost-summary"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Spend grouped by the value of a cost-allocation tag, for showback and chargeback.\n\n**Returns:** spend per tag value, plus allocation coverage showing how much spend carries the tag.\nCalled with no tag_key, returns the tag keys available so you can pick one.\n**When to use:** \"What does team X cost\", or any per-team, per-environment or per-owner question.\nRead the coverage figure before reporting a total: untagged spend is not zero spend.\n**Examples:** discover keys: no arguments. Then: tag_key=\"team\".\n**NOT for:** Per-service or per-account splits, use `get-cost-breakdown`. Waste per team,\nwhich no tool can answer directly because recommendations do not carry tags.",
+   "input_schema": {
+    "properties": {
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "End of the range, YYYY-MM-DD. Omit for today.",
+      "title": "End"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws, gcp, azure or k8s. This tool reports on one provider at a time: omit it and the organization's first connected provider is used, which is not the whole bill for a multi-cloud organization. Call `get-identity` to see which are available.",
+      "title": "Provider"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Start of the range, YYYY-MM-DD. Omit for the first of the current month.",
+      "title": "Start"
+     },
+     "tag_key": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cost allocation tag key to group by. Call with no tag_key to list the keys available.",
+      "title": "Tag Key"
+     }
+    },
+    "title": "get_costs_by_tagArguments",
+    "type": "object"
+   },
+   "name": "get-costs-by-tag"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Identify the connected LevelFour organization and what it has access to.\n\n**Returns:** organization plan, the cloud providers that have data, and remaining evaluation runs.\n**When to use:** To check the connection works, or when a provider argument was rejected and you\nneed the valid values. You do not need to call this before every analysis.\n**NOT for:** Cloud account ids or names, use `list-accounts`. Spend figures, use\n`get-cost-summary`.",
+   "input_schema": {
+    "properties": {},
+    "title": "get_identityArguments",
+    "type": "object"
+   },
+   "name": "get-identity"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Total unbooked opportunity across all recommendations, with per-status counts.\n\n**Returns:** total monthly and annual potential savings, split by provider and by status.\n**When to use:** \"How much could we save in total\", or to size the backlog before listing it.\n**NOT for:** Savings already achieved, use `get-realized-savings`. Individual\nopportunities, use `list-recommendations`.",
+   "input_schema": {
+    "properties": {},
+    "title": "get_potential_savingsArguments",
+    "type": "object"
+   },
+   "name": "get-potential-savings"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Savings already realized and booked, with who approved them.\n\n**Returns:** realized totals, ROI and payback, plus a line-item history.\n**When to use:** \"How much have we actually saved\", or any question about past results. Each\nledger row carries a full monthly rate, so a sum across rows is a run rate, not a period total.\n**NOT for:** Opportunities not yet applied, use `get-potential-savings`. Realized\nand potential savings must never be added together.",
+   "input_schema": {
+    "properties": {
+     "account_id": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to these values. Omit for all.",
+      "title": "Account Id"
+     },
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "End of the range, YYYY-MM-DD. Omit to search up to the most recent record.",
+      "title": "End"
+     },
+     "environment": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to these values. Omit for all.",
+      "title": "Environment"
+     },
+     "page": {
+      "default": 1,
+      "description": "1-indexed page number.",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Rows per page.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws, gcp, azure or k8s. Omit for every provider this organization has. Call `get-identity` if you are unsure which are available.",
+      "title": "Provider"
+     },
+     "service": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to these values. Omit for all.",
+      "title": "Service"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Start of the range, YYYY-MM-DD. Omit to search from the earliest record.",
+      "title": "Start"
+     }
+    },
+    "title": "get_realized_savingsArguments",
+    "type": "object"
+   },
+   "name": "get-realized-savings"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** The full case for one savings recommendation.\n\n**Returns:** financials, affected resources, risk assessment, metrics and the implementation\nmethod. IAM policy and operator artifacts are omitted.\n**When to use:** After `list-recommendations`, when the user asks about a specific id.\n**NOT for:** Making the change. To record the user's accept or reject, use\n`decide-recommendation`; running the change itself happens in the LevelFour\ndashboard or with the l4 CLI. Not for scanning the backlog either, use the list tool.",
+   "input_schema": {
+    "properties": {
+     "recommendation_id": {
+      "description": "Recommendation id from `list-recommendations`, for example REC-1234.",
+      "pattern": "^[A-Za-z][A-Za-z0-9]*-\\d+$",
+      "title": "Recommendation Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "recommendation_id"
+    ],
+    "title": "get_recommendationArguments",
+    "type": "object"
+   },
+   "name": "get-recommendation"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Billable quantity and cost per unit, grouped by usage type.\n\n**Returns:** spend, quantity, unit and derived unit cost per usage type, largest first.\n**When to use:** To ground a savings claim in measured consumption, or to tell a price change\napart from a volume change.\n**NOT for:** Spend totals, use `get-cost-breakdown`. Note that usage quantity, not cost,\nis the reliable idleness signal here, because the cost columns round to cents.",
+   "input_schema": {
+    "properties": {
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "End of the range, YYYY-MM-DD. Omit for today.",
+      "title": "End"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws or gcp, or 'all'. Both 'all' and omitting it read the AWS usage tables, so name gcp explicitly to see GCP usage. Call `get-identity` to see which are available.",
+      "title": "Provider"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Start of the range, YYYY-MM-DD. Omit for the first of the current month.",
+      "title": "Start"
+     }
+    },
+    "title": "get_usage_costsArguments",
+    "type": "object"
+   },
+   "name": "get-usage-costs"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** The cloud accounts connected to this organization.\n\n**Returns:** account id, name, provider, region, connection status, and whether detailed billing\ndata is flowing for each.\n**When to use:** To turn an account id seen in a cost or recommendation row into a name, to answer\n\"which accounts are connected\", or to check why an account has no data.\n**NOT for:** Spend per account, use `get-cost-breakdown` with group_by=\"account_id\".",
+   "input_schema": {
+    "properties": {
+     "page": {
+      "default": 1,
+      "description": "1-indexed page number.",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Rows per page.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     }
+    },
+    "title": "list_accountsArguments",
+    "type": "object"
+   },
+   "name": "list-accounts"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Detected cost anomalies, meaning unexpected spikes.\n\n**Returns:** anomalies with service, magnitude, detection time and status, plus counts by severity.\n**When to use:** \"Did anything spike\", or investigating an unexpected increase in a past month.\nWith no start and end this spans every anomaly ever detected, so pass both to ask about one\nmonth. The window is matched against the day a spike began, not the day it was detected.\n**NOT for:** Expected or gradual growth, use `get-cost-growth`.",
+   "input_schema": {
+    "properties": {
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "End of the range, YYYY-MM-DD. Omit to search up to the most recent record.",
+      "title": "End"
+     },
+     "page": {
+      "default": 1,
+      "description": "1-indexed page number.",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Rows per page.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws, gcp, azure or k8s. Omit for every provider this organization has. Call `get-identity` if you are unsure which are available.",
+      "title": "Provider"
+     },
+     "severity": {
+      "anyOf": [
+       {
+        "enum": [
+         "critical",
+         "warning"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to one severity. Omit for all.",
+      "title": "Severity"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Start of the range, YYYY-MM-DD. Omit to search from the earliest record.",
+      "title": "Start"
+     },
+     "status": {
+      "anyOf": [
+       {
+        "enum": [
+         "active",
+         "resolved",
+         "dismissed"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to one anomaly status. Omitting it returns active and resolved only, so ask for 'dismissed' explicitly to see the ones marked not real.",
+      "title": "Status"
+     }
+    },
+    "title": "list_anomaliesArguments",
+    "type": "object"
+   },
+   "name": "list-anomalies"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** The individual Reserved Instances and Savings Plans, with their end dates.\n\n**Returns:** each commitment with kind, service, monthly commitment amount, start and end date,\nand status.\n**When to use:** \"What expires before the end of the quarter\", or to size the cliff when a\ncommitment lapses and its usage reverts to on-demand rates.\n**NOT for:** Coverage and utilization percentages, use `get-commitment-overview`.",
+   "input_schema": {
+    "properties": {
+     "kind": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to one commitment kind, for example reserved_instance or savings_plan.",
+      "title": "Kind"
+     },
+     "page": {
+      "default": 1,
+      "description": "1-indexed page number.",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Rows per page.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws, gcp, azure or k8s. Omit for every provider this organization has. Call `get-identity` if you are unsure which are available.",
+      "title": "Provider"
+     },
+     "status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to one status, for example active or expired.",
+      "title": "Status"
+     }
+    },
+    "title": "list_commitmentsArguments",
+    "type": "object"
+   },
+   "name": "list-commitments"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true,
+    "title": null
+   },
+   "description": "**Purpose:** Savings opportunities LevelFour has found, largest first.\n\n**Returns:** a paginated list with id, service, environment, account, monthly savings, the share\nof current spend that saves, status, risk level and a short description. Full detail, annual\nfigures included, is deliberately omitted: open one with `get-recommendation`.\n**When to use:** \"What can we save.\" Filter server-side rather than paging and discarding: to\nanswer \"what can we save on RDS in staging\", pass service and environment.\n**Examples:** biggest wins: no arguments. Everything actionable without a human:\navailable_formats=[\"automated\"].\n**NOT for:** Savings already realized, use `get-realized-savings`. These are potential and\nunbooked, and the two must never be added together.",
+   "input_schema": {
+    "properties": {
+     "account": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to these values. Omit for all.",
+      "title": "Account"
+     },
+     "available_formats": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to opportunities applicable this way: automated, iac, or manual.",
+      "title": "Available Formats"
+     },
+     "display_status": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to these statuses. The accepted values are 'available' (open, nobody has taken it), 'pending' (accepted and waiting to be applied), 'awaiting_approval', 'processing', 'optimized' (applied), 'rejected' and 'unavailable' (locked by the plan). Any other value returns zero rows rather than an error.",
+      "title": "Display Status"
+     },
+     "environment": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to these values. Omit for all.",
+      "title": "Environment"
+     },
+     "page": {
+      "default": 1,
+      "description": "1-indexed page number.",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Rows per page.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Cloud provider id, for example aws, gcp, azure or k8s. This tool reports on one provider at a time: omit it and the organization's first connected provider is used, which is not the whole bill for a multi-cloud organization. Call `get-identity` to see which are available.",
+      "title": "Provider"
+     },
+     "service": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to these values. Omit for all.",
+      "title": "Service"
+     },
+     "sort_by": {
+      "default": "monthly_savings",
+      "description": "Field to sort by.",
+      "enum": [
+       "monthly_savings",
+       "savings_percentage",
+       "recommendation_id",
+       "service",
+       "status",
+       "created_at"
+      ],
+      "title": "Sort By",
+      "type": "string"
+     },
+     "tag": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Restrict to these values. Omit for all.",
+      "title": "Tag"
+     }
+    },
+    "title": "list_recommendationsArguments",
+    "type": "object"
+   },
+   "name": "list-recommendations"
+  },
+  {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false,
+    "title": null
+   },
+   "name": "update-anomaly-status"
+  }
+ ]
+}

@@ -15,6 +15,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// The affirmative and negative words this package both writes and reads: a cell
+// in the `l4 mcp status` table, the name of the --yes flag, and the answer a
+// confirmation prompt accepts. One spelling each, because they are one string
+// to the user as much as to the linter.
+const (
+	wordYes = "yes"
+	wordNo  = "no"
+)
+
 func classifyInputs(args []string) (dirs []string, files []string, err error) {
 	if len(args) == 0 {
 		args = []string{"."}

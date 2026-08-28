@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LevelFourAI/levelfour-cli/internal/mcp"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	kr "github.com/zalando/go-keyring"
 )
@@ -99,6 +100,10 @@ func resetFlags() {
 	flagRecsSearch = ""
 	flagRecsSortBy = ""
 	flagRecsSortOrder = ""
+
+	flagMCPClients = nil
+	flagMCPName = mcp.ServerName
+	flagMCPEndpoint = ""
 }
 
 func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {

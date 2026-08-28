@@ -153,7 +153,7 @@ func runExecute(id string) error {
 
 func init() {
 	for _, c := range []*cobra.Command{recommendationsAcceptCmd, recommendationsRejectCmd, recommendationsExecuteCmd} {
-		c.Flags().BoolVarP(&flagRecYes, "yes", "y", false, "Skip the confirmation prompt")
+		c.Flags().BoolVarP(&flagRecYes, wordYes, "y", false, "Skip the confirmation prompt")
 	}
 
 	recommendationsRejectCmd.Flags().StringVar(&flagRecReason, "reason", "", "Rejection reason: "+strings.Join(rejectionReasons, ", "))

@@ -37,6 +37,46 @@ l4 estimate ./infra/                           # estimate Terraform costs locall
 
 The package installs two interchangeable binaries: `levelfour` (long form) and `l4` (short form, recommended for everyday use).
 
+## Connect your coding agent (MCP)
+
+Give Claude Code, Claude Desktop, Cursor, VS Code or Windsurf access to your cloud spend and savings recommendations:
+
+```bash
+l4 mcp install
+```
+
+It logs you in if you are not already, detects the agent clients on this machine, and writes an entry into each one. Then restart the client and ask it:
+
+> what are we spending this month
+
+Narrow it, or install one entry per organization (an API key belongs to exactly one):
+
+```bash
+l4 mcp install --client cursor
+l4 mcp install --client cursor --name levelfour-acme   # a second organization
+l4 mcp status                                          # what is wired up, and what is not
+```
+
+Existing config files are parsed and merged rather than replaced, only the entry under `--name` is touched, and a dated `.l4-backup-<timestamp>` copy is taken first.
+
+| Client | Written to | Transport |
+|---|---|---|
+| Claude Code | `claude mcp add --scope user` | Remote HTTP |
+| Claude Desktop | `claude_desktop_config.json` | Local stdio (`l4 mcp serve`) |
+| Cursor | `~/.cursor/mcp.json` | Remote HTTP |
+| VS Code | user-profile `mcp.json` | Remote HTTP |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | Remote HTTP |
+
+Remote clients talk to `https://mcp.levelfour.ai/mcp` and carry your API key in an `Authorization` header. By default the key is written into the config file. Files this command writes itself are created `0600` on macOS and Linux; the Claude Code entry is written by `claude mcp add`, which owns that file and its permissions. Pass `--key-source env` to write a reference instead, and the key never lands in the file:
+
+```bash
+l4 mcp install --key-source env    # then export LEVELFOUR_TOKEN where the client starts
+```
+
+VS Code needs no environment variable either way: with `--key-source env` it is given an `inputs` prompt and stores the key in its own secret storage. Claude Desktop's config only starts stdio servers, so it runs `l4 mcp serve` instead and never receives a key at all.
+
+`l4 mcp serve` runs the read-only tools locally over stdin and stdout, reading your data through the LevelFour API with the stored credential. The hosted catalog depends on your key: a `read` key is shown 16 tools, a `read-write` key is shown those plus 2 that record an accept or reject decision. `l4 mcp serve` carries the same 16 under the same names, so an agent that learned to route against the hosted server gets the same answers here. To accept or reject from the terminal, use `l4 rec accept` and `l4 rec reject`. At startup it prints its version and tool count on stderr, which is where your client keeps its log.
+
 ## Authentication
 
 `l4` resolves credentials in a fixed order:
