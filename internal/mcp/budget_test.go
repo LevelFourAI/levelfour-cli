@@ -175,3 +175,19 @@ func TestMetricSeriesAreCappedByCountNotOnlyBySize(t *testing.T) {
 		t.Errorf("%s = %v, want 200: a later trim reports against this", metricsTotalKey, slim[metricsTotalKey])
 	}
 }
+
+// get-costs-by-tag with no tag_key lists the available keys, and that call picks
+// a bare list out of its payload. hintIfEmpty writes into an object, so the hint
+// declared on the call reached nobody: an organization with no cost allocation
+// tags active saw an empty list and no reason for it.
+func TestPickedEmptyListStillCarriesItsHint(t *testing.T) {
+	got, err := toolNamed(t, "get-costs-by-tag").run(
+		&fakeFetcher{fallback: map[string]any{"tag_keys": []any{}}}, map[string]any{})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	hint, ok := got["hint"].(string)
+	if !ok || !strings.Contains(hint, "cost allocation tags") {
+		t.Errorf("hint = %v, want the reason the list is empty", got["hint"])
+	}
+}

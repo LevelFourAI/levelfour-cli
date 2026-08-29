@@ -39,14 +39,9 @@ func (t tool) run(f Fetcher, args map[string]any) (map[string]any, error) {
 	budget := rowsPath{key: rowsItems}
 	foundRows := false
 	for _, c := range calls {
-		payload, err := f.Fetch(c.request(args))
+		payload, err := c.fetch(f, args)
 		if err != nil {
 			return nil, err
-		}
-		if c.pick != "" {
-			if object, ok := payload.(map[string]any); ok {
-				payload = object[c.pick]
-			}
 		}
 
 		shaped, rowsKey := c.shape(payload, args)
@@ -54,6 +49,9 @@ func (t tool) run(f Fetcher, args map[string]any) (map[string]any, error) {
 			if path, ok := c.budgetPath(shaped, rowsKey); ok {
 				budget, foundRows = path, true
 			}
+		}
+		if hint, ok := c.hintForList(shaped); ok {
+			result["hint"] = hint
 		}
 		if c.key == "" {
 			result = merge(result, shaped)
@@ -66,6 +64,30 @@ func (t tool) run(f Fetcher, args map[string]any) (map[string]any, error) {
 		result = t.shape(result)
 	}
 	return fitBudget(result, budget), nil
+}
+
+// fetch issues the call and narrows the payload to the part it names.
+func (c call) fetch(f Fetcher, args map[string]any) (any, error) {
+	payload, err := f.Fetch(c.request(args))
+	if err != nil || c.pick == "" {
+		return payload, err
+	}
+	object, ok := payload.(map[string]any)
+	if !ok {
+		return payload, nil
+	}
+	return object[c.pick], nil
+}
+
+// hintForList is the empty-list hint for a picked list. hintIfEmpty writes into
+// an object, and a list is not one, so a hint declared on a call that picks a
+// list reached nobody. An empty list and a broken tool look the same to a model.
+func (c call) hintForList(shaped any) (string, bool) {
+	rows, isList := shaped.([]any)
+	if !isList || c.hint == "" || len(rows) > 0 {
+		return "", false
+	}
+	return c.hint, true
 }
 
 // request renders the REST path and query string for one call.
