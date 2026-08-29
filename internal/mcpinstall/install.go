@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// Result describes what one client install did, so the command can print it
-// rather than claiming success in the abstract.
 type Result struct {
 	Client string `json:"client"`
 	Label  string `json:"label"`
@@ -22,9 +20,8 @@ type Result struct {
 	Note   string `json:"transport"`
 }
 
-// State is what `l4 mcp status` reports per client. Status uses the words the
-// commands use, so that a row answers the question the command asks: `install`
-// makes it installed, `uninstall` makes it not installed.
+// Status uses the words the commands use, so a row answers the question the
+// command asks.
 type State struct {
 	Client   string `json:"client"`
 	Label    string `json:"label"`
@@ -34,18 +31,15 @@ type State struct {
 }
 
 const (
-	StatusInstalled    = "installed"
-	StatusNotInstalled = "not installed"
-	// StatusClientNotFound explains why a bare `l4 mcp install` skipped a client.
+	StatusInstalled      = "installed"
+	StatusNotInstalled   = "not installed"
 	StatusClientNotFound = "client not found"
-	// StatusOrphaned is an entry whose client is gone. Reachable only for the
-	// delegated client, which is found by its executable rather than by the
-	// config file that carries the entry.
+	// Reachable only for the delegated client, which is found by its executable
+	// rather than by the config file that carries the entry.
 	StatusOrphaned = "installed (client not found)"
 )
 
-// describeStatus turns the two things worth knowing into the one word a reader
-// needs. Configured wins the phrasing, because that is what install changed.
+// Configured wins the phrasing, because that is what install changed.
 func describeStatus(found, configured bool) string {
 	switch {
 	case configured && found:
@@ -64,16 +58,13 @@ const (
 	actionReplaced = "replaced"
 	actionRemoved  = "removed"
 
-	// ActionAbsent is reported when there was nothing to remove, which is a
-	// success: uninstall exists to reach a known state.
+	// Nothing to remove is a success: uninstall exists to reach a known state.
 	ActionAbsent = "not configured"
 
-	// backupSuffix keeps our copies recognizable and greppable, and dated so a
-	// second install does not overwrite the evidence from the first.
+	// Dated, so a second install does not overwrite the evidence from the first.
 	backupSuffix = ".l4-backup-"
 
-	// configMode: these files hold a bearer token. 0600 on every write, including
-	// a rewrite of a file that was looser before.
+	// These files hold a bearer token, including a rewrite of one that was looser.
 	configMode = 0o600
 	dirMode    = 0o700
 )
@@ -85,10 +76,8 @@ var (
 	}
 )
 
-// Install writes the entry for one client. It never overwrites a config file
-// blind: the file is parsed first (a file that is not valid JSON stops the
-// install rather than being replaced), copied to a dated backup, and only the
-// one entry under o.Name is touched.
+// Install never overwrites a config blind: a file that is not valid JSON stops
+// the install rather than being replaced.
 func Install(ctx context.Context, c Client, o Options) (Result, error) {
 	result := Result{Client: c.ID, Label: c.Label, Note: c.Note}
 
@@ -136,8 +125,6 @@ func Install(ctx context.Context, c Client, o Options) (Result, error) {
 	return result, writeConfig(path, root)
 }
 
-// Status reports what `l4 mcp install` would find for one client: whether the
-// client is on this machine, and whether it carries an entry under this name.
 func Status(_ context.Context, c Client, name string) State {
 	state := State{Client: c.ID, Label: c.Label, Status: describeStatus(c.Detect(), false)}
 
@@ -269,12 +256,8 @@ func (c Client) installViaCLI(ctx context.Context, o Options, ref entryRef) (str
 		o.Name, o.Endpoint,
 		"--header", authHeaderLine(c, o))
 	if err == nil {
-		// The vendor CLI owns this file and creates it 0644. Every other client
-		// here gets 0600 from writeConfig, and this one now holds a bearer token
-		// too, so it cannot be the one left world-readable.
-		// Only when we put a credential there: the vendor owns this file, and its
-		// permissions are not ours to change otherwise. A missing file means
-		// nothing on disk to protect, which is not a failure.
+		// The vendor CLI creates this file 0644, and it now holds a bearer token.
+		// Only when we put one there: a missing file means nothing to protect.
 		if c.WritesCredential(o) {
 			if chmodErr := os.Chmod(path, configMode); chmodErr != nil && !os.IsNotExist(chmodErr) {
 				return action, fmt.Errorf(
@@ -294,8 +277,6 @@ func (c Client) installViaCLI(ctx context.Context, o Options, ref entryRef) (str
 	return action, fmt.Errorf("%w. The previous entry was put back", failed)
 }
 
-// Anything unreadable returns nil: refusing to install because a rollback might
-// not be possible would trade a rare failure for a certain one.
 // entryRef locates one server entry inside a client-owned config file.
 type entryRef struct {
 	path    string
@@ -323,8 +304,7 @@ func (r entryRef) read() map[string]any {
 	return entry
 }
 
-// Re-reads rather than reusing the earlier decode, so a change the vendor CLI
-// made between the remove and the failure survives.
+// Re-reads, so a change the vendor CLI made in between survives.
 func (r entryRef) restore(entry map[string]any) error {
 	data, _, err := readConfig(r.path)
 	if err != nil {
@@ -362,33 +342,7 @@ func Uninstall(ctx context.Context, c Client, o Options) (Result, error) {
 	if err != nil || !existed {
 		return result, err
 	}
-
-	if c.Delegated {
-		if (entryRef{path, c.Section, o.Name}).read() == nil {
-			return result, nil
-		}
-		result.Backup, err = writeBackup(path, original)
-		if err != nil {
-			return result, err
-		}
-		out, removeErr := runCommand(ctx, "claude", "mcp", "remove", o.Name, "--scope", "user")
-		if removeErr != nil {
-			return result, fmt.Errorf("claude mcp remove %s failed: %w: %s",
-				o.Name, removeErr, strings.TrimSpace(string(out)))
-		}
-		result.Action = actionRemoved
-		return result, nil
-	}
-
-	root, err := decodeConfig(path, original)
-	if err != nil {
-		return result, err
-	}
-	section, ok := root[c.Section].(map[string]any)
-	if !ok {
-		return result, nil
-	}
-	if _, present := section[o.Name]; !present {
+	if (entryRef{path, c.Section, o.Name}).read() == nil {
 		return result, nil
 	}
 
@@ -396,11 +350,34 @@ func Uninstall(ctx context.Context, c Client, o Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-
-	delete(section, o.Name)
-	root[c.Section] = section
 	result.Action = actionRemoved
-	return result, writeConfig(path, root)
+
+	if c.Delegated {
+		return result, c.removeViaCLI(ctx, o)
+	}
+	return result, removeEntry(path, original, c.Section, o.Name)
+}
+
+func (c Client) removeViaCLI(ctx context.Context, o Options) error {
+	out, err := runCommand(ctx, "claude", "mcp", "remove", o.Name, "--scope", "user")
+	if err != nil {
+		return fmt.Errorf("claude mcp remove %s failed: %w: %s", o.Name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func removeEntry(path string, original []byte, section, name string) error {
+	root, err := decodeConfig(path, original)
+	if err != nil {
+		return err
+	}
+	entries, ok := root[section].(map[string]any)
+	if !ok {
+		return nil
+	}
+	delete(entries, name)
+	root[section] = entries
+	return writeConfig(path, root)
 }
 
 // Backups lists the dated copies this command has left beside a client's config.

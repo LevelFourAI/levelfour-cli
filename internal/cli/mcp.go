@@ -189,26 +189,24 @@ var mcpUninstallCmd = &cobra.Command{
 			results = append(results, result)
 		}
 
-		purged, remaining := handleBackups(clients)
+		sweep := handleBackups(clients)
 
 		if output.HasFormattingFlags() {
 			if err := output.PrintResult(map[string]any{
 				"removed": results, "failed": failures,
-				"backups_purged": purged, "backups_remaining": remaining,
+				"backups_purged": sweep.purged, "backups_remaining": sweep.remaining,
 			}); err != nil {
 				return err
 			}
 		} else {
-			printUninstallResults(results, failures, purged, remaining)
+			printUninstallResults(results, failures, sweep)
 		}
 		return uninstallOutcome(results, failures)
 	},
 }
 
-// resolveUninstallClients returns the clients to clean. With no --client that is
-// every client carrying the entry, not every client detected, which is the
-// opposite of install on purpose: a config left behind by an application that is
-// gone is the case worth reaching.
+// Carrying the entry, not merely detected: a config left behind by an
+// application that is gone is the case worth reaching.
 func resolveUninstallClients(ctx context.Context) ([]mcpinstall.Client, error) {
 	if len(flagMCPClients) > 0 {
 		return namedClients()
@@ -226,24 +224,26 @@ func resolveUninstallClients(ctx context.Context) ([]mcpinstall.Client, error) {
 	return carrying, nil
 }
 
-// handleBackups deletes the dated copies when asked, and otherwise counts them so
-// the command can say what it left behind.
-func handleBackups(clients []mcpinstall.Client) (purged int, remaining int) {
+// backupSweep is what handleBackups did, so the printer takes one thing.
+type backupSweep struct{ purged, remaining int }
+
+func handleBackups(clients []mcpinstall.Client) backupSweep {
+	var sweep backupSweep
 	for _, c := range clients {
 		for _, path := range mcpinstall.Backups(c) {
 			if !flagMCPPurge {
-				remaining++
+				sweep.remaining++
 				continue
 			}
 			if err := os.Remove(path); err != nil {
 				output.Warning(fmt.Sprintf("could not remove %s: %v", path, err))
-				remaining++
+				sweep.remaining++
 				continue
 			}
-			purged++
+			sweep.purged++
 		}
 	}
-	return purged, remaining
+	return sweep
 }
 
 func uninstallOutcome(results []mcpinstall.Result, failures []string) error {
@@ -254,7 +254,7 @@ func uninstallOutcome(results []mcpinstall.Result, failures []string) error {
 		len(failures), len(results)+len(failures), strings.Join(failures, "; "))
 }
 
-func printUninstallResults(results []mcpinstall.Result, failures []string, purged, remaining int) {
+func printUninstallResults(results []mcpinstall.Result, failures []string, sweep backupSweep) {
 	for _, r := range results {
 		if r.Action == mcpinstall.ActionAbsent {
 			output.Info(fmt.Sprintf("%s: no entry %q to remove", r.Label, flagMCPName))
@@ -268,12 +268,12 @@ func printUninstallResults(results []mcpinstall.Result, failures []string, purge
 	for _, f := range failures {
 		output.Error(f)
 	}
-	if purged > 0 {
-		output.Info(fmt.Sprintf("Deleted %d backup file(s).", purged))
+	if sweep.purged > 0 {
+		output.Info(fmt.Sprintf("Deleted %d backup file(s).", sweep.purged))
 	}
-	if remaining > 0 {
+	if sweep.remaining > 0 {
 		output.Info(fmt.Sprintf("%d backup file(s) left in place. A backup taken over an existing "+
-			"install still holds that credential; --purge-backups deletes them.", remaining))
+			"install still holds that credential; --purge-backups deletes them.", sweep.remaining))
 	}
 }
 
@@ -398,7 +398,6 @@ func resolveMCPClients() ([]mcpinstall.Client, error) {
 	return namedClients()
 }
 
-// namedClients turns --client into the set it names.
 func namedClients() ([]mcpinstall.Client, error) {
 	clients := make([]mcpinstall.Client, 0, len(flagMCPClients))
 	for _, id := range flagMCPClients {
@@ -418,10 +417,7 @@ func ensureAuthenticated(cmd *cobra.Command, args []string) (string, error) {
 	if key, _ := resolveToken(); key != "" {
 		return key, nil
 	}
-	// The browser flow prints a code and waits on Enter. That is fine at a
-	// prompt and wrong in CI, which is a documented use of --json, so a
-	// non-interactive run is told what to do instead of being blocked on input
-	// that will never arrive.
+	// The browser flow waits on Enter, which never arrives in CI.
 	if !isTerminal() {
 		return "", fmt.Errorf("not authenticated: run 'l4 auth login' first, or pass --token or %s",
 			credentialEnvVar)
