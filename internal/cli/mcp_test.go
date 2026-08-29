@@ -17,8 +17,9 @@ func stubMCP(t *testing.T) {
 	t.Helper()
 	origInstall, origStatus, origDetected, origServe, origExec :=
 		mcpInstall, mcpStatus, mcpDetected, mcpServe, osExecutable
-	origSuggested := mcpSuggested
+	origSuggested, origUninstall := mcpSuggested, mcpUninstall
 	t.Cleanup(func() {
+		mcpUninstall = origUninstall
 		mcpInstall, mcpStatus, mcpDetected, mcpServe, osExecutable =
 			origInstall, origStatus, origDetected, origServe, origExec
 		mcpSuggested = origSuggested
@@ -35,6 +36,115 @@ func stubMCP(t *testing.T) {
 		return mcpinstall.Result{Client: c.ID, Label: c.Label, Target: "/tmp/" + c.ID, Action: "added", Note: c.Note}, nil
 	}
 	mcpServe = func(context.Context, mcp.Session) error { return nil }
+	mcpUninstall = func(_ context.Context, c mcpinstall.Client, o mcpinstall.Options) (mcpinstall.Result, error) {
+		return mcpinstall.Result{Client: c.ID, Label: c.Label, Action: "removed"}, nil
+	}
+}
+
+// configuredAs makes mcpStatus report the given clients as carrying the entry,
+// which is what uninstall selects on when no --client is passed.
+func configuredAs(ids ...string) {
+	mcpStatus = func(_ context.Context, c mcpinstall.Client, _ string) mcpinstall.State {
+		for _, id := range ids {
+			if c.ID == id {
+				return mcpinstall.State{Client: c.ID, Label: c.Label, Status: mcpinstall.StatusInstalled}
+			}
+		}
+		return mcpinstall.State{Client: c.ID, Label: c.Label, Status: mcpinstall.StatusNotInstalled}
+	}
+}
+
+func TestMCPUninstallCleansEveryClientCarryingTheEntry(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	defer resetFlags()
+	configuredAs(mcpinstall.Cursor, mcpinstall.VSCode)
+
+	var cleaned []string
+	mcpUninstall = func(_ context.Context, c mcpinstall.Client, _ mcpinstall.Options) (mcpinstall.Result, error) {
+		cleaned = append(cleaned, c.ID)
+		return mcpinstall.Result{Client: c.ID, Label: c.Label, Action: "removed"}, nil
+	}
+
+	out, _, err := executeCommand(t, "mcp", "uninstall")
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if len(cleaned) != 2 {
+		t.Errorf("cleaned = %v, want the two carrying the entry", cleaned)
+	}
+	if !strings.Contains(out.String(), "removed entry") {
+		t.Errorf("output = %s", out.String())
+	}
+}
+
+// Nothing to remove is worth saying plainly rather than reporting success over
+// an empty set.
+func TestMCPUninstallWhenNothingCarriesTheEntry(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	defer resetFlags()
+	configuredAs()
+
+	_, _, err := executeCommand(t, "mcp", "uninstall")
+	if err == nil || !strings.Contains(err.Error(), "no client carries an entry") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestMCPUninstallReportsAFailure(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	defer resetFlags()
+
+	mcpUninstall = func(_ context.Context, c mcpinstall.Client, _ mcpinstall.Options) (mcpinstall.Result, error) {
+		if c.ID == mcpinstall.Cursor {
+			return mcpinstall.Result{}, errors.New("mcp.json is not valid JSON")
+		}
+		return mcpinstall.Result{Client: c.ID, Label: c.Label, Action: "removed"}, nil
+	}
+
+	_, errOut, err := executeCommand(t, "mcp", "uninstall", "--client", "cursor", "--client", "vscode")
+	if err == nil || !strings.Contains(err.Error(), "1 of 2 clients failed") {
+		t.Fatalf("err = %v, want a non-zero outcome", err)
+	}
+	if !strings.Contains(errOut.String(), "not valid JSON") {
+		t.Errorf("the failure was not reported: %s", errOut.String())
+	}
+}
+
+func TestMCPUninstallSaysWhenThereWasNothingToRemove(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	defer resetFlags()
+
+	mcpUninstall = func(_ context.Context, c mcpinstall.Client, _ mcpinstall.Options) (mcpinstall.Result, error) {
+		return mcpinstall.Result{Client: c.ID, Label: c.Label, Action: mcpinstall.ActionAbsent}, nil
+	}
+
+	out, _, err := executeCommand(t, "mcp", "uninstall", "--client", "cursor")
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if !strings.Contains(out.String(), "no entry") {
+		t.Errorf("output = %s", out.String())
+	}
+}
+
+func TestMCPUninstallJSON(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	defer resetFlags()
+
+	out, _, err := executeCommand(t, "mcp", "uninstall", "--client", "windsurf", "--json")
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	for _, want := range []string{`"removed"`, `"backups_purged"`, `"backups_remaining"`} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %s: %s", want, out.String())
+		}
+	}
 }
 
 func TestMCPInstallWritesTheNamedClient(t *testing.T) {
@@ -336,11 +446,13 @@ func TestMCPStatus(t *testing.T) {
 		if name != mcp.ServerName {
 			t.Errorf("looked for %q, want the default name", name)
 		}
+		if c.ID != mcpinstall.Cursor {
+			return mcpinstall.State{Client: c.ID, Label: c.Label, Status: mcpinstall.StatusNotInstalled}
+		}
 		return mcpinstall.State{
 			Client: c.ID, Label: c.Label,
-			Installed:  c.ID == mcpinstall.Cursor,
-			Configured: c.ID == mcpinstall.Cursor,
-			Endpoint:   mcp.Endpoint,
+			Status:   mcpinstall.StatusInstalled,
+			Endpoint: mcp.Endpoint,
 		}
 	}
 
@@ -349,7 +461,7 @@ func TestMCPStatus(t *testing.T) {
 		t.Fatalf("status: %v", err)
 	}
 	text := out.String()
-	for _, want := range []string{"Cursor", "yes", "no", mcp.Endpoint, mcp.Summary()} {
+	for _, want := range []string{"Cursor", mcpinstall.StatusInstalled, mcpinstall.StatusNotInstalled, mcp.Endpoint, mcp.Summary()} {
 		if !strings.Contains(text, want) {
 			t.Errorf("output missing %q:\n%s", want, text)
 		}
@@ -395,11 +507,5 @@ func TestMCPEndpointOverride(t *testing.T) {
 	flagMCPEndpoint = "http://localhost:8080/mcp"
 	if mcpEndpoint() != "http://localhost:8080/mcp" {
 		t.Errorf("override = %q", mcpEndpoint())
-	}
-}
-
-func TestYesNo(t *testing.T) {
-	if yesNo(true) != "yes" || yesNo(false) != "no" {
-		t.Error("yesNo")
 	}
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -17,12 +18,15 @@ var (
 	flagMCPName      string
 	flagMCPEndpoint  string
 	flagMCPKeySource string
+	flagMCPPurge     bool
+	flagMCPYes       bool
 )
 
 // Seams. Everything here reaches the filesystem, another process or a browser,
 // so each one is a variable the tests can stand in for.
 var (
 	mcpInstall   = mcpinstall.Install
+	mcpUninstall = mcpinstall.Uninstall
 	mcpStatus    = mcpinstall.Status
 	mcpDetected  = mcpinstall.Detected
 	mcpSuggested = mcpinstall.Suggested
@@ -35,7 +39,7 @@ var mcpCmd = &cobra.Command{
 	Short: "Connect coding agents to LevelFour over MCP",
 	Long: "Connect coding agents to LevelFour over the Model Context Protocol.\n\n" +
 		"`l4 mcp install` writes the server into the agent clients on this machine. " +
-		"`l4 mcp serve` runs the same tools locally over stdio.",
+		"`l4 mcp uninstall` takes it back out. `l4 mcp serve` runs the same tools locally over stdio.",
 }
 
 var mcpInstallCmd = &cobra.Command{
@@ -142,6 +146,137 @@ func resolveKeySource() (mcpinstall.KeySource, error) {
 	}
 }
 
+var mcpUninstallCmd = &cobra.Command{
+	Use:   "uninstall",
+	Short: "Remove the LevelFour MCP server from your agent clients",
+	Long: "Removes the entry `l4 mcp install` wrote, from every client that carries it.\n\n" +
+		"Only the entry under --name is touched, and a dated backup is taken first, so other " +
+		"servers in the same file are left alone.\n\n" +
+		"Backups are kept unless you pass --purge-backups. They are worth a thought: the second " +
+		"install of a client backs up a file that already holds the first credential.",
+	Example: `- Remove it everywhere
+
+  $ l4 mcp uninstall
+
+- Remove one client, or one named entry
+
+  $ l4 mcp uninstall --client cursor
+  $ l4 mcp uninstall --name levelfour-rw
+
+- Leave nothing behind, including the backups
+
+  $ l4 mcp uninstall --purge-backups`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clients, err := resolveUninstallClients(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if !flagMCPYes && !confirmAction(fmt.Sprintf("Remove entry %q from %s?",
+			flagMCPName, strings.Join(labelsOf(clients), ", "))) {
+			output.Info("Aborted.")
+			return nil
+		}
+
+		opts := mcpinstall.Options{Name: flagMCPName}
+		results := make([]mcpinstall.Result, 0, len(clients))
+		var failures []string
+		for _, c := range clients {
+			result, removeErr := mcpUninstall(cmd.Context(), c, opts)
+			if removeErr != nil {
+				failures = append(failures, fmt.Sprintf("%s: %v", c.Label, removeErr))
+				continue
+			}
+			results = append(results, result)
+		}
+
+		purged, remaining := handleBackups(clients)
+
+		if output.HasFormattingFlags() {
+			if err := output.PrintResult(map[string]any{
+				"removed": results, "failed": failures,
+				"backups_purged": purged, "backups_remaining": remaining,
+			}); err != nil {
+				return err
+			}
+		} else {
+			printUninstallResults(results, failures, purged, remaining)
+		}
+		return uninstallOutcome(results, failures)
+	},
+}
+
+// resolveUninstallClients returns the clients to clean. With no --client that is
+// every client carrying the entry, not every client detected, which is the
+// opposite of install on purpose: a config left behind by an application that is
+// gone is the case worth reaching.
+func resolveUninstallClients(ctx context.Context) ([]mcpinstall.Client, error) {
+	if len(flagMCPClients) > 0 {
+		return namedClients()
+	}
+	var carrying []mcpinstall.Client
+	for _, c := range mcpinstall.Clients {
+		switch mcpStatus(ctx, c, flagMCPName).Status {
+		case mcpinstall.StatusInstalled, mcpinstall.StatusOrphaned:
+			carrying = append(carrying, c)
+		}
+	}
+	if len(carrying) == 0 {
+		return nil, fmt.Errorf("no client carries an entry named %q. Nothing to remove", flagMCPName)
+	}
+	return carrying, nil
+}
+
+// handleBackups deletes the dated copies when asked, and otherwise counts them so
+// the command can say what it left behind.
+func handleBackups(clients []mcpinstall.Client) (purged int, remaining int) {
+	for _, c := range clients {
+		for _, path := range mcpinstall.Backups(c) {
+			if !flagMCPPurge {
+				remaining++
+				continue
+			}
+			if err := os.Remove(path); err != nil {
+				output.Warning(fmt.Sprintf("could not remove %s: %v", path, err))
+				remaining++
+				continue
+			}
+			purged++
+		}
+	}
+	return purged, remaining
+}
+
+func uninstallOutcome(results []mcpinstall.Result, failures []string) error {
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d of %d clients failed: %s",
+		len(failures), len(results)+len(failures), strings.Join(failures, "; "))
+}
+
+func printUninstallResults(results []mcpinstall.Result, failures []string, purged, remaining int) {
+	for _, r := range results {
+		if r.Action == mcpinstall.ActionAbsent {
+			output.Info(fmt.Sprintf("%s: no entry %q to remove", r.Label, flagMCPName))
+			continue
+		}
+		output.Success(fmt.Sprintf("%s: removed entry %q", r.Label, flagMCPName))
+		if r.Backup != "" {
+			output.KeyValue("  Backup", r.Backup)
+		}
+	}
+	for _, f := range failures {
+		output.Error(f)
+	}
+	if purged > 0 {
+		output.Info(fmt.Sprintf("Deleted %d backup file(s).", purged))
+	}
+	if remaining > 0 {
+		output.Info(fmt.Sprintf("%d backup file(s) left in place. A backup taken over an existing "+
+			"install still holds that credential; --purge-backups deletes them.", remaining))
+	}
+}
+
 var mcpServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run the LevelFour MCP server locally over stdio",
@@ -205,9 +340,9 @@ var mcpStatusCmd = &cobra.Command{
 		fmt.Fprintln(output.Stdout)
 		rows := make([][]string, 0, len(states))
 		for _, s := range states {
-			rows = append(rows, []string{s.Label, yesNo(s.Installed), yesNo(s.Configured), s.Endpoint})
+			rows = append(rows, []string{s.Label, s.Status, s.Endpoint})
 		}
-		output.Table([]string{"Client", "Installed", "Configured", "Endpoint"}, rows)
+		output.Table([]string{"Client", "Status", "Endpoint"}, rows)
 		return nil
 	},
 }
@@ -220,13 +355,6 @@ func labelsOf(clients []mcpinstall.Client) []string {
 		labels = append(labels, c.Label)
 	}
 	return labels
-}
-
-func yesNo(v bool) string {
-	if v {
-		return wordYes
-	}
-	return wordNo
 }
 
 func mcpEndpoint() string {
@@ -267,6 +395,11 @@ func resolveMCPClients() ([]mcpinstall.Client, error) {
 		return detected, nil
 	}
 
+	return namedClients()
+}
+
+// namedClients turns --client into the set it names.
+func namedClients() ([]mcpinstall.Client, error) {
 	clients := make([]mcpinstall.Client, 0, len(flagMCPClients))
 	for _, id := range flagMCPClients {
 		c, ok := mcpinstall.Find(id)
@@ -338,10 +471,18 @@ func init() {
 	mcpInstallCmd.Flags().StringVar(&flagMCPKeySource, "key-source", string(mcpinstall.KeyInline),
 		"Where clients read the credential: inline (written into the config, 0600) or env (a reference to $"+
 			mcpinstall.CredentialEnvVar+", so no key is stored)")
+	mcpUninstallCmd.Flags().StringSliceVar(&flagMCPClients, "client", nil,
+		"Client to clean ("+strings.Join(mcpinstall.IDs(), ", ")+"); repeatable, defaults to every one carrying the entry")
+	mcpUninstallCmd.Flags().StringVar(&flagMCPName, "name", mcp.ServerName, "Name of the server entry to remove")
+	mcpUninstallCmd.Flags().BoolVar(&flagMCPPurge, "purge-backups", false,
+		"Also delete the dated .l4-backup-* copies, which can hold a previous credential")
+	mcpUninstallCmd.Flags().BoolVarP(&flagMCPYes, wordYes, "y", false, "Skip the confirmation prompt")
+
 	mcpStatusCmd.Flags().StringVar(&flagMCPName, "name", mcp.ServerName, "Name of the server entry to look for")
 	mcpStatusCmd.Flags().StringVar(&flagMCPEndpoint, "endpoint", "", "MCP endpoint to report as the hosted default")
 
 	mcpCmd.AddCommand(mcpInstallCmd)
+	mcpCmd.AddCommand(mcpUninstallCmd)
 	mcpCmd.AddCommand(mcpServeCmd)
 	mcpCmd.AddCommand(mcpStatusCmd)
 }
