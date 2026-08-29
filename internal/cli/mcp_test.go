@@ -330,9 +330,19 @@ func TestMCPInstallNeedsTheBinaryPath(t *testing.T) {
 	}
 }
 
+// withTTY makes isTerminal report true, which is what the interactive login
+// path requires. Tests do not run on a terminal.
+func withTTY(t *testing.T) {
+	t.Helper()
+	orig := isTerminal
+	isTerminal = func() bool { return true }
+	t.Cleanup(func() { isTerminal = orig })
+}
+
 func TestMCPInstallLogsInFirstWhenThereIsNoCredential(t *testing.T) {
 	kr.MockInit()
 	stubMCP(t)
+	withTTY(t)
 	flagToken = ""
 	t.Setenv("LEVELFOUR_TOKEN", "")
 	defer resetFlags()
@@ -368,6 +378,7 @@ func TestMCPInstallLogsInFirstWhenThereIsNoCredential(t *testing.T) {
 func TestMCPInstallStopsWhenLoginFails(t *testing.T) {
 	kr.MockInit()
 	stubMCP(t)
+	withTTY(t)
 	flagToken = ""
 	t.Setenv("LEVELFOUR_TOKEN", "")
 	defer resetFlags()
@@ -385,6 +396,7 @@ func TestMCPInstallStopsWhenLoginFails(t *testing.T) {
 func TestMCPInstallStopsWhenLoginStoresNothing(t *testing.T) {
 	kr.MockInit()
 	stubMCP(t)
+	withTTY(t)
 	flagToken = ""
 	t.Setenv("LEVELFOUR_TOKEN", "")
 	defer resetFlags()
@@ -507,5 +519,34 @@ func TestMCPEndpointOverride(t *testing.T) {
 	flagMCPEndpoint = "http://localhost:8080/mcp"
 	if mcpEndpoint() != "http://localhost:8080/mcp" {
 		t.Errorf("override = %q", mcpEndpoint())
+	}
+}
+
+// A scriptable command must not block on a browser. --json is a documented use,
+// and CI has no terminal to press Enter on.
+func TestMCPInstallDoesNotLogInWhenThereIsNoTerminal(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	flagToken = ""
+	t.Setenv("LEVELFOUR_TOKEN", "")
+	defer resetFlags()
+
+	origTerminal := isTerminal
+	isTerminal = func() bool { return false }
+	t.Cleanup(func() { isTerminal = origTerminal })
+
+	origLogin := authLoginCmd.RunE
+	t.Cleanup(func() { authLoginCmd.RunE = origLogin })
+	authLoginCmd.RunE = func(*cobra.Command, []string) error {
+		t.Error("install opened the browser login with no terminal to drive it")
+		return nil
+	}
+
+	_, _, err := executeCommand(t, "mcp", "install", "--client", "cursor")
+	if err == nil || !strings.Contains(err.Error(), "not authenticated") {
+		t.Fatalf("err = %v, want it to say it is not authenticated", err)
+	}
+	if !strings.Contains(err.Error(), credentialEnvVar) {
+		t.Errorf("err = %v, want it to name the environment variable", err)
 	}
 }

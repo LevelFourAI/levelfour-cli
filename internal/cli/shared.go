@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LevelFourAI/levelfour-cli/internal/mcpinstall"
+
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	tf "github.com/LevelFourAI/levelfour-cli/internal/terraform"
 	"gopkg.in/yaml.v3"
@@ -18,6 +20,11 @@ import (
 // The name of the --yes flag and the answer a confirmation prompt accepts are
 // the same word, so it is written once.
 const wordYes = "yes"
+
+// credentialEnvVar is the variable this CLI reads a key from. It is the same one
+// `l4 mcp install --key-source env` writes into a client's config, so a user who
+// exports it once has both working.
+const credentialEnvVar = mcpinstall.CredentialEnvVar
 
 func classifyInputs(args []string) (dirs []string, files []string, err error) {
 	if len(args) == 0 {

@@ -418,6 +418,14 @@ func ensureAuthenticated(cmd *cobra.Command, args []string) (string, error) {
 	if key, _ := resolveToken(); key != "" {
 		return key, nil
 	}
+	// The browser flow prints a code and waits on Enter. That is fine at a
+	// prompt and wrong in CI, which is a documented use of --json, so a
+	// non-interactive run is told what to do instead of being blocked on input
+	// that will never arrive.
+	if !isTerminal() {
+		return "", fmt.Errorf("not authenticated: run 'l4 auth login' first, or pass --token or %s",
+			credentialEnvVar)
+	}
 	output.Info("Not authenticated yet. Opening the browser to mint a read-scoped API key.")
 	if err := authLoginCmd.RunE(cmd, args); err != nil {
 		return "", err
