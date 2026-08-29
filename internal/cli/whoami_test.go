@@ -100,6 +100,96 @@ func TestWhoamiJSONOutput(t *testing.T) {
 	}
 }
 
+// The API only returns "scope" once the backend ships it, so the row appears
+// when the field is there and is silently skipped when it is not.
+func TestWhoamiScopeRow(t *testing.T) {
+	tests := []struct {
+		name      string
+		payload   map[string]interface{}
+		wantScope bool
+	}{
+		{
+			name: "scope present",
+			payload: map[string]interface{}{
+				"organization": "Acme Corp",
+				"plan":         "enterprise",
+				"role":         "api-key",
+				"accounts":     []interface{}{},
+				"scope":        "read-write",
+			},
+			wantScope: true,
+		},
+		{
+			name: "scope absent",
+			payload: map[string]interface{}{
+				"organization": "Acme Corp",
+				"plan":         "enterprise",
+				"role":         "api-key",
+				"accounts":     []interface{}{},
+			},
+			wantScope: false,
+		},
+		{
+			name: "scope is not a string",
+			payload: map[string]interface{}{
+				"organization": "Acme Corp",
+				"plan":         "enterprise",
+				"role":         "api-key",
+				"accounts":     []interface{}{},
+				"scope":        42,
+			},
+			wantScope: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				json.NewEncoder(w).Encode(map[string]interface{}{"data": tt.payload})
+			}))
+			defer srv.Close()
+
+			flagAPI = srv.URL
+			flagToken = "l4_test_testkey123456789a"
+			defer resetFlags()
+
+			outBuf, _, err := executeCommand(t, "whoami")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := outBuf.String()
+			if strings.Contains(got, "Scope:") != tt.wantScope {
+				t.Errorf("Scope row presence = %v, want %v: %q", !tt.wantScope, tt.wantScope, got)
+			}
+			if tt.wantScope && !strings.Contains(got, "read-write") {
+				t.Errorf("output missing scope value: %q", got)
+			}
+		})
+	}
+}
+
+func TestExtraString(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra map[string]interface{}
+		key   string
+		want  string
+	}{
+		{"present", map[string]interface{}{"scope": "read"}, "scope", "read"},
+		{"absent", map[string]interface{}{}, "scope", ""},
+		{"nil map", nil, "scope", ""},
+		{"wrong type", map[string]interface{}{"scope": true}, "scope", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := extraString(tt.extra, tt.key); got != tt.want {
+				t.Errorf("extraString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWhoamiWebFlag(t *testing.T) {
 	origBrowser := openBrowser
 	var openedURL string

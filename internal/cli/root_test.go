@@ -33,6 +33,11 @@ func resetFlags() {
 	output.QuietMode = false
 	output.NoColor = false
 
+	flagRecYes = false
+	flagRecReason = ""
+	flagRecExplanation = ""
+	flagRecMethod = defaultImplementationMethod
+
 	flagExportFormat = ""
 	flagExportPeriod = ""
 	flagExportAccount = ""

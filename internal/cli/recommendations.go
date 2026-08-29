@@ -41,8 +41,9 @@ var terminalWidth = func() int {
 }
 
 var recommendationsCmd = &cobra.Command{
-	Use:   "recommendations",
-	Short: "View cost optimization recommendations",
+	Use:     "recommendations",
+	Aliases: []string{"rec", "recs"},
+	Short:   "View and act on cost optimization recommendations",
 }
 
 var recommendationsListCmd = &cobra.Command{
