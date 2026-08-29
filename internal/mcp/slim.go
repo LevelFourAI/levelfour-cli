@@ -16,7 +16,15 @@ var detailOperatorFields = map[string]bool{
 	"iam_policy": true, "iam_role_arn": true, "manual_instructions": true,
 }
 
-const maxMetricPoints = 60
+const metricsKey = "metrics"
+
+const (
+	maxMetricPoints = 60
+
+	// A fleet-sized recommendation carries one series per affected resource, and
+	// metrics sit outside the field fitBudget trims, so nothing else bounds them.
+	maxMetricSeries = 12
+)
 
 func slimRecommendation(detail map[string]any) map[string]any {
 	slim := map[string]any{}
@@ -34,14 +42,27 @@ func slimRecommendation(detail map[string]any) map[string]any {
 		}
 		slim["actions"] = trimmed
 	}
-	if metrics, ok := slim["metrics"].([]any); ok {
-		capped := make([]any, 0, len(metrics))
-		for _, series := range metrics {
-			capped = append(capped, capSeries(series))
-		}
-		slim["metrics"] = capped
+	if metrics, ok := slim[metricsKey].([]any); ok {
+		slim[metricsKey] = capMetrics(metrics)
 	}
 	return slim
+}
+
+func capMetrics(metrics []any) []any {
+	kept := metrics
+	if len(kept) > maxMetricSeries {
+		kept = kept[:maxMetricSeries]
+	}
+	capped := make([]any, 0, len(kept))
+	for _, series := range kept {
+		capped = append(capped, capSeries(series))
+	}
+	if len(metrics) > maxMetricSeries {
+		capped = append(capped, map[string]any{"truncated": fmt.Sprintf(
+			"Showing %d of %d metric series. Ask about a named resource for the rest.",
+			maxMetricSeries, len(metrics))})
+	}
+	return capped
 }
 
 func capSeries(series any) any {

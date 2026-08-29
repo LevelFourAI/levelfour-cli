@@ -111,3 +111,40 @@ func basePath(path string) string {
 	}
 	return path
 }
+
+// metrics sit outside the field fitBudget trims: it rewrites only the rows key,
+// and copies every other field through. A fleet-sized recommendation carries one
+// series per affected resource, so halving resources to nothing still returned a
+// payload made almost entirely of metrics.
+func TestRecommendationMetricsCannotBlowTheCeiling(t *testing.T) {
+	series := make([]any, 0, 200)
+	for i := 0; i < 200; i++ {
+		points := make([]any, 0, 200)
+		for j := 0; j < 200; j++ {
+			points = append(points, map[string]any{
+				"timestamp": "2026-08-29T00:00:00Z",
+				"value":     float64(j),
+				"label":     strings.Repeat("z", 200),
+			})
+		}
+		series = append(series, map[string]any{
+			"metric_name": strings.Repeat("m", 200),
+			"data_points": points,
+		})
+	}
+
+	payload := map[string]any{"resources": oversizedRows(50), "metrics": series}
+	got, err := toolNamed(t, "get-recommendation").run(
+		&fakeFetcher{fallback: payload}, map[string]any{"recommendation_id": "REC-1234"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if size := sizeOf(got); size > maxResultChars {
+		t.Errorf("result is %d chars, over the %d ceiling", size, maxResultChars)
+	}
+	kept, _ := got["metrics"].([]any)
+	if len(kept) > maxMetricSeries+1 {
+		t.Errorf("kept %d series, want at most %d plus the truncation note", len(kept), maxMetricSeries)
+	}
+}

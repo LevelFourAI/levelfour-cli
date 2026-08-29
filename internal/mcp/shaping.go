@@ -154,17 +154,41 @@ func hintIfEmpty(result map[string]any, rowsKey, hint string) map[string]any {
 // A model that gets a truncated answer can still act on it; one whose context was
 // blown cannot.
 func fitBudget(result map[string]any, path rowsPath) map[string]any {
-	if sizeOf(result) <= maxResultChars {
-		return result
+	for _, target := range []trimTarget{
+		{path, "truncated", "rows",
+			"Ask a narrower question, or page through with a smaller page_size."},
+		{rowsPath{key: metricsKey}, "metrics_truncated", "metric series",
+			"Ask about a named resource for the rest."},
+	} {
+		if sizeOf(result) <= maxResultChars {
+			return result
+		}
+		result = trimList(result, target)
 	}
-	rows, ok := path.rows(result)
+	return result
+}
+
+// The lists a result can be trimmed on, in the order they are given up. Rows go
+// first because they are what the caller asked for. Metrics are second and were
+// unreachable until now: they sit outside the rows key, so a recommendation
+// covering a fleet could exceed the ceiling on metrics alone after rows had
+// already been cut to nothing.
+type trimTarget struct {
+	path   rowsPath
+	noteAt string
+	noun   string
+	advice string
+}
+
+func trimList(result map[string]any, target trimTarget) map[string]any {
+	rows, ok := target.path.rows(result)
 	if !ok || len(rows) == 0 {
 		return result
 	}
 
 	kept := rows
 	for len(kept) > 0 {
-		trial := path.with(result, kept)
+		trial := target.path.with(result, kept)
 		if sizeOf(trial) <= maxResultChars {
 			break
 		}
@@ -173,11 +197,10 @@ func fitBudget(result map[string]any, path rowsPath) map[string]any {
 		kept = kept[:len(kept)/2]
 	}
 
-	trimmed := path.with(result, kept)
-	trimmed["truncated"] = fmt.Sprintf(
-		"Showing %d of %d rows because the full result exceeded the size a "+
-			"single tool result may return. Ask a narrower question, or page through "+
-			"with a smaller page_size.", len(kept), len(rows))
+	trimmed := target.path.with(result, kept)
+	trimmed[target.noteAt] = fmt.Sprintf(
+		"Showing %d of %d %s because the full result exceeded the size a single "+
+			"tool result may return. %s", len(kept), len(rows), target.noun, target.advice)
 	return trimmed
 }
 
