@@ -295,11 +295,22 @@ func Error(msg string) {
 	fmt.Fprintf(Stderr, "%s %s\n", errorStyle.Render("Error:"), msg)
 }
 
+// noticeStream is where prose meant for a person goes. Under --json, --jq or
+// --template, stdout belongs to the payload: a notice printed there lands ahead
+// of the JSON and the whole document stops parsing. The notice is still worth
+// showing, so it moves to stderr rather than being dropped.
+func noticeStream() io.Writer {
+	if HasFormattingFlags() {
+		return Stderr
+	}
+	return Stdout
+}
+
 func Success(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(Stdout, successStyle.Render("\u2713 "+msg))
+	fmt.Fprintln(noticeStream(), successStyle.Render("\u2713 "+msg))
 }
 
 func Warning(msg string) {
@@ -313,7 +324,7 @@ func Info(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(Stdout, msg)
+	fmt.Fprintln(noticeStream(), msg)
 }
 
 func InfoLabel(msg string) {
@@ -321,7 +332,7 @@ func InfoLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("114")).Render("INFO")
-	fmt.Fprintf(Stdout, "%s %s\n", label, msg)
+	fmt.Fprintf(noticeStream(), "%s %s\n", label, msg)
 }
 
 func WarnLabel(msg string) {

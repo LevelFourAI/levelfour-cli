@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1313,4 +1316,69 @@ func TestAuthLoginResolveError(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when prompt fails")
 	}
+}
+
+// The device flow has already completed by the time the keychain is written, and
+// the browser has told the user they are authenticated. Returning the error
+// alone threw the key away, leaving a live credential nobody held and nobody
+// knew to revoke.
+func TestLoginKeepsAKeyTheKeychainRefuses(t *testing.T) {
+	origStore, origTerminal := keyring.StoreFunc, isTerminal
+	t.Cleanup(func() { keyring.StoreFunc, isTerminal = origStore, origTerminal })
+	keyring.StoreFunc = func(string) error { return errors.New("no keychain here") }
+
+	t.Run("at a terminal it prints the key", func(t *testing.T) {
+		isTerminal = func() bool { return true }
+		var out bytes.Buffer
+		origStdout := output.Stdout
+		output.Stdout = &out
+		t.Cleanup(func() { output.Stdout = origStdout })
+
+		err := rescueCredential("l4_live_rescued", errors.New("no keychain here"))
+		if err == nil {
+			t.Fatal("a failed store must still be an error")
+		}
+		if !strings.Contains(out.String(), "l4_live_rescued") {
+			t.Errorf("the key was not shown: %s", out.String())
+		}
+		if !strings.Contains(out.String(), credentialEnvVar) {
+			t.Errorf("output does not say how to use it: %s", out.String())
+		}
+	})
+
+	t.Run("without a terminal it writes a file instead", func(t *testing.T) {
+		dir := t.TempDir()
+		config.SetConfigDir(dir)
+		t.Cleanup(func() { config.SetConfigDir("") })
+		isTerminal = func() bool { return false }
+
+		var out bytes.Buffer
+		origStdout := output.Stdout
+		output.Stdout = &out
+		t.Cleanup(func() { output.Stdout = origStdout })
+
+		if err := rescueCredential("l4_live_rescued", errors.New("no keychain here")); err == nil {
+			t.Fatal("a failed store must still be an error")
+		}
+		// stdout here is a log or a redirect, so the key must not be in it.
+		if strings.Contains(out.String(), "l4_live_rescued") {
+			t.Error("the key was printed to a non-terminal stdout")
+		}
+
+		path := filepath.Join(dir, "rescued-api-key")
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("no rescue file: %v", err)
+		}
+		if strings.TrimSpace(string(body)) != "l4_live_rescued" {
+			t.Errorf("file holds %q", body)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mode := info.Mode().Perm(); mode != 0o600 {
+			t.Errorf("mode = %o, want 600: this file holds a credential", mode)
+		}
+	})
 }

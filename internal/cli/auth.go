@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -132,7 +134,7 @@ var authLoginCmd = &cobra.Command{
 		}
 
 		if err := keyring.Store(apiKey); err != nil {
-			return fmt.Errorf("failed to store credentials in system keychain: %w", err)
+			return rescueCredential(apiKey, err)
 		}
 		cfg, _ := config.Load()
 		if cfg == nil {
@@ -256,6 +258,54 @@ func doPoll(client *api.SDKClient, deviceCode string, interval, expiresIn int) (
 		}
 	}
 	return "", fmt.Errorf("device code expired; run 'l4 auth login' to try again")
+}
+
+// rescueCredential keeps a key the device flow has already minted when the
+// keychain refuses it.
+//
+// By this point the browser has told the user they are authenticated and the key
+// is live on their account. Returning the error alone discarded it, leaving a
+// credential nobody holds and nobody knows to revoke, and every retry minted
+// another one.
+//
+// Where it goes depends on who is reading. At a terminal the key is printed.
+// Otherwise stdout is a CI log or a redirect, so it goes to a file only the user
+// can read and just the path is printed.
+func rescueCredential(apiKey string, cause error) error {
+	output.Error(fmt.Sprintf("the key could not be stored in your keychain: %v", cause))
+	output.Warning("A key was created on your account. Save it below or revoke it in the dashboard, " +
+		"because nothing else is holding it.")
+
+	if isTerminal() {
+		fmt.Fprintf(output.Stdout, "\n  %s\n\n", apiKey)
+		output.Info("Use it with: export " + credentialEnvVar + "=<the key above>")
+	} else {
+		path, writeErr := writeRescueFile(apiKey)
+		if writeErr != nil {
+			return fmt.Errorf("the key could not be stored in your keychain (%v) and could not be "+
+				"written to a file either (%w). Revoke it in the dashboard and try again", cause, writeErr)
+		}
+		output.Info(fmt.Sprintf("Written to %s, readable only by you.", path))
+		output.Info(fmt.Sprintf("Use it with: export %s=$(cat %q)", credentialEnvVar, path))
+	}
+
+	if runtime.GOOS == "darwin" {
+		output.Info("If macOS offered to reset your keychain, cancel it. Resetting would orphan " +
+			"your other stored credentials.")
+	}
+	return fmt.Errorf("authenticated, but the key was not stored in the keychain")
+}
+
+// writeRescueFile puts the key somewhere only the user can read it.
+func writeRescueFile(apiKey string) (string, error) {
+	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(config.Dir(), "rescued-api-key")
+	if err := os.WriteFile(path, []byte(apiKey+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return path, os.Chmod(path, 0o600)
 }
 
 var isTerminal = func() bool {

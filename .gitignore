@@ -39,3 +39,6 @@ dist/
 .claude/
 .cursor/
 .aider*
+
+# Local working notes, not part of the published CLI.
+MCP-*.md
