@@ -207,7 +207,7 @@ func TestRecommendationsGetEscapesTheIDAndSlimsTheDetail(t *testing.T) {
 		"iam_policy":        "secret",
 	}}
 	got, err := toolNamed(t, "get-recommendation").run(f,
-		map[string]any{"recommendation_id": "CLICK 243/../etc"})
+		map[string]any{"recommendation_id": "REC 1234/../etc"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}

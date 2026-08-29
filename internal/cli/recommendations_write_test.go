@@ -83,8 +83,8 @@ func TestRecommendationDecisionCommands(t *testing.T) {
 		},
 		{
 			name:     "id with a slash is escaped",
-			args:     []string{"rec", "accept", "CLICK/243", "--yes"},
-			wantPath: "/api/v1/recommendations/CLICK%2F243/decision",
+			args:     []string{"rec", "accept", "REC-1234/567", "--yes"},
+			wantPath: "/api/v1/recommendations/REC-1234%2F567/decision",
 			wantBody: map[string]interface{}{"decision": "accepted"},
 			wantOut:  []string{"accepted"},
 		},
