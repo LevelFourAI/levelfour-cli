@@ -169,10 +169,9 @@ func fitBudget(result map[string]any, path rowsPath) map[string]any {
 }
 
 // The lists a result can be trimmed on, in the order they are given up. Rows go
-// first because they are what the caller asked for. Metrics are second and were
-// unreachable until now: they sit outside the rows key, so a recommendation
-// covering a fleet could exceed the ceiling on metrics alone after rows had
-// already been cut to nothing.
+// first because they are what the caller asked for. Metrics sit outside the rows
+// key, so a recommendation covering a fleet can exceed the ceiling on those alone
+// once rows are gone.
 type trimTarget struct {
 	path   rowsPath
 	noteAt string
@@ -186,17 +185,7 @@ func trimList(result map[string]any, target trimTarget) map[string]any {
 		return result
 	}
 
-	kept := rows
-	for len(kept) > 0 {
-		trial := target.path.with(result, kept)
-		if sizeOf(trial) <= maxResultChars {
-			break
-		}
-		// Halving rather than stepping: a single oversized row would otherwise
-		// cost one serialization per row to discover.
-		kept = kept[:len(kept)/2]
-	}
-
+	kept := keepWhatFits(result, target.path, rows)
 	trimmed := target.path.with(result, kept)
 	trimmed[target.noteAt] = fmt.Sprintf(
 		"Showing %d of %d %s because the full result exceeded the size a single "+
@@ -243,6 +232,19 @@ func copyMap(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// Halving rather than stepping: a single oversized row would otherwise cost one
+// serialization per row to discover.
+func keepWhatFits(result map[string]any, path rowsPath, rows []any) []any {
+	kept := rows
+	for len(kept) > 0 {
+		if sizeOf(path.with(result, kept)) <= maxResultChars {
+			break
+		}
+		kept = kept[:len(kept)/2]
+	}
+	return kept
 }
 
 func sizeOf(payload any) int {

@@ -41,8 +41,7 @@ const (
 // There is no "configured but the client is gone" state. An entry can only be
 // read back out of a config file, and that file existing is itself what Presence
 // counts as the client being here, so configured implies found for every client.
-// TestConfiguredAlwaysMeansFound pins that, since a fourth status string that
-// cannot occur is what the two booleans this replaced were carrying.
+// TestConfiguredAlwaysMeansFound pins that.
 func describeStatus(found, configured bool) string {
 	switch {
 	case configured:
@@ -222,14 +221,11 @@ func writeConfig(path string, root map[string]any) error {
 	return replaceFile(path, append(encoded, '\n'))
 }
 
-// replaceFile writes a temporary file beside the target and renames it over.
-//
-// Two properties come from that, and both matter for a file holding a bearer
-// token: os.CreateTemp opens at 0600, so the credential is never on disk under a
-// mode the vendor chose, where a plain write to an existing 0644 file would be
-// world-readable until a following chmod landed. And rename is atomic, so an
-// interrupted write cannot truncate a config that also holds the user's own
-// state.
+// replaceFile writes a temporary file beside the target and renames it over, for
+// two properties a file holding a bearer token needs. os.CreateTemp opens at
+// 0600, so the credential is never on disk under a mode the vendor chose. And
+// rename is atomic, so an interrupted write cannot truncate a config that also
+// holds the user's own state.
 func replaceFile(path string, data []byte) error {
 	temp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".l4-tmp-")
 	if err != nil {
@@ -319,13 +315,10 @@ func removeEntry(path string, original []byte, section, name string) error {
 	return writeConfig(path, root)
 }
 
-// Backups lists the dated copies taken while operating on this entry. Nothing
-// prunes them, and each is a full copy of a file that may hold a credential, so
-// `uninstall --purge-backups` needs to find them.
-//
-// Scoped to the name, because a purge must not take the rollback copy for an
-// entry the command was told to leave alone. Copies written before the name was
-// part of the filename do not match, which keeps them.
+// Backups lists the dated copies taken while operating on this entry. Each is a
+// full copy of a file that may hold a credential and nothing prunes them, so
+// `uninstall --purge-backups` needs to find them. Scoped to the name, because a
+// purge must not take the rollback copy for an entry it was told to leave alone.
 func Backups(c Client, name string) []string {
 	path, err := c.ConfigPath()
 	if err != nil {
