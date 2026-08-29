@@ -155,10 +155,10 @@ func hintIfEmpty(result map[string]any, rowsKey, hint string) map[string]any {
 // blown cannot.
 func fitBudget(result map[string]any, path rowsPath) map[string]any {
 	for _, target := range []trimTarget{
-		{path, "truncated", "rows",
-			"Ask a narrower question, or page through with a smaller page_size."},
-		{rowsPath{key: metricsKey}, "metrics_truncated", "metric series",
+		{rowsPath{key: metricsKey}, metricsTotalKey, "metrics_truncated", "metric series",
 			"Ask about a named resource for the rest."},
+		{path, "", "truncated", "rows",
+			"Ask a narrower question, or page through with a smaller page_size."},
 	} {
 		if sizeOf(result) <= maxResultChars {
 			return result
@@ -168,15 +168,32 @@ func fitBudget(result map[string]any, path rowsPath) map[string]any {
 	return result
 }
 
-// The lists a result can be trimmed on, in the order they are given up. Rows go
-// first because they are what the caller asked for. Metrics sit outside the rows
-// key, so a recommendation covering a fleet can exceed the ceiling on those alone
-// once rows are gone.
+// The lists a result can be trimmed on, in the order they are given up. Metrics
+// go first: they are supporting evidence, and a recommendation covering a fleet
+// carries enough of them to fill the ceiling on their own. Rows go last, because
+// they are the answer the caller asked for, and a result that has emptied them
+// while keeping charts has thrown away the part that was wanted.
+//
+// totalAt optionally names a field holding the count before an earlier cap, so
+// the note reports against the real total rather than against the survivors.
 type trimTarget struct {
-	path   rowsPath
-	noteAt string
-	noun   string
-	advice string
+	path    rowsPath
+	totalAt string
+	noteAt  string
+	noun    string
+	advice  string
+}
+
+// totalOf is what the caller had before anything trimmed it, which is not always
+// the length of the list handed to this trim.
+func (t trimTarget) totalOf(result map[string]any, rows []any) int {
+	if t.totalAt == "" {
+		return len(rows)
+	}
+	if before, ok := result[t.totalAt].(int); ok && before > len(rows) {
+		return before
+	}
+	return len(rows)
 }
 
 func trimList(result map[string]any, target trimTarget) map[string]any {
@@ -189,7 +206,8 @@ func trimList(result map[string]any, target trimTarget) map[string]any {
 	trimmed := target.path.with(result, kept)
 	trimmed[target.noteAt] = fmt.Sprintf(
 		"Showing %d of %d %s because the full result exceeded the size a single "+
-			"tool result may return. %s", len(kept), len(rows), target.noun, target.advice)
+			"tool result may return. %s",
+		len(kept), target.totalOf(result, rows), target.noun, target.advice)
 	return trimmed
 }
 

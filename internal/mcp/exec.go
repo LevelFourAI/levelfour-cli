@@ -50,9 +50,10 @@ func (t tool) run(f Fetcher, args map[string]any) (map[string]any, error) {
 		}
 
 		shaped, rowsKey := c.shape(payload, args)
-		if !foundRows && rowsKey != "" {
-			budget = rowsPath{section: c.key, key: rowsKey}
-			foundRows = true
+		if !foundRows {
+			if path, ok := c.budgetPath(shaped, rowsKey); ok {
+				budget, foundRows = path, true
+			}
 		}
 		if c.key == "" {
 			result = merge(result, shaped)
@@ -107,7 +108,29 @@ func (b binding) apply(query url.Values, args map[string]any) {
 
 // shape applies the result rules a call declares, and reports which key its rows
 // landed under so the size budget knows what it may trim.
+// budgetPath is where this call's rows end up in the assembled result, which
+// depends on what the call returned. An object nests under the call's key, so the
+// key travels with the rows key. A pick can hand back a bare list, which sits
+// directly under the call's key with no object around it; addressing that as an
+// object found nothing, and the size ceiling silently never applied.
+func (c call) budgetPath(shaped any, rowsKey string) (rowsPath, bool) {
+	if _, isList := shaped.([]any); isList && c.key != "" {
+		return rowsPath{key: c.key}, true
+	}
+	if rowsKey == "" {
+		return rowsPath{}, false
+	}
+	return rowsPath{section: c.key, key: rowsKey}, true
+}
+
 func (c call) shape(payload any, args map[string]any) (any, string) {
+	// A picked list still earns its cap: the route returns it whole.
+	if rows, isList := payload.([]any); isList {
+		if c.bound && len(rows) > maxPageSize {
+			return rows[:maxPageSize], ""
+		}
+		return rows, ""
+	}
 	object, ok := payload.(map[string]any)
 	if !ok {
 		return payload, ""

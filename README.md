@@ -57,17 +57,17 @@ l4 mcp install --client cursor --name levelfour-rw     # a second entry, e.g. a 
 l4 mcp status                                          # what is wired up, and what is not
 ```
 
-Existing config files are parsed and merged rather than replaced, only the entry under `--name` is touched, and a dated `.l4-backup-<timestamp>` copy is taken first.
+Existing config files are parsed and merged rather than replaced, only the entry under `--name` is touched, and a dated `.l4-backup-<name>-<timestamp>` copy is taken first.
 
 | Client | Written to | Transport |
 |---|---|---|
-| Claude Code | `claude mcp add --scope user` | Remote HTTP |
+| Claude Code | `~/.claude.json` | Remote HTTP |
 | Claude Desktop | `claude_desktop_config.json` | Local stdio (`l4 mcp serve`) |
 | Cursor | `~/.cursor/mcp.json` | Remote HTTP |
 | VS Code | user-profile `mcp.json` | Remote HTTP |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` | Remote HTTP |
 
-Remote clients talk to `https://mcp.levelfour.ai/mcp` and carry your API key in an `Authorization` header. By default the key is written into the config file. Files this command writes itself are created `0600` on macOS and Linux; the Claude Code entry is written by `claude mcp add`, which owns that file and its permissions. Pass `--key-source env` to write a reference instead, and the key never lands in the file:
+Remote clients talk to `https://mcp.levelfour.ai/mcp` and carry your API key in an `Authorization` header. By default the key is written into the config file. Every file this command writes, `~/.claude.json` included, is created `0600` on macOS and Linux. Each is written to a temporary file and renamed into place, so the mode is set before the key is on disk and an interrupted write cannot truncate a config you already had. Pass `--key-source env` to write a reference instead, and the key never lands in the file:
 
 ```bash
 l4 mcp install --key-source env    # then export LEVELFOUR_TOKEN where the client starts

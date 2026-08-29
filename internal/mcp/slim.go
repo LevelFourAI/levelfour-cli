@@ -16,7 +16,13 @@ var detailOperatorFields = map[string]bool{
 	"iam_policy": true, "iam_role_arn": true, "manual_instructions": true,
 }
 
-const metricsKey = "metrics"
+const (
+	metricsKey = "metrics"
+
+	// The number of series before any capping. A later size trim reports against
+	// this, so a model is never given a denominator that counts only survivors.
+	metricsTotalKey = "metrics_total"
+)
 
 const (
 	maxMetricPoints = 60
@@ -43,7 +49,11 @@ func slimRecommendation(detail map[string]any) map[string]any {
 		slim["actions"] = trimmed
 	}
 	if metrics, ok := slim[metricsKey].([]any); ok {
-		slim[metricsKey] = capMetrics(metrics)
+		kept := capMetrics(metrics)
+		slim[metricsKey] = kept
+		if len(metrics) > len(kept) {
+			slim[metricsTotalKey] = len(metrics)
+		}
 	}
 	return slim
 }
@@ -56,11 +66,6 @@ func capMetrics(metrics []any) []any {
 	capped := make([]any, 0, len(kept))
 	for _, series := range kept {
 		capped = append(capped, capSeries(series))
-	}
-	if len(metrics) > maxMetricSeries {
-		capped = append(capped, map[string]any{"truncated": fmt.Sprintf(
-			"Showing %d of %d metric series. Ask about a named resource for the rest.",
-			maxMetricSeries, len(metrics))})
 	}
 	return capped
 }

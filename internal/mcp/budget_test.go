@@ -64,7 +64,10 @@ func TestEveryToolStaysInsideTheSizeCeiling(t *testing.T) {
 				for _, calls := range [][]call{tl.calls, tl.altCalls} {
 					for _, c := range calls {
 						body := map[string]any{}
-						if key := firstKey(c.rows, c.rowsAlt); key != "" {
+						// pick replaces the payload before the rows key is read, so a body
+						// keyed on rows never reaches the result and this asserts on
+						// nothing.
+						if key := firstKey(c.pick, c.rows, c.rowsAlt); key != "" {
 							body[key] = oversizedRows(50)
 							serves = true
 						}
@@ -143,8 +146,32 @@ func TestRecommendationMetricsCannotBlowTheCeiling(t *testing.T) {
 	if size := sizeOf(got); size > maxResultChars {
 		t.Errorf("result is %d chars, over the %d ceiling", size, maxResultChars)
 	}
-	kept, _ := got["metrics"].([]any)
-	if len(kept) > maxMetricSeries+1 {
-		t.Errorf("kept %d series, want at most %d plus the truncation note", len(kept), maxMetricSeries)
+	if _, told := got["metrics_truncated"]; !told {
+		t.Error("metrics were dropped without telling the model")
+	}
+}
+
+// The size lever above would bound these on its own, so it cannot show that the
+// count cap works. These series are small enough that 200 of them fit the ceiling
+// untouched: only maxMetricSeries can bound this, so removing it fails here.
+func TestMetricSeriesAreCappedByCountNotOnlyBySize(t *testing.T) {
+	series := make([]any, 0, 200)
+	for i := 0; i < 200; i++ {
+		series = append(series, map[string]any{
+			"metric_name": "cpu",
+			"data_points": []any{1, 2, 3},
+		})
+	}
+	slim := slimRecommendation(map[string]any{"metrics": series})
+
+	kept := slim[metricsKey].([]any)
+	if len(kept) != maxMetricSeries {
+		t.Errorf("kept %d series, want %d", len(kept), maxMetricSeries)
+	}
+	if sizeOf(slim) > maxResultChars {
+		t.Fatal("fixture is too large, so the size lever could bound it instead of the cap")
+	}
+	if slim[metricsTotalKey] != 200 {
+		t.Errorf("%s = %v, want 200: a later trim reports against this", metricsTotalKey, slim[metricsTotalKey])
 	}
 }

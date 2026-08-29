@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,7 +122,8 @@ func Install(_ context.Context, c Client, o Options) (Result, error) {
 }
 
 func Status(_ context.Context, c Client, name string) State {
-	state := State{Client: c.ID, Label: c.Label, Status: describeStatus(c.Detect(), false)}
+	found := c.Detect()
+	state := State{Client: c.ID, Label: c.Label, Status: describeStatus(found, false)}
 
 	path, err := c.ConfigPath()
 	if err != nil {
@@ -132,7 +135,7 @@ func Status(_ context.Context, c Client, name string) State {
 	if entry == nil {
 		return state
 	}
-	state.Status = describeStatus(c.Detect(), true)
+	state.Status = describeStatus(found, true)
 	state.Endpoint = describeEntry(entry)
 	return state
 }
@@ -187,6 +190,14 @@ func decodeConfig(path string, data []byte) (map[string]any, error) {
 		return nil, fmt.Errorf(
 			"%s is not valid JSON, so it was left alone: %w. Fix or move the file, then run this again", path, err)
 	}
+	// Decode stops at the first value and says nothing about what follows, where
+	// the json.Unmarshal this replaced refused trailing content outright. Without
+	// this the rewrite would drop the tail of a file left in that state.
+	if err := decoder.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf(
+			"%s has content after its top-level JSON value, so it was left alone. "+
+				"Fix or move the file, then run this again", path)
+	}
 	return root, nil
 }
 
@@ -227,6 +238,14 @@ func writeConfig(path string, root map[string]any) error {
 // rename is atomic, so an interrupted write cannot truncate a config that also
 // holds the user's own state.
 func replaceFile(path string, data []byte) error {
+	// os.Rename acts on the path, so a config symlinked into a dotfiles repo would
+	// be replaced by a regular file and the link silently severed. Write to what
+	// the link points at. A path that does not resolve is one that does not exist
+	// yet, which is the ordinary first install.
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+
 	temp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".l4-tmp-")
 	if err != nil {
 		return fmt.Errorf("cannot write %s: %w", path, err)

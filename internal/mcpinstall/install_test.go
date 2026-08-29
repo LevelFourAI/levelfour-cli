@@ -729,6 +729,11 @@ func TestConfiguredAlwaysMeansFound(t *testing.T) {
 			if _, err := Install(ctx, c, testOptions()); err != nil {
 				t.Fatalf("install: %v", err)
 			}
+			// describeStatus reads configured first, so asserting only on the status
+			// string would pass even if Detect went false. Assert Detect itself.
+			if !c.Detect() {
+				t.Error("a configured client reports as not found, so StatusOrphaned is reachable")
+			}
 			if got := Status(ctx, c, "levelfour").Status; got != StatusInstalled {
 				t.Errorf("status = %q, want %q", got, StatusInstalled)
 			}
@@ -784,5 +789,76 @@ func TestBackupsAreScopedToTheEntry(t *testing.T) {
 	}
 	if got := Backups(cursor, "levelfour-rw"); len(got) != 1 {
 		t.Errorf("backups for levelfour-rw = %v, want its own", got)
+	}
+}
+
+// json.Decoder reads one value and ignores what follows, where the json.Unmarshal
+// it replaced refused trailing content. Without a check, rewriting a file left in
+// that state would silently drop its tail.
+func TestInstallRefusesAFileWithContentAfterTheJSON(t *testing.T) {
+	home := withHome(t)
+	withGOOS(t, "darwin")
+	cursor, _ := Find(Cursor)
+
+	dir := filepath.Join(home, ".cursor")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "mcp.json")
+	residue := `{"mcpServers":{"other":{"url":"https://example/mcp"}}}` + "\n{\"leftover\":true}\n"
+	if err := os.WriteFile(path, []byte(residue), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Install(context.Background(), cursor, testOptions()); err == nil {
+		t.Fatal("install rewrote a file whose tail it was about to drop")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "leftover") {
+		t.Error("the trailing content was dropped")
+	}
+}
+
+// Dotfiles managers symlink these configs into a repo. os.Rename would replace
+// the link with a regular file and sever it silently, so the write follows the
+// link to its target instead.
+func TestInstallWritesThroughASymlinkedConfig(t *testing.T) {
+	home := withHome(t)
+	withGOOS(t, "darwin")
+	cursor, _ := Find(Cursor)
+
+	dotfiles := filepath.Join(home, "dotfiles")
+	if err := os.MkdirAll(dotfiles, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dotfiles, "cursor-mcp.json")
+	if err := os.WriteFile(target, []byte(`{"mcpServers":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(home, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Install(context.Background(), cursor, testOptions()); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("the symlink was replaced by a regular file, severing the dotfiles link")
+	}
+	if (entryRef{target, cursor.Section, "levelfour"}).read() == nil {
+		t.Error("the entry did not reach the file the link points at")
 	}
 }
