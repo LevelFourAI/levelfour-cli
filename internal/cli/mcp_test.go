@@ -15,20 +15,18 @@ import (
 // stubMCP replaces the filesystem-facing seams for one test.
 func stubMCP(t *testing.T) {
 	t.Helper()
-	origInstall, origStatus, origDetected, origServe, origExec :=
-		mcpInstall, mcpStatus, mcpDetected, mcpServe, osExecutable
-	origSuggested, origUninstall := mcpSuggested, mcpUninstall
+	origInstall, origStatus, origClassify, origServe, origExec :=
+		mcpInstall, mcpStatus, mcpClassify, mcpServe, osExecutable
+	origUninstall := mcpUninstall
 	t.Cleanup(func() {
 		mcpUninstall = origUninstall
-		mcpInstall, mcpStatus, mcpDetected, mcpServe, osExecutable =
-			origInstall, origStatus, origDetected, origServe, origExec
-		mcpSuggested = origSuggested
+		mcpInstall, mcpStatus, mcpClassify, mcpServe, osExecutable =
+			origInstall, origStatus, origClassify, origServe, origExec
 	})
 	osExecutable = func() (string, error) { return "/opt/homebrew/bin/l4", nil }
-	mcpDetected = func() []mcpinstall.Client { return nil }
 	// Without this the real machine decides the result: whatever leftover client
 	// directories the test host happens to have would change the error text.
-	mcpSuggested = func() []mcpinstall.Client { return nil }
+	mcpClassify = func() (present, hinted []mcpinstall.Client) { return nil, nil }
 	mcpStatus = func(context.Context, mcpinstall.Client, string) mcpinstall.State {
 		return mcpinstall.State{}
 	}
@@ -188,7 +186,9 @@ func TestMCPInstallConfiguresEveryDetectedClient(t *testing.T) {
 
 	cursor, _ := mcpinstall.Find(mcpinstall.Cursor)
 	desktop, _ := mcpinstall.Find(mcpinstall.ClaudeDesktop)
-	mcpDetected = func() []mcpinstall.Client { return []mcpinstall.Client{cursor, desktop} }
+	mcpClassify = func() (present, hinted []mcpinstall.Client) {
+		return []mcpinstall.Client{cursor, desktop}, nil
+	}
 
 	var configured []string
 	mcpInstall = func(_ context.Context, c mcpinstall.Client, _ mcpinstall.Options) (mcpinstall.Result, error) {
@@ -231,7 +231,9 @@ func TestMCPInstallNamesAClientItOnlyHasAHintOf(t *testing.T) {
 	defer resetFlags()
 
 	vscode, _ := mcpinstall.Find(mcpinstall.VSCode)
-	mcpSuggested = func() []mcpinstall.Client { return []mcpinstall.Client{vscode} }
+	mcpClassify = func() (present, hinted []mcpinstall.Client) {
+		return nil, []mcpinstall.Client{vscode}
+	}
 
 	_, _, err := executeCommand(t, "mcp", "install")
 	if err == nil {

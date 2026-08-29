@@ -1,11 +1,11 @@
 package mcpinstall
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -34,18 +34,19 @@ const (
 	StatusInstalled      = "installed"
 	StatusNotInstalled   = "not installed"
 	StatusClientNotFound = "client not found"
-	// Reachable only for the delegated client, which is found by its executable
-	// rather than by the config file that carries the entry.
-	StatusOrphaned = "installed (client not found)"
 )
 
 // Configured wins the phrasing, because that is what install changed.
+//
+// There is no "configured but the client is gone" state. An entry can only be
+// read back out of a config file, and that file existing is itself what Presence
+// counts as the client being here, so configured implies found for every client.
+// TestConfiguredAlwaysMeansFound pins that, since a fourth status string that
+// cannot occur is what the two booleans this replaced were carrying.
 func describeStatus(found, configured bool) string {
 	switch {
-	case configured && found:
-		return StatusInstalled
 	case configured:
-		return StatusOrphaned
+		return StatusInstalled
 	case found:
 		return StatusNotInstalled
 	default:
@@ -64,21 +65,21 @@ const (
 	// Dated, so a second install does not overwrite the evidence from the first.
 	backupSuffix = ".l4-backup-"
 
+	// The date, as a glob. Matching on its shape is what keeps a purge of
+	// "levelfour" from also taking the backups of "levelfour-rw", which a
+	// trailing wildcard after the name would.
+	backupStampGlob = "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]"
+
 	// These files hold a bearer token, including a rewrite of one that was looser.
 	configMode = 0o600
 	dirMode    = 0o700
 )
 
-var (
-	now        = time.Now
-	runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, name, args...).CombinedOutput()
-	}
-)
+var now = time.Now
 
 // Install never overwrites a config blind: a file that is not valid JSON stops
 // the install rather than being replaced.
-func Install(ctx context.Context, c Client, o Options) (Result, error) {
+func Install(_ context.Context, c Client, o Options) (Result, error) {
 	result := Result{Client: c.ID, Label: c.Label, Note: c.Note}
 
 	path, err := c.ConfigPath()
@@ -92,17 +93,11 @@ func Install(ctx context.Context, c Client, o Options) (Result, error) {
 		return result, err
 	}
 	if existed {
-		backup, err := writeBackup(path, original)
+		backup, err := writeBackup(path, o.Name, original)
 		if err != nil {
 			return result, err
 		}
 		result.Backup = backup
-	}
-
-	if c.Delegated {
-		result.Target = fmt.Sprintf("claude mcp add %s (user scope, %s)", o.Name, path)
-		result.Action, err = c.installViaCLI(ctx, o, entryRef{path, c.Section, o.Name})
-		return result, err
 	}
 
 	root, err := decodeConfig(path, original)
@@ -185,7 +180,11 @@ func decodeConfig(path string, data []byte) (map[string]any, error) {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return root, nil
 	}
-	if err := json.Unmarshal(data, &root); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	// Numbers in a vendor's file are kept as their literal text. Decoding them
+	// through float64 and re-encoding would reformat anything past 2^53.
+	decoder.UseNumber()
+	if err := decoder.Decode(&root); err != nil {
 		return nil, fmt.Errorf(
 			"%s is not valid JSON, so it was left alone: %w. Fix or move the file, then run this again", path, err)
 	}
@@ -204,8 +203,8 @@ func sectionOf(root map[string]any, name, path string) (map[string]any, error) {
 	return section, nil
 }
 
-func writeBackup(path string, original []byte) (string, error) {
-	backup := path + backupSuffix + now().UTC().Format("20060102-150405")
+func writeBackup(path, name string, original []byte) (string, error) {
+	backup := path + backupSuffix + name + "-" + now().UTC().Format("20060102-150405")
 	if err := os.WriteFile(backup, original, configMode); err != nil {
 		return "", fmt.Errorf("cannot back up %s: %w", path, err)
 	}
@@ -220,61 +219,33 @@ func writeConfig(path string, root map[string]any) error {
 	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
 		return fmt.Errorf("cannot create %s: %w", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, append(encoded, '\n'), configMode); err != nil {
-		return err
-	}
-	// WriteFile only applies its mode when it creates the file, so a config that
-	// was already 0644 would stay world-readable with a bearer token now in it.
-	return os.Chmod(path, configMode)
+	return replaceFile(path, append(encoded, '\n'))
 }
 
-// `claude mcp add` refuses a name that already exists, so an existing entry is
-// removed first and restored if the add then fails.
+// replaceFile writes a temporary file beside the target and renames it over.
 //
-// The positionals must precede --header: -H is variadic, so a header placed
-// first consumes <name> and <commandOrUrl> and the command exits with "missing
-// required argument 'name'".
-func (c Client) installViaCLI(ctx context.Context, o Options, ref entryRef) (string, error) {
-	path := ref.path
-	previous := ref.read()
+// Two properties come from that, and both matter for a file holding a bearer
+// token: os.CreateTemp opens at 0600, so the credential is never on disk under a
+// mode the vendor chose, where a plain write to an existing 0644 file would be
+// world-readable until a following chmod landed. And rename is atomic, so an
+// interrupted write cannot truncate a config that also holds the user's own
+// state.
+func replaceFile(path string, data []byte) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".l4-tmp-")
+	if err != nil {
+		return fmt.Errorf("cannot write %s: %w", path, err)
+	}
+	// Removing the temp file is a no-op once the rename has consumed it.
+	defer func() { _ = os.Remove(temp.Name()) }()
 
-	// Read the config rather than asking `claude mcp get`, which searches every
-	// scope. This writes user scope, so a name that exists at local or project
-	// scope would otherwise be removed from a scope it is not in, and the remove
-	// fails with "No MCP server named ... in user scope".
-	action := actionAdded
-	if previous != nil {
-		action = actionReplaced
-		if out, err := runCommand(ctx, "claude", "mcp", "remove", o.Name, "--scope", "user"); err != nil {
-			return action, fmt.Errorf("claude mcp remove %s failed: %w: %s", o.Name, err, strings.TrimSpace(string(out)))
-		}
+	if _, err := temp.Write(data); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("cannot write %s: %w", path, err)
 	}
-
-	out, err := runCommand(ctx, "claude", "mcp", "add",
-		"--transport", "http",
-		"--scope", "user",
-		o.Name, o.Endpoint,
-		"--header", authHeaderLine(c, o))
-	if err == nil {
-		// The vendor CLI creates this file 0644, and it now holds a bearer token.
-		// Only when we put one there: a missing file means nothing to protect.
-		if c.WritesCredential(o) {
-			if chmodErr := os.Chmod(path, configMode); chmodErr != nil && !os.IsNotExist(chmodErr) {
-				return action, fmt.Errorf(
-					"%s now holds a credential but could not be restricted to %o: %w", path, configMode, chmodErr)
-			}
-		}
-		return action, nil
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("cannot write %s: %w", path, err)
 	}
-
-	failed := fmt.Errorf("claude mcp add %s failed: %w: %s", o.Name, err, strings.TrimSpace(string(out)))
-	if previous == nil {
-		return action, failed
-	}
-	if restoreErr := ref.restore(previous); restoreErr != nil {
-		return action, fmt.Errorf("%w. Restoring the previous entry also failed: %v", failed, restoreErr)
-	}
-	return action, fmt.Errorf("%w. The previous entry was put back", failed)
+	return os.Rename(temp.Name(), path)
 }
 
 // entryRef locates one server entry inside a client-owned config file.
@@ -304,32 +275,12 @@ func (r entryRef) read() map[string]any {
 	return entry
 }
 
-// Re-reads, so a change the vendor CLI made in between survives.
-func (r entryRef) restore(entry map[string]any) error {
-	data, _, err := readConfig(r.path)
-	if err != nil {
-		return err
-	}
-	root, err := decodeConfig(r.path, data)
-	if err != nil {
-		return err
-	}
-	entries, err := sectionOf(root, r.section, r.path)
-	if err != nil {
-		return err
-	}
-	entries[r.name] = entry
-	root[r.section] = entries
-	return writeConfig(r.path, root)
-}
-
 // Uninstall removes the entry under o.Name from one client. It is the inverse of
-// Install: the same backup is taken, the same single key is touched, and the
-// delegated client goes through its own CLI.
+// Install: the same backup is taken and the same single key is touched.
 //
 // Removing an entry that is not there is not an error. Uninstall exists to reach
 // a known state, and a client that was never configured is already in it.
-func Uninstall(ctx context.Context, c Client, o Options) (Result, error) {
+func Uninstall(_ context.Context, c Client, o Options) (Result, error) {
 	result := Result{Client: c.ID, Label: c.Label, Action: ActionAbsent}
 
 	path, err := c.ConfigPath()
@@ -346,24 +297,12 @@ func Uninstall(ctx context.Context, c Client, o Options) (Result, error) {
 		return result, nil
 	}
 
-	result.Backup, err = writeBackup(path, original)
+	result.Backup, err = writeBackup(path, o.Name, original)
 	if err != nil {
 		return result, err
 	}
 	result.Action = actionRemoved
-
-	if c.Delegated {
-		return result, c.removeViaCLI(ctx, o)
-	}
 	return result, removeEntry(path, original, c.Section, o.Name)
-}
-
-func (c Client) removeViaCLI(ctx context.Context, o Options) error {
-	out, err := runCommand(ctx, "claude", "mcp", "remove", o.Name, "--scope", "user")
-	if err != nil {
-		return fmt.Errorf("claude mcp remove %s failed: %w: %s", o.Name, err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 func removeEntry(path string, original []byte, section, name string) error {
@@ -380,15 +319,19 @@ func removeEntry(path string, original []byte, section, name string) error {
 	return writeConfig(path, root)
 }
 
-// Backups lists the dated copies this command has left beside a client's config.
-// Nothing prunes them, and each one is a full copy of a file that may hold a
-// credential, so `uninstall --purge-backups` needs to find them.
-func Backups(c Client) []string {
+// Backups lists the dated copies taken while operating on this entry. Nothing
+// prunes them, and each is a full copy of a file that may hold a credential, so
+// `uninstall --purge-backups` needs to find them.
+//
+// Scoped to the name, because a purge must not take the rollback copy for an
+// entry the command was told to leave alone. Copies written before the name was
+// part of the filename do not match, which keeps them.
+func Backups(c Client, name string) []string {
 	path, err := c.ConfigPath()
 	if err != nil {
 		return nil
 	}
-	matches, err := filepath.Glob(path + backupSuffix + "*")
+	matches, err := filepath.Glob(path + backupSuffix + name + backupStampGlob)
 	if err != nil {
 		return nil
 	}

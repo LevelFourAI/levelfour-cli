@@ -28,8 +28,7 @@ var (
 	mcpInstall   = mcpinstall.Install
 	mcpUninstall = mcpinstall.Uninstall
 	mcpStatus    = mcpinstall.Status
-	mcpDetected  = mcpinstall.Detected
-	mcpSuggested = mcpinstall.Suggested
+	mcpClassify  = mcpinstall.Classify
 	mcpServe     = mcp.Serve
 	osExecutable = os.Executable
 )
@@ -213,8 +212,7 @@ func resolveUninstallClients(ctx context.Context) ([]mcpinstall.Client, error) {
 	}
 	var carrying []mcpinstall.Client
 	for _, c := range mcpinstall.Clients {
-		switch mcpStatus(ctx, c, flagMCPName).Status {
-		case mcpinstall.StatusInstalled, mcpinstall.StatusOrphaned:
+		if mcpStatus(ctx, c, flagMCPName).Status == mcpinstall.StatusInstalled {
 			carrying = append(carrying, c)
 		}
 	}
@@ -230,7 +228,7 @@ type backupSweep struct{ purged, remaining int }
 func handleBackups(clients []mcpinstall.Client) backupSweep {
 	var sweep backupSweep
 	for _, c := range clients {
-		for _, path := range mcpinstall.Backups(c) {
+		for _, path := range mcpinstall.Backups(c, flagMCPName) {
 			if !flagMCPPurge {
 				sweep.remaining++
 				continue
@@ -367,12 +365,12 @@ func mcpEndpoint() string {
 // resolveMCPClients turns --client, or an empty --client, into the set to write.
 func resolveMCPClients() ([]mcpinstall.Client, error) {
 	if len(flagMCPClients) == 0 {
-		detected := mcpDetected()
 		// Clients there is only a hint of are named, never written to. The hint is
 		// a directory the client created once, and those outlive an uninstall, so
 		// acting on one means creating a config file with a credential in it for
 		// software that is not here any more.
-		suggested := labelsOf(mcpSuggested())
+		detected, hinted := mcpClassify()
+		suggested := labelsOf(hinted)
 
 		if len(detected) == 0 {
 			if len(suggested) > 0 {

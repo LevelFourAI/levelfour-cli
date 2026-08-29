@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -295,11 +294,17 @@ func TestInstallReportsAConfigItCannotWrite(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// Readable, backed up, and then not writable.
-	if err := os.WriteFile(path, []byte("{}"), 0o400); err != nil {
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	// The directory, not the file. The config is replaced by writing a temp file
+	// beside it and renaming over, so what has to be writable is the directory
+	// that holds both. A read-only file in a writable directory is replaceable,
+	// which is the same rule rename has always followed.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
 	if _, err := Install(context.Background(), cursor, testOptions()); err == nil {
 		t.Fatal("expected a write failure")
@@ -341,187 +346,8 @@ func TestBackupNamesAreDatedSoASecondInstallKeepsTheFirstCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(result.Backup, backupSuffix+"20260827-093000") {
+	if !strings.HasSuffix(result.Backup, backupSuffix+"levelfour-20260827-093000") {
 		t.Errorf("backup = %q", result.Backup)
-	}
-}
-
-// stubClaude replaces the vendor CLI with a recorder.
-func stubClaude(t *testing.T, respond func(args []string) ([]byte, error)) *[][]string {
-	t.Helper()
-	var calls [][]string
-	orig := runCommand
-	runCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
-		calls = append(calls, append([]string{name}, args...))
-		return respond(args)
-	}
-	t.Cleanup(func() { runCommand = orig })
-	return &calls
-}
-
-func TestClaudeCodeIsConfiguredThroughItsOwnCLI(t *testing.T) {
-	withHome(t)
-	withGOOS(t, "darwin")
-	code, _ := Find(ClaudeCode)
-
-	calls := stubClaude(t, func(args []string) ([]byte, error) {
-		if args[1] == "get" {
-			return nil, errors.New("no such server")
-		}
-		return []byte("added"), nil
-	})
-
-	result, err := Install(context.Background(), code, testOptions())
-	if err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	if result.Action != actionAdded {
-		t.Errorf("action = %q", result.Action)
-	}
-	if len(*calls) != 1 {
-		t.Fatalf("calls = %v, want the add alone: nothing exists in user scope", *calls)
-	}
-	// The exact argv, not a set of substrings. --header is variadic in the vendor
-	// CLI, so a header placed ahead of the positionals swallows the name and the
-	// URL and the command does nothing. Every substring assertion this replaced
-	// held just as well for the ordering that never worked.
-	want := []string{
-		"claude", "mcp", "add",
-		"--transport", "http",
-		"--scope", "user",
-		"levelfour", "https://mcp.levelfour.ai/mcp",
-		"--header", "Authorization: Bearer l4_live_secret",
-	}
-	if !reflect.DeepEqual((*calls)[0], want) {
-		t.Errorf("add argv:\n got %q\nwant %q", (*calls)[0], want)
-	}
-	for i, arg := range (*calls)[0] {
-		if arg == "--header" && i < len((*calls)[0])-3 {
-			t.Errorf("--header at %d leaves %d args after its value for a variadic flag to eat",
-				i, len((*calls)[0])-i-2)
-		}
-	}
-}
-
-// The vendor CLI creates ~/.claude.json 0644. Once an inline credential is in
-// it, that is a live bearer token in a world-readable file, and the command
-// tells the user their key is "readable only by you".
-func TestClaudeCodeRestrictsTheFileItPutACredentialIn(t *testing.T) {
-	home := withHome(t)
-	withGOOS(t, "darwin")
-	code, _ := Find(ClaudeCode)
-	config := filepath.Join(home, ".claude.json")
-
-	// Stand in for the vendor CLI, which owns this file and writes it 0644.
-	stubClaude(t, func(args []string) ([]byte, error) {
-		if args[1] == "add" {
-			if err := os.WriteFile(config, []byte(`{"mcpServers":{}}`), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return nil, nil
-	})
-
-	if _, err := Install(context.Background(), code, testOptions()); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	info, err := os.Stat(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mode := info.Mode().Perm(); mode != configMode {
-		t.Errorf("mode = %o, want %o: a bearer token is in this file", mode, configMode)
-	}
-}
-
-func TestClaudeCodeReplacesAnExistingEntry(t *testing.T) {
-	home := withHome(t)
-	withGOOS(t, "darwin")
-	code, _ := Find(ClaudeCode)
-
-	user := `{"mcpServers":{"levelfour":{"url":"https://old.example/mcp"}}}`
-	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(user), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// `claude mcp add` refuses a name that already exists, so a re-run after
-	// `l4 auth login` has to remove the old entry to refresh the credential.
-	calls := stubClaude(t, func([]string) ([]byte, error) { return nil, nil })
-
-	result, err := Install(context.Background(), code, testOptions())
-	if err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	if result.Action != actionReplaced {
-		t.Errorf("action = %q, want replaced", result.Action)
-	}
-	if len(*calls) != 2 || (*calls)[0][2] != "remove" {
-		t.Fatalf("calls = %v, want remove then add", *calls)
-	}
-}
-
-// An entry under the same name at local or project scope must not make this
-// try to remove one from user scope. `claude mcp get` finds a server in any
-// scope, this command writes user scope, and acting on the first meant
-// `claude mcp remove --scope user` failed with "No MCP server named ... in
-// user scope" and the install aborted having done nothing.
-func TestClaudeCodeIgnoresAnEntryInAnotherScope(t *testing.T) {
-	home := withHome(t)
-	withGOOS(t, "darwin")
-	code, _ := Find(ClaudeCode)
-
-	// A local-scope entry, which is what `claude mcp add` writes without --scope.
-	config := filepath.Join(home, ".claude.json")
-	local := `{"projects":{"/some/repo":{"mcpServers":{"levelfour":{"url":"https://example/mcp"}}}}}`
-	if err := os.WriteFile(config, []byte(local), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	calls := stubClaude(t, func([]string) ([]byte, error) { return nil, nil })
-
-	result, err := Install(context.Background(), code, testOptions())
-	if err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	if result.Action != actionAdded {
-		t.Errorf("action = %q, want added: nothing exists in user scope", result.Action)
-	}
-	for _, call := range *calls {
-		if len(call) > 2 && call[2] == "remove" {
-			t.Errorf("removed an entry that is not in user scope: %v", call)
-		}
-	}
-}
-
-func TestClaudeCodeSurfacesCLIFailures(t *testing.T) {
-	home := withHome(t)
-	withGOOS(t, "darwin")
-	code, _ := Find(ClaudeCode)
-	ctx := context.Background()
-
-	stubClaude(t, func(args []string) ([]byte, error) {
-		if args[1] == "add" {
-			return []byte("boom"), errors.New("exit status 1")
-		}
-		return nil, errors.New("no such server")
-	})
-	if _, err := Install(ctx, code, testOptions()); err == nil || !strings.Contains(err.Error(), "mcp add") {
-		t.Fatalf("err = %v, want the add failure", err)
-	}
-
-	// The remove only runs when an entry exists in user scope, so put one there.
-	user := `{"mcpServers":{"levelfour":{"url":"https://mcp.levelfour.ai/mcp"}}}`
-	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(user), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	stubClaude(t, func(args []string) ([]byte, error) {
-		if args[1] == "remove" {
-			return []byte("nope"), errors.New("exit status 1")
-		}
-		return nil, nil
-	})
-	if _, err := Install(ctx, code, testOptions()); err == nil || !strings.Contains(err.Error(), "mcp remove") {
-		t.Fatalf("err = %v, want the remove failure", err)
 	}
 }
 
@@ -608,7 +434,7 @@ func TestStatusOfClaudeCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := Status(ctx, code, "levelfour")
-	if state.Status != StatusInstalled && state.Status != StatusOrphaned {
+	if state.Status != StatusInstalled {
 		t.Fatalf("status = %q, want an installed variant", state.Status)
 	}
 	if state.Endpoint != "https://mcp.levelfour.ai/mcp" {
@@ -641,18 +467,6 @@ func TestDescribeEntry(t *testing.T) {
 		if got := describeEntry(tc.entry); got != tc.want {
 			t.Errorf("describeEntry(%v) = %q, want %q", tc.entry, got, tc.want)
 		}
-	}
-}
-
-func TestRunCommandDefaultShellsOut(t *testing.T) {
-	// The default seam has to actually run a process, or the tests above are
-	// testing a stub that never matched reality.
-	out, err := runCommand(context.Background(), "echo", "levelfour")
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if strings.TrimSpace(string(out)) != "levelfour" {
-		t.Errorf("output = %q", out)
 	}
 }
 
@@ -717,29 +531,6 @@ func TestUninstallOfSomethingAbsentIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestUninstallOfClaudeCodeGoesThroughItsOwnCLI(t *testing.T) {
-	home := withHome(t)
-	withGOOS(t, "darwin")
-	code, _ := Find(ClaudeCode)
-
-	user := `{"mcpServers":{"levelfour":{"url":"https://mcp.levelfour.ai/mcp"}}}`
-	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(user), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	calls := stubClaude(t, func([]string) ([]byte, error) { return nil, nil })
-
-	result, err := Uninstall(context.Background(), code, testOptions())
-	if err != nil {
-		t.Fatalf("uninstall: %v", err)
-	}
-	if result.Action != actionRemoved {
-		t.Errorf("action = %q, want removed", result.Action)
-	}
-	if len(*calls) != 1 || (*calls)[0][2] != "remove" {
-		t.Fatalf("calls = %v, want a single remove", *calls)
-	}
-}
-
 // A client whose application is gone still has its config cleaned. That is the
 // case uninstall exists for, and a detection-gated removal would skip it.
 func TestUninstallCleansAClientThatIsNoLongerInstalled(t *testing.T) {
@@ -764,7 +555,7 @@ func TestBackupsListsTheDatedCopies(t *testing.T) {
 	cursor, _ := Find(Cursor)
 	ctx := context.Background()
 
-	if got := Backups(cursor); len(got) != 0 {
+	if got := Backups(cursor, "levelfour"); len(got) != 0 {
 		t.Errorf("Backups on an empty machine = %v", got)
 	}
 
@@ -784,7 +575,214 @@ func TestBackupsListsTheDatedCopies(t *testing.T) {
 		}
 	}
 
-	if got := Backups(cursor); len(got) != 2 {
+	if got := Backups(cursor, "levelfour"); len(got) != 2 {
 		t.Errorf("Backups() = %v, want 2", got)
+	}
+}
+
+// Claude Code used to be configured by running `claude mcp add --header
+// "Authorization: Bearer <key>"`, which put a live credential in a process
+// listing. It is written the same way every other client is now, so there is no
+// subprocess to leak it and no vendor binary to depend on.
+func TestClaudeCodeIsConfiguredWithoutASubprocess(t *testing.T) {
+	home := withHome(t)
+	withGOOS(t, "darwin")
+	// Nothing on PATH: an install that still shelled out could not succeed.
+	lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	code, _ := Find(ClaudeCode)
+
+	result, err := Install(context.Background(), code, testOptions())
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if result.Action != actionAdded {
+		t.Errorf("action = %q, want added", result.Action)
+	}
+
+	entry := (entryRef{filepath.Join(home, ".claude.json"), sectionMCPServers, "levelfour"}).read()
+	if entry == nil {
+		t.Fatal("no entry was written to ~/.claude.json")
+	}
+	if entry[fieldURL] != "https://mcp.levelfour.ai/mcp" {
+		t.Errorf("url = %v", entry[fieldURL])
+	}
+}
+
+// ~/.claude.json is the vendor's file and holds the user's project history. A
+// rewrite that dropped it would cost them that history, which is why the entry
+// is merged rather than the file replaced.
+func TestClaudeCodeKeepsEverythingElseInTheFile(t *testing.T) {
+	home := withHome(t)
+	withGOOS(t, "darwin")
+	code, _ := Find(ClaudeCode)
+	config := filepath.Join(home, ".claude.json")
+
+	// A large integer alongside the history: decoded through float64 it would
+	// come back reformatted, in a file this command does not own.
+	existing := `{"projects":{"/some/repo":{"lastCost":1.5}},"installMethod":"brew","firstStartTime":9007199254740993}`
+	if err := os.WriteFile(config, []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(context.Background(), code, testOptions()); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	raw, err := os.ReadFile(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"/some/repo"`, `"installMethod": "brew"`, "9007199254740993"} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("%s is gone from the config after an install:\n%s", want, raw)
+		}
+	}
+}
+
+// The vendor creates this file 0644. Once a credential is in it that is a live
+// bearer token any local user can read, and the command tells the user their key
+// is readable only by them.
+func TestClaudeCodeRestrictsTheFileItPutACredentialIn(t *testing.T) {
+	home := withHome(t)
+	withGOOS(t, "darwin")
+	code, _ := Find(ClaudeCode)
+	config := filepath.Join(home, ".claude.json")
+
+	if err := os.WriteFile(config, []byte(`{"mcpServers":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(context.Background(), code, testOptions()); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	info, err := os.Stat(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != configMode {
+		t.Errorf("mode = %o, want %o: a bearer token is in this file", mode, configMode)
+	}
+}
+
+func TestClaudeCodeReplacesAnExistingEntry(t *testing.T) {
+	home := withHome(t)
+	withGOOS(t, "darwin")
+	code, _ := Find(ClaudeCode)
+
+	user := `{"mcpServers":{"levelfour":{"url":"https://old.example/mcp"}}}`
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(user), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Install(context.Background(), code, testOptions())
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if result.Action != actionReplaced {
+		t.Errorf("action = %q, want replaced", result.Action)
+	}
+	entry := (entryRef{filepath.Join(home, ".claude.json"), sectionMCPServers, "levelfour"}).read()
+	if entry[fieldURL] != "https://mcp.levelfour.ai/mcp" {
+		t.Errorf("url = %v, want the new endpoint", entry[fieldURL])
+	}
+}
+
+func TestUninstallOfClaudeCodeEditsTheFile(t *testing.T) {
+	home := withHome(t)
+	withGOOS(t, "darwin")
+	code, _ := Find(ClaudeCode)
+	config := filepath.Join(home, ".claude.json")
+
+	user := `{"projects":{"/repo":{}},"mcpServers":{"levelfour":{"url":"https://mcp.levelfour.ai/mcp"}}}`
+	if err := os.WriteFile(config, []byte(user), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Uninstall(context.Background(), code, testOptions())
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if result.Action != actionRemoved {
+		t.Errorf("action = %q, want removed", result.Action)
+	}
+	if (entryRef{config, sectionMCPServers, "levelfour"}).read() != nil {
+		t.Error("the entry is still there")
+	}
+	raw, _ := os.ReadFile(config)
+	if !strings.Contains(string(raw), "/repo") {
+		t.Error("uninstall took the project history with it")
+	}
+}
+
+// Every client is configured with nothing else on the machine: no executable on
+// PATH and no application bundle. Each still reports installed, because the
+// config file carrying the entry is itself proof the client is here. That is why
+// there is no separate "installed but the client is gone" status to report.
+func TestConfiguredAlwaysMeansFound(t *testing.T) {
+	for _, c := range Clients {
+		t.Run(c.ID, func(t *testing.T) {
+			withHome(t)
+			withGOOS(t, "darwin")
+			lookPath = func(string) (string, error) { return "", errors.New("not found") }
+			applicationDirs = func() []string { return nil }
+
+			ctx := context.Background()
+			if _, err := Install(ctx, c, testOptions()); err != nil {
+				t.Fatalf("install: %v", err)
+			}
+			if got := Status(ctx, c, "levelfour").Status; got != StatusInstalled {
+				t.Errorf("status = %q, want %q", got, StatusInstalled)
+			}
+		})
+	}
+}
+
+// --purge-backups must not take the rollback copy for an entry it was told to
+// leave alone. Installing a second server backs up a file that already holds the
+// first, so an unscoped sweep deleted the only copy protecting it.
+//
+// The names overlap on purpose: "levelfour" is a prefix of "levelfour-rw", which
+// a trailing wildcard would happily match.
+func TestBackupsAreScopedToTheEntry(t *testing.T) {
+	withHome(t)
+	withGOOS(t, "darwin")
+	cursor, _ := Find(Cursor)
+	ctx := context.Background()
+
+	stamps := []time.Time{
+		time.Date(2026, 8, 27, 9, 30, 0, 0, time.UTC),
+		time.Date(2026, 8, 27, 9, 31, 0, 0, time.UTC),
+		time.Date(2026, 8, 27, 9, 32, 0, 0, time.UTC),
+	}
+	origNow := now
+	t.Cleanup(func() { now = origNow })
+	at := func(i int) { now = func() time.Time { return stamps[i] } }
+
+	rw := testOptions()
+	rw.Name = "levelfour-rw"
+
+	at(0)
+	if _, err := Install(ctx, cursor, testOptions()); err != nil {
+		t.Fatal(err)
+	}
+	at(1)
+	if _, err := Install(ctx, cursor, rw); err != nil {
+		t.Fatal(err)
+	}
+	at(2)
+	if _, err := Install(ctx, cursor, testOptions()); err != nil {
+		t.Fatal(err)
+	}
+
+	base := Backups(cursor, "levelfour")
+	if len(base) != 1 {
+		t.Fatalf("backups for levelfour = %v, want the one taken by its own second install", base)
+	}
+	for _, path := range base {
+		if strings.Contains(filepath.Base(path), "levelfour-rw") {
+			t.Errorf("purging levelfour would take %s, which belongs to levelfour-rw", path)
+		}
+	}
+	if got := Backups(cursor, "levelfour-rw"); len(got) != 1 {
+		t.Errorf("backups for levelfour-rw = %v, want its own", got)
 	}
 }

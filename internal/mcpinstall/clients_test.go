@@ -167,12 +167,12 @@ func TestDetect(t *testing.T) {
 		t.Errorf("Windsurf presence from its config file = %v, want Present", got)
 	}
 
-	detected := Detected()
+	detected, hinted := Classify()
 	if len(detected) != 3 {
-		t.Errorf("Detected() = %v, want Claude Code, Cursor and Windsurf", labels(detected))
+		t.Errorf("Classify present = %v, want Claude Code, Cursor and Windsurf", labels(detected))
 	}
-	if len(Suggested()) != 0 {
-		t.Errorf("Suggested() = %v, want none once every hint is confirmed", labels(Suggested()))
+	if len(hinted) != 0 {
+		t.Errorf("Classify hinted = %v, want none once every hint is confirmed", labels(hinted))
 	}
 }
 
@@ -187,12 +187,12 @@ func TestSuggestedIsNeverInstalledInto(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "Library", "Application Support", "Code", "User"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if len(Detected()) != 0 {
-		t.Errorf("Detected() = %v, want none: only a leftover directory is present", labels(Detected()))
+	detected, hinted := Classify()
+	if len(detected) != 0 {
+		t.Errorf("Classify present = %v, want none: only a leftover directory is present", labels(detected))
 	}
-	suggested := Suggested()
-	if len(suggested) != 1 || suggested[0].ID != VSCode {
-		t.Fatalf("Suggested() = %v, want VS Code alone", labels(suggested))
+	if len(hinted) != 1 || hinted[0].ID != VSCode {
+		t.Fatalf("Classify hinted = %v, want VS Code alone", labels(hinted))
 	}
 }
 
@@ -265,5 +265,55 @@ func TestEntryShapesMatchEachVendorsSpelling(t *testing.T) {
 	}
 	if _, present := entry["headers"]; present {
 		t.Error("the stdio entry carries headers")
+	}
+}
+
+// WritesCredential is what decides whether install tells the user their key is
+// now in a file, so a wrong answer here is a wrong answer about a secret.
+func TestWritesCredential(t *testing.T) {
+	code, _ := Find(ClaudeCode)
+	desktop, _ := Find(ClaudeDesktop)
+
+	inline := Options{Name: "levelfour", APIKey: "l4_live_secret", KeySource: KeyInline}
+	fromEnv := Options{Name: "levelfour", APIKey: "l4_live_secret", KeySource: KeyFromEnv}
+
+	if !code.WritesCredential(inline) {
+		t.Error("an inline key on Claude Code goes into the file, and must be reported")
+	}
+	if code.WritesCredential(fromEnv) {
+		t.Error("an env reference puts no key in the file")
+	}
+	// Claude Desktop runs `l4 mcp serve`, which reads the keychain. There is no
+	// header to carry a key, so there is nothing to warn about.
+	if desktop.WritesCredential(inline) {
+		t.Error("the stdio client writes no credential")
+	}
+}
+
+func TestVSCodeInputsMergeOnID(t *testing.T) {
+	vscode, _ := Find(VSCode)
+	o := Options{Name: "levelfour", KeySource: KeyFromEnv}
+
+	root := map[string]any{}
+	vscode.PatchRoot(o, root)
+	vscode.PatchRoot(o, root)
+
+	inputs, ok := root["inputs"].([]any)
+	if !ok || len(inputs) != 1 {
+		t.Fatalf("inputs = %v, want one entry after two installs", root["inputs"])
+	}
+	entry := inputs[0].(map[string]any)
+	if entry["id"] != vsCodeInputID {
+		t.Errorf("id = %v, want %q", entry["id"], vsCodeInputID)
+	}
+	if entry["password"] != true {
+		t.Error("password must stay true, or the key lands in settings sync")
+	}
+
+	// An inline key needs no prompt, so nothing is added.
+	bare := map[string]any{}
+	vscode.PatchRoot(Options{Name: "levelfour", KeySource: KeyInline}, bare)
+	if _, present := bare["inputs"]; present {
+		t.Error("an inline install declared a prompt it does not use")
 	}
 }

@@ -67,9 +67,6 @@ type Client struct {
 	// VS Code says "servers"; everyone else says "mcpServers".
 	Section string
 	Note    string
-	// Delegated clients own their own config format and are configured by
-	// running their CLI rather than by editing a file.
-	Delegated bool
 
 	// Not interchangeable: Claude Code and Windsurf expand ${VAR}, Cursor and VS
 	// Code expand ${env:VAR}, and VS Code also offers ${input:id}, which prompts
@@ -97,16 +94,17 @@ var Clients = []Client{
 	{
 		ID:      ClaudeCode,
 		Label:   "Claude Code",
-		Note:    "remote HTTP, added with `claude mcp add --scope user` so it loads in every project",
+		Note:    "remote HTTP, written to ~/.claude.json so it loads in every project",
 		Section: sectionMCPServers,
-		// ~/.claude.json also holds per-project state the vendor CLI owns, so
-		// editing it by hand loses someone's project history.
+		// ~/.claude.json also holds per-project state, so every other key is kept
+		// and the file is replaced atomically rather than truncated in place. The
+		// vendor CLI is not used: it takes the credential as a positional argument,
+		// which would put it in a process listing.
 		// https://code.claude.com/docs/en/mcp
-		Delegated: true,
-		keyRef:    "${" + CredentialEnvVar + "}",
-		bins:      []string{"claude"},
-		path:      claudeCodeConfigPath,
-		entry:     remoteEntry,
+		keyRef: "${" + CredentialEnvVar + "}",
+		bins:   []string{"claude"},
+		path:   claudeCodeConfigPath,
+		entry:  remoteEntry,
 	},
 	{
 		ID:    ClaudeDesktop,
@@ -244,25 +242,23 @@ var applicationDirs = func() []string {
 	return dirs
 }
 
-func Detected() []Client {
-	var found []Client
+// Classify sorts the clients by how much evidence there is of each, in one pass.
+// Presence runs a LookPath and several Stat calls per client, so asking twice for
+// two halves of one answer doubled that for nothing.
+//
+// hinted is a hint and not proof, so a caller names those rather than writing to
+// them.
+func Classify() (present, hinted []Client) {
 	for _, c := range Clients {
-		if c.Presence() == Present {
-			found = append(found, c)
+		switch c.Presence() {
+		case Present:
+			present = append(present, c)
+		case Likely:
+			hinted = append(hinted, c)
+		case Absent:
 		}
 	}
-	return found
-}
-
-// A hint but no proof, so the command can name them rather than write to them.
-func Suggested() []Client {
-	var found []Client
-	for _, c := range Clients {
-		if c.Presence() == Likely {
-			found = append(found, c)
-		}
-	}
-	return found
+	return present, hinted
 }
 
 func (c Client) Entry(o Options) map[string]any { return c.entry(c, o) }
@@ -303,11 +299,6 @@ func bearer(c Client, o Options) string {
 
 func authHeader(c Client, o Options) map[string]any {
 	return map[string]any{"Authorization": bearer(c, o)}
-}
-
-// One string, which is the shape `claude mcp add --header` takes.
-func authHeaderLine(c Client, o Options) string {
-	return "Authorization: " + bearer(c, o)
 }
 
 func (c Client) WritesCredential(o Options) bool {
