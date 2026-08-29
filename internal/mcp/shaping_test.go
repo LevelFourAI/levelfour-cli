@@ -151,7 +151,7 @@ func TestHintIfEmpty(t *testing.T) {
 
 func TestFitBudgetLeavesSmallResultsAlone(t *testing.T) {
 	result := map[string]any{"items": []any{"a"}}
-	if got := fitBudget(result, "items"); len(got["items"].([]any)) != 1 {
+	if got := fitBudget(result, rowsPath{key: "items"}); len(got["items"].([]any)) != 1 {
 		t.Errorf("fitBudget trimmed a small result: %v", got)
 	}
 }
@@ -162,7 +162,7 @@ func TestFitBudgetTrimsRows(t *testing.T) {
 	for i := range rows {
 		rows[i] = row
 	}
-	got := fitBudget(map[string]any{"items": rows}, "items")
+	got := fitBudget(map[string]any{"items": rows}, rowsPath{key: "items"})
 	kept := got["items"].([]any)
 	if len(kept) >= len(rows) {
 		t.Fatalf("fitBudget kept %d of %d rows", len(kept), len(rows))
@@ -179,12 +179,12 @@ func TestFitBudgetWithNothingToTrim(t *testing.T) {
 	// One field too large to trim: an oversized payload with no row list stays
 	// as it is rather than being silently emptied.
 	big := map[string]any{"blob": strings.Repeat("y", maxResultChars+10)}
-	got := fitBudget(big, "items")
+	got := fitBudget(big, rowsPath{key: "items"})
 	if got["blob"] == nil {
 		t.Error("fitBudget dropped a payload it could not trim")
 	}
 
-	got = fitBudget(map[string]any{"blob": strings.Repeat("y", maxResultChars+10), "items": []any{}}, "items")
+	got = fitBudget(map[string]any{"blob": strings.Repeat("y", maxResultChars+10), "items": []any{}}, rowsPath{key: "items"})
 	if _, present := got["truncated"]; present {
 		t.Error("fitBudget claimed truncation with no rows to drop")
 	}

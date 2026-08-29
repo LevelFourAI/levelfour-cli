@@ -153,18 +153,18 @@ func hintIfEmpty(result map[string]any, rowsKey, hint string) map[string]any {
 // fitBudget drops rows until the serialized result fits the budget, and says so.
 // A model that gets a truncated answer can still act on it; one whose context was
 // blown cannot.
-func fitBudget(result map[string]any, rowsKey string) map[string]any {
+func fitBudget(result map[string]any, path rowsPath) map[string]any {
 	if sizeOf(result) <= maxResultChars {
 		return result
 	}
-	rows, ok := result[rowsKey].([]any)
+	rows, ok := path.rows(result)
 	if !ok || len(rows) == 0 {
 		return result
 	}
 
 	kept := rows
 	for len(kept) > 0 {
-		trial := withRows(result, rowsKey, kept)
+		trial := path.with(result, kept)
 		if sizeOf(trial) <= maxResultChars {
 			break
 		}
@@ -173,7 +173,7 @@ func fitBudget(result map[string]any, rowsKey string) map[string]any {
 		kept = kept[:len(kept)/2]
 	}
 
-	trimmed := withRows(result, rowsKey, kept)
+	trimmed := path.with(result, kept)
 	trimmed["truncated"] = fmt.Sprintf(
 		"Showing %d of %d rows because the full result exceeded the size a "+
 			"single tool result may return. Ask a narrower question, or page through "+
@@ -181,12 +181,44 @@ func fitBudget(result map[string]any, rowsKey string) map[string]any {
 	return trimmed
 }
 
-func withRows(result map[string]any, rowsKey string, rows []any) map[string]any {
-	out := make(map[string]any, len(result))
-	for k, v := range result {
+// rowsPath locates the rows a result is trimmed on. A tool whose call carries a
+// key nests its payload one level down, so the rows are not always top-level and
+// a bare key would silently match nothing.
+type rowsPath struct {
+	section string
+	key     string
+}
+
+func (p rowsPath) rows(result map[string]any) ([]any, bool) {
+	rows, ok := p.holder(result)[p.key].([]any)
+	return rows, ok
+}
+
+func (p rowsPath) holder(result map[string]any) map[string]any {
+	if p.section == "" {
+		return result
+	}
+	nested, _ := result[p.section].(map[string]any)
+	return nested
+}
+
+func (p rowsPath) with(result map[string]any, rows []any) map[string]any {
+	out := copyMap(result)
+	if p.section == "" {
+		out[p.key] = rows
+		return out
+	}
+	nested := copyMap(p.holder(result))
+	nested[p.key] = rows
+	out[p.section] = nested
+	return out
+}
+
+func copyMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
 		out[k] = v
 	}
-	out[rowsKey] = rows
 	return out
 }
 

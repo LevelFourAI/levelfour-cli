@@ -1,10 +1,9 @@
 // Package mcpinstall writes the LevelFour MCP server into the config of the
-// agent clients installed on this machine.
+// agent clients on this machine.
 //
-// Each vendor wants the same name, endpoint and credential in a different file
-// under a different key, and getting one wrong fails silently: the client starts
-// and lists zero tools. The shapes below are transcribed from each vendor's
-// documentation, cited on the client.
+// Each vendor wants the same three facts in a different file under a different
+// key, and getting one wrong fails silently: the client starts and lists zero
+// tools. The shapes below are transcribed from the documentation cited on each.
 package mcpinstall
 
 import (
@@ -14,7 +13,7 @@ import (
 	"runtime"
 )
 
-// Client ids, also the values --client accepts.
+// Also the values --client accepts.
 const (
 	ClaudeCode    = "claude-code"
 	ClaudeDesktop = "claude-desktop"
@@ -23,9 +22,7 @@ const (
 	Windsurf      = "windsurf"
 )
 
-// The keys inside a server entry. Each vendor reads a different subset under a
-// different spelling, and install.go reads them back to report status, so they
-// are named here rather than repeated as literals on both sides.
+// install.go reads these back to report status, so each spelling is named once.
 const (
 	sectionMCPServers = "mcpServers"
 	sectionServers    = "servers"
@@ -89,9 +86,7 @@ type Client struct {
 	rootPatch func(Client, Options, map[string]any)
 }
 
-// Test seams. The OS and the filesystem are the only things this package
-// touches, and both have to be substitutable to test the Windows and Linux
-// paths from a macOS machine.
+// Seams, so the Windows and Linux paths are testable from a macOS machine.
 var (
 	goos        = runtime.GOOS
 	userHomeDir = os.UserHomeDir
@@ -182,30 +177,21 @@ func IDs() []string {
 
 func (c Client) ConfigPath() (string, error) { return c.path() }
 
-// Presence is how much evidence there is that a client is on this machine.
 type Presence int
 
 const (
-	// Absent: nothing on disk suggests this client.
 	Absent Presence = iota
-	// Likely: the directory a client creates on first run is there, but nothing
-	// else is. That directory outlives an uninstall, so on its own it is not
-	// enough to write a credential into a file that does not exist yet.
+	// Only the directory a client creates on first run. That outlives an
+	// uninstall, so on its own it does not justify writing a credential.
 	Likely
-	// Present: the client's own MCP config is there, or its executable is.
 	Present
 )
 
-// Detect reports whether this client looks installed at all, which is what
-// `l4 mcp status` shows in its Installed column. Writing to a client is gated on
-// Presence rather than on this, because the two questions are different: a
-// leftover ~/Library/Application Support/Code/User is enough to report VS Code
-// as maybe-there and not enough to justify creating an mcp.json with a bearer
-// token in it for an editor that was uninstalled a year ago.
+// Detect answers "is this client here at all". Writing is gated on Presence
+// instead, because a leftover directory is not reason enough to create a config
+// with a bearer token in it.
 func (c Client) Detect() bool { return c.Presence() >= Likely }
 
-// Presence weighs the evidence. An executable on PATH or an existing MCP config
-// is proof; a directory the client once created is a hint.
 func (c Client) Presence() Presence {
 	for _, bin := range c.bins {
 		if _, err := lookPath(bin); err == nil {
@@ -236,8 +222,7 @@ func (c Client) Presence() Presence {
 	return Absent
 }
 
-// appIsInstalled looks for a macOS application bundle. There is no equivalent
-// check on the other platforms, where the executable on PATH is the signal.
+// macOS only; elsewhere the executable on PATH is the signal.
 func (c Client) appIsInstalled() bool {
 	if goos != "darwin" || c.app == "" {
 		return false
@@ -250,9 +235,7 @@ func (c Client) appIsInstalled() bool {
 	return false
 }
 
-// applicationDirs is where a macOS app can be installed. It is a seam because
-// otherwise these tests would pass or fail depending on what the machine running
-// them happens to have in /Applications.
+// A seam, or the tests depend on what the machine running them has installed.
 var applicationDirs = func() []string {
 	dirs := []string{"/Applications"}
 	if home, err := userHomeDir(); err == nil {
@@ -271,9 +254,7 @@ func Detected() []Client {
 	return found
 }
 
-// Suggested returns the clients there is a hint of but no proof of, so the
-// command can name them instead of silently writing to them or silently
-// ignoring them.
+// A hint but no proof, so the command can name them rather than write to them.
 func Suggested() []Client {
 	var found []Client
 	for _, c := range Clients {
@@ -286,8 +267,7 @@ func Suggested() []Client {
 
 func (c Client) Entry(o Options) map[string]any { return c.entry(c, o) }
 
-// PatchRoot applies whatever this client needs beyond its own entry. Most
-// clients need nothing, so the nil check lives here rather than in five places.
+// The nil check lives here rather than in five call sites.
 func (c Client) PatchRoot(o Options, root map[string]any) {
 	if c.rootPatch != nil {
 		c.rootPatch(c, o, root)
@@ -314,8 +294,6 @@ func windsurfEntry(c Client, o Options) map[string]any {
 	}
 }
 
-// bearer is the Authorization value: either the credential, or this client's own
-// way of naming where to find it.
 func bearer(c Client, o Options) string {
 	if o.KeySource == KeyFromEnv && c.keyRef != "" {
 		return "Bearer " + c.keyRef
@@ -327,15 +305,11 @@ func authHeader(c Client, o Options) map[string]any {
 	return map[string]any{"Authorization": bearer(c, o)}
 }
 
-// authHeaderLine is the same header as one "Name: value" string, which is the
-// shape `claude mcp add --header` takes.
+// One string, which is the shape `claude mcp add --header` takes.
 func authHeaderLine(c Client, o Options) string {
 	return "Authorization: " + bearer(c, o)
 }
 
-// WritesCredential reports whether installing this client puts the credential
-// itself on disk, so the command can say so rather than leaving the user to
-// infer it from a transport note.
 func (c Client) WritesCredential(o Options) bool {
 	if c.entry == nil || c.keyRef == "" {
 		return false
@@ -343,10 +317,9 @@ func (c Client) WritesCredential(o Options) bool {
 	return o.KeySource != KeyFromEnv
 }
 
-// vscodeInputs declares the prompt VS Code shows the first time the server is
-// used. password:true keeps the value out of the file and out of settings sync,
-// which is why VS Code is the one client that needs no environment variable.
-// The array is merged on id: re-running an install must not stack duplicates.
+// password:true keeps the value out of the file and out of settings sync, which
+// is why VS Code needs no environment variable. Merged on id, so re-running an
+// install does not stack duplicates.
 func vscodeInputs(_ Client, o Options, root map[string]any) {
 	if o.KeySource != KeyFromEnv {
 		return
@@ -397,8 +370,6 @@ func homePath(parts ...string) (string, error) {
 	return filepath.Join(append([]string{home}, parts...)...), nil
 }
 
-// appDataPath resolves the per-user application data directory each desktop
-// client stores its config in.
 func appDataPath(parts ...string) (string, error) {
 	switch goos {
 	case "darwin":

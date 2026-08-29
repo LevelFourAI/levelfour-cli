@@ -33,8 +33,12 @@ func (t tool) run(f Fetcher, args map[string]any) (map[string]any, error) {
 		}
 	}
 
-	budgetKey := rowsItems
-	for i, c := range calls {
+	// The first call that yields rows, not the first call: get-realized-savings
+	// carries its rows on the second one. A call with a key nests its payload, so
+	// the section travels with the key or the budget looks at the wrong level.
+	budget := rowsPath{key: rowsItems}
+	foundRows := false
+	for _, c := range calls {
 		payload, err := f.Fetch(c.request(args))
 		if err != nil {
 			return nil, err
@@ -46,8 +50,9 @@ func (t tool) run(f Fetcher, args map[string]any) (map[string]any, error) {
 		}
 
 		shaped, rowsKey := c.shape(payload, args)
-		if i == 0 && rowsKey != "" {
-			budgetKey = rowsKey
+		if !foundRows && rowsKey != "" {
+			budget = rowsPath{section: c.key, key: rowsKey}
+			foundRows = true
 		}
 		if c.key == "" {
 			result = merge(result, shaped)
@@ -59,7 +64,7 @@ func (t tool) run(f Fetcher, args map[string]any) (map[string]any, error) {
 	if t.shape != nil {
 		result = t.shape(result)
 	}
-	return fitBudget(result, budgetKey), nil
+	return fitBudget(result, budget), nil
 }
 
 // request renders the REST path and query string for one call.

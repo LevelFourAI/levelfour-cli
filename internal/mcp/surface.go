@@ -16,21 +16,16 @@ import (
 	"strings"
 )
 
-// Endpoint is the hosted server, which `l4 mcp install` points remote-capable
-// clients at. Serving locally is the fallback for a client that cannot send an
-// Authorization header with a remote server.
+// Serving locally is the fallback for a client that cannot send an
+// Authorization header to a remote server.
 const Endpoint = "https://mcp.levelfour.ai/mcp"
 
-// ServerName is the implementation name reported during initialize, and the
-// default entry name written into a client's config.
+// Reported during initialize, and the default entry name in a client's config.
 const ServerName = "levelfour"
 
-// Instructions is the hosted server's instructions field, with the paragraph
-// about the two write tools rewritten for a surface that does not serve them.
-//
-// It names `l4 rec accept` rather than the tool it stands in for. Naming the
-// tool would tell a model about a capability it cannot reach from here, and the
-// point of saying anything at all is to give it somewhere to send the user.
+// The hosted instructions, with the write-tool paragraph rewritten for a surface
+// that does not serve them. It names `l4 rec accept` rather than the tool it
+// stands in for, which a model here has no way to reach.
 const Instructions = "Answers questions about a LevelFour organization's cloud spend, savings opportunities " +
 	"and realized savings. Every tool here is read-only, and this server serves the sixteen read " +
 	"tools of the hosted server's catalog. The hosted server additionally records a user's decision " +
@@ -40,21 +35,9 @@ const Instructions = "Answers questions about a LevelFour organization's cloud s
 	"with `l4 rec execute`. Potential savings and realized savings are different quantities and " +
 	"must never be added together."
 
-// This surface serves every READ tool the hosted server serves, and there is no
-// list of exceptions on purpose. A description here names its neighbours
-// (get-identity sends a caller to list-accounts), so a name that exists on one
-// surface and not the other sends a model to a dead end, and rewording the local
-// copy to hide that is the drift this package exists to prevent. When a REST
-// route refuses the key this CLI holds, the fix is to open the route so the tool
-// and the REST surface answer the same caller, rather than to quietly drop the
-// tool here.
-//
-// The hosted catalog is not one list. The server computes it per caller: a
-// read-write credential is shown every tool, a read credential only the ones
-// annotated read-only. Everything `l4 mcp install` mints is read scoped, so the
-// sixteen here are exactly what that credential is shown there.
-// TestSurfaceMatchesTheCatalogForThisCredential derives both halves from the
-// annotation in the vendored snapshot and fails on either half of a mismatch.
+// There is no exception list on purpose. Descriptions name their neighbours, so
+// a tool dropped here sends a model to a dead end. When a REST route refuses the
+// key this CLI holds, open the route rather than quietly dropping the tool.
 
 // Resources are the one hosted feature this server leaves behind, and the reason
 // is narrower than an API gap: the routes behind them are reachable with the
@@ -109,9 +92,8 @@ type binding struct {
 
 func lines(s ...string) string { return strings.Join(s, "\n") }
 
-// Argument fragments shared across tools, mirroring the Annotated aliases at the
-// top of the hosted definitions. Keeping them in one place is why sixteen tools agree on what
-// "page_size" means.
+// Mirrors the Annotated aliases in the hosted definitions, which is why sixteen
+// tools agree on what "page_size" means.
 
 const (
 	argProvider  = "provider"
@@ -153,8 +135,7 @@ func endProp(n string) prop {
 }
 func filterProp(n string) prop { return optListProp(n, "Restrict to these values. Omit for all.") }
 
-// providerQuery is the binding almost every REST cost route uses: the tool's
-// optional provider, defaulted to aws where the route demands one.
+// Defaulted to aws, because most REST cost routes demand one.
 func providerQuery() binding {
 	return binding{param: argProvider, arg: argProvider, def: defaultAWS}
 }
@@ -166,7 +147,7 @@ func pagingQuery() []binding {
 	}
 }
 
-// tools is the catalog, in the hosted server's own READ_TOOLS order.
+// In the hosted server's own READ_TOOLS order.
 var tools = []tool{
 	{
 		name: "get-identity",
