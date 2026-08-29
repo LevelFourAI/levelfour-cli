@@ -36,8 +36,8 @@ var recommendationsAcceptCmd = &cobra.Command{
 	Use:   "accept <id>",
 	Short: "Accept a savings recommendation",
 	Args:  cobra.ExactArgs(1),
-	Example: `  l4 rec accept CLICK-243
-  l4 rec accept CLICK-243 --yes`,
+	Example: `  l4 rec accept REC-1234
+  l4 rec accept REC-1234 --yes`,
 	RunE: func(_ *cobra.Command, args []string) error {
 		return runDecision(args[0], decisionAccepted)
 	},
@@ -50,9 +50,9 @@ var recommendationsRejectCmd = &cobra.Command{
 
 The reason is optional. You can add or change it later from the dashboard.`,
 	Args: cobra.ExactArgs(1),
-	Example: `  l4 rec reject CLICK-243
-  l4 rec reject CLICK-243 --reason operational
-  l4 rec reject CLICK-243 --reason other --explanation "Owned by a team that is migrating off"`,
+	Example: `  l4 rec reject REC-1234
+  l4 rec reject REC-1234 --reason operational
+  l4 rec reject REC-1234 --reason other --explanation "Owned by a team that is migrating off"`,
 	RunE: func(_ *cobra.Command, args []string) error {
 		if flagRecReason != "" && !slices.Contains(rejectionReasons, flagRecReason) {
 			return fmt.Errorf("invalid --reason %q: choose one of %s", flagRecReason, strings.Join(rejectionReasons, ", "))
@@ -65,9 +65,9 @@ var recommendationsExecuteCmd = &cobra.Command{
 	Use:   "execute <id>",
 	Short: "Request execution of an accepted savings recommendation",
 	Args:  cobra.ExactArgs(1),
-	Example: `  l4 rec execute CLICK-243
-  l4 rec execute CLICK-243 --method iac
-  l4 rec execute CLICK-243 --method manual --yes`,
+	Example: `  l4 rec execute REC-1234
+  l4 rec execute REC-1234 --method iac
+  l4 rec execute REC-1234 --method manual --yes`,
 	RunE: func(_ *cobra.Command, args []string) error {
 		if !slices.Contains(implementationMethods, flagRecMethod) {
 			return fmt.Errorf("invalid --method %q: choose one of %s", flagRecMethod, strings.Join(implementationMethods, ", "))

@@ -38,7 +38,7 @@ func decisionEnvelope(decision string) map[string]interface{} {
 	return map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"recommendation_id":     "CLICK-243",
+			"recommendation_id":     "REC-1234",
 			"saving_acceptance":     decision,
 			"saving_accepted_by":    "bruno@levelfour.ai",
 			"saving_accepted_at":    "2026-08-21T10:00:00Z",
@@ -58,28 +58,28 @@ func TestRecommendationDecisionCommands(t *testing.T) {
 	}{
 		{
 			name:     "accept",
-			args:     []string{"rec", "accept", "CLICK-243", "--yes"},
-			wantPath: "/api/v1/recommendations/CLICK-243/decision",
+			args:     []string{"rec", "accept", "REC-1234", "--yes"},
+			wantPath: "/api/v1/recommendations/REC-1234/decision",
 			wantBody: map[string]interface{}{"decision": "accepted"},
-			wantOut:  []string{"CLICK-243 accepted", "bruno@levelfour.ai"},
+			wantOut:  []string{"REC-1234 accepted", "bruno@levelfour.ai"},
 		},
 		{
 			name:     "reject without a reason",
-			args:     []string{"rec", "reject", "CLICK-243", "--yes"},
-			wantPath: "/api/v1/recommendations/CLICK-243/decision",
+			args:     []string{"rec", "reject", "REC-1234", "--yes"},
+			wantPath: "/api/v1/recommendations/REC-1234/decision",
 			wantBody: map[string]interface{}{"decision": "rejected"},
-			wantOut:  []string{"CLICK-243 rejected"},
+			wantOut:  []string{"REC-1234 rejected"},
 		},
 		{
 			name:     "reject with a reason and explanation",
-			args:     []string{"rec", "reject", "CLICK-243", "--yes", "--reason", "other", "--explanation", "Owned by a migrating team"},
-			wantPath: "/api/v1/recommendations/CLICK-243/decision",
+			args:     []string{"rec", "reject", "REC-1234", "--yes", "--reason", "other", "--explanation", "Owned by a migrating team"},
+			wantPath: "/api/v1/recommendations/REC-1234/decision",
 			wantBody: map[string]interface{}{
 				"decision":    "rejected",
 				"reason":      "other",
 				"explanation": "Owned by a migrating team",
 			},
-			wantOut: []string{"CLICK-243 rejected", "operational", "Owned by a migrating team"},
+			wantOut: []string{"REC-1234 rejected", "operational", "Owned by a migrating team"},
 		},
 		{
 			name:     "id with a slash is escaped",
@@ -136,13 +136,13 @@ func TestRecommendationExecuteCommand(t *testing.T) {
 	}{
 		{
 			name:       "defaults to one-click",
-			args:       []string{"rec", "execute", "CLICK-243", "--yes"},
+			args:       []string{"rec", "execute", "REC-1234", "--yes"},
 			wantMethod: "one-click",
-			wantOut:    []string{"Execution requested", "CLICK-243", "processing"},
+			wantOut:    []string{"Execution requested", "REC-1234", "processing"},
 		},
 		{
 			name:       "explicit iac method",
-			args:       []string{"rec", "execute", "CLICK-243", "--yes", "--method", "iac"},
+			args:       []string{"rec", "execute", "REC-1234", "--yes", "--method", "iac"},
 			wantMethod: "iac",
 			wantOut:    []string{"Execution requested"},
 		},
@@ -153,7 +153,7 @@ func TestRecommendationExecuteCommand(t *testing.T) {
 			srv, got := writeServer(t, http.StatusOK, map[string]interface{}{
 				"success": true,
 				"data": map[string]interface{}{
-					"recommendation_id":     "CLICK-243",
+					"recommendation_id":     "REC-1234",
 					"status":                "processing",
 					"implementation_method": tt.wantMethod,
 				},
@@ -172,7 +172,7 @@ func TestRecommendationExecuteCommand(t *testing.T) {
 			if got.key == "" {
 				t.Error("expected an Idempotency-Key header")
 			}
-			if got.body["recommendation_id"] != "CLICK-243" {
+			if got.body["recommendation_id"] != "REC-1234" {
 				t.Errorf("recommendation_id = %v", got.body["recommendation_id"])
 			}
 			if got.body["implementation_method"] != tt.wantMethod {
@@ -193,8 +193,8 @@ func TestRecommendationWriteFlagValidation(t *testing.T) {
 		args    []string
 		wantErr string
 	}{
-		{"bad reason", []string{"rec", "reject", "CLICK-243", "--yes", "--reason", "because"}, `invalid --reason "because"`},
-		{"bad method", []string{"rec", "execute", "CLICK-243", "--yes", "--method", "magic"}, `invalid --method "magic"`},
+		{"bad reason", []string{"rec", "reject", "REC-1234", "--yes", "--reason", "because"}, `invalid --reason "because"`},
+		{"bad method", []string{"rec", "execute", "REC-1234", "--yes", "--method", "magic"}, `invalid --method "magic"`},
 	}
 
 	for _, tt := range tests {
@@ -230,9 +230,9 @@ func TestRecommendationWriteForbidden(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"accept", []string{"rec", "accept", "CLICK-243", "--yes"}},
-		{"reject", []string{"rec", "reject", "CLICK-243", "--yes"}},
-		{"execute", []string{"rec", "execute", "CLICK-243", "--yes"}},
+		{"accept", []string{"rec", "accept", "REC-1234", "--yes"}},
+		{"reject", []string{"rec", "reject", "REC-1234", "--yes"}},
+		{"execute", []string{"rec", "execute", "REC-1234", "--yes"}},
 	}
 
 	for _, tt := range tests {
@@ -274,7 +274,7 @@ func TestRecommendationWriteUnauthorized(t *testing.T) {
 	flagAPI = srv.URL
 	flagToken = "l4_test_testkey123456789a"
 
-	_, _, err := executeCommand(t, "rec", "accept", "CLICK-243", "--yes")
+	_, _, err := executeCommand(t, "rec", "accept", "REC-1234", "--yes")
 	if err == nil {
 		t.Fatal("expected an error for 401")
 	}
@@ -294,12 +294,12 @@ func TestRecommendationWriteConfirmation(t *testing.T) {
 		wantCalled bool
 		wantOut    string
 	}{
-		{"accept declined", []string{"rec", "accept", "CLICK-243"}, "n\n", false, "Aborted."},
-		{"accept confirmed", []string{"rec", "accept", "CLICK-243"}, "y\n", true, "accepted"},
-		{"execute declined", []string{"rec", "execute", "CLICK-243"}, "n\n", false, "Aborted."},
-		{"execute confirmed", []string{"rec", "execute", "CLICK-243"}, "y\n", true, "Execution requested"},
-		{"accept with --yes never prompts", []string{"rec", "accept", "CLICK-243", "--yes"}, "n\n", true, "accepted"},
-		{"execute with --yes never prompts", []string{"rec", "execute", "CLICK-243", "--yes"}, "n\n", true, "Execution requested"},
+		{"accept declined", []string{"rec", "accept", "REC-1234"}, "n\n", false, "Aborted."},
+		{"accept confirmed", []string{"rec", "accept", "REC-1234"}, "y\n", true, "accepted"},
+		{"execute declined", []string{"rec", "execute", "REC-1234"}, "n\n", false, "Aborted."},
+		{"execute confirmed", []string{"rec", "execute", "REC-1234"}, "y\n", true, "Execution requested"},
+		{"accept with --yes never prompts", []string{"rec", "accept", "REC-1234", "--yes"}, "n\n", true, "accepted"},
+		{"execute with --yes never prompts", []string{"rec", "execute", "REC-1234", "--yes"}, "n\n", true, "Execution requested"},
 	}
 
 	for _, tt := range tests {
@@ -333,8 +333,8 @@ func TestRecommendationWriteJSONOutput(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"accept", []string{"rec", "accept", "CLICK-243", "--yes", "--json"}, "saving_acceptance"},
-		{"execute", []string{"rec", "execute", "CLICK-243", "--yes", "--json"}, "saving_acceptance"},
+		{"accept", []string{"rec", "accept", "REC-1234", "--yes", "--json"}, "saving_acceptance"},
+		{"execute", []string{"rec", "execute", "REC-1234", "--yes", "--json"}, "saving_acceptance"},
 	}
 
 	for _, tt := range tests {
@@ -361,8 +361,8 @@ func TestRecommendationWriteEmptyData(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"accept", []string{"rec", "accept", "CLICK-243", "--yes"}, "CLICK-243 accepted"},
-		{"execute", []string{"rec", "execute", "CLICK-243", "--yes"}, "Execution requested"},
+		{"accept", []string{"rec", "accept", "REC-1234", "--yes"}, "REC-1234 accepted"},
+		{"execute", []string{"rec", "execute", "REC-1234", "--yes"}, "Execution requested"},
 	}
 
 	for _, tt := range tests {
