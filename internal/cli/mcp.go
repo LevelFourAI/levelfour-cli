@@ -50,9 +50,17 @@ var mcpInstallCmd = &cobra.Command{
 
   $ l4 mcp install
 
-- Configure one client under a per-organization name
+- Configure one client
 
-  $ l4 mcp install --client cursor --name levelfour-acme`,
+  $ l4 mcp install --client cursor
+
+- Add a second entry, for another organization or another key scope
+
+  $ l4 mcp install --client cursor --name levelfour-rw --token $READ_WRITE_KEY
+
+- Write a reference to $LEVELFOUR_TOKEN instead of the key itself
+
+  $ l4 mcp install --key-source env`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clients, err := resolveMCPClients()
 		if err != nil {

@@ -53,7 +53,7 @@ Narrow it, or install one entry per organization (an API key belongs to exactly 
 
 ```bash
 l4 mcp install --client cursor
-l4 mcp install --client cursor --name levelfour-acme   # a second organization
+l4 mcp install --client cursor --name levelfour-rw     # a second entry, e.g. a read-write key
 l4 mcp status                                          # what is wired up, and what is not
 ```
 

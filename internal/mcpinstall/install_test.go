@@ -136,7 +136,7 @@ func TestInstallUnderASecondNameLeavesTheFirstAlone(t *testing.T) {
 		t.Fatalf("first install: %v", err)
 	}
 	second := testOptions()
-	second.Name = "levelfour-acme"
+	second.Name = "levelfour-rw"
 	second.APIKey = "l4_live_other_org"
 	result, err := Install(ctx, cursor, second)
 	if err != nil {
@@ -474,7 +474,7 @@ func TestStatus(t *testing.T) {
 		t.Errorf("endpoint = %q", state.Endpoint)
 	}
 
-	if Status(ctx, cursor, "levelfour-acme").Configured {
+	if Status(ctx, cursor, "levelfour-rw").Configured {
 		t.Error("a name that was never installed reported as configured")
 	}
 

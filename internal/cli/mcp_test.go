@@ -50,11 +50,11 @@ func TestMCPInstallWritesTheNamedClient(t *testing.T) {
 			Backup: "/tmp/mcp.json.l4-backup-1", Note: c.Note}, nil
 	}
 
-	out, _, err := executeCommand(t, "mcp", "install", "--client", "cursor", "--name", "levelfour-acme")
+	out, _, err := executeCommand(t, "mcp", "install", "--client", "cursor", "--name", "levelfour-rw")
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if got.Name != "levelfour-acme" || got.Endpoint != mcp.Endpoint {
+	if got.Name != "levelfour-rw" || got.Endpoint != mcp.Endpoint {
 		t.Errorf("options = %+v", got)
 	}
 	if got.APIKey != "l4_test_testkey123456789a" {
@@ -62,7 +62,7 @@ func TestMCPInstallWritesTheNamedClient(t *testing.T) {
 	}
 
 	text := out.String()
-	for _, want := range []string{"Cursor", "added", "levelfour-acme", "/tmp/mcp.json", "l4-backup-1",
+	for _, want := range []string{"Cursor", "added", "levelfour-rw", "/tmp/mcp.json", "l4-backup-1",
 		"what are we spending this month"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("output missing %q:\n%s", want, text)
