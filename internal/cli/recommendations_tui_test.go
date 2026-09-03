@@ -61,7 +61,7 @@ func TestRecommendationViewModelConstructor(t *testing.T) {
 	if len(m2.tabs) != 3 {
 		t.Fatalf("expected 3 tabs after WindowSizeMsg, got %d", len(m2.tabs))
 	}
-	expected := []string{"Summary", "Analysis", "Implementation"}
+	expected := []string{"Summary", "Key Takeaway", "Implementation"}
 	for i, want := range expected {
 		if m2.tabs[i].title != want {
 			t.Errorf("tab[%d].title = %q, want %q", i, m2.tabs[i].title, want)
@@ -1683,5 +1683,68 @@ func TestCopyBlockNoLang(t *testing.T) {
 	}
 	if m2.feedback != "Copied code block (1/1)" {
 		t.Errorf("feedback = %q, want code fallback label", m2.feedback)
+	}
+}
+
+func TestPopulateDataNullableFields(t *testing.T) {
+	m := &recommendationViewModel{}
+	// environment is nullable server-side and absent here. It used to render as
+	// the literal "<nil>" via fmt's %v.
+	m.populateData(map[string]interface{}{
+		"recommendation_id": "REC-266",
+		"service":           "EC2",
+		"status":            "optimized",
+	})
+
+	if m.environment != "" {
+		t.Errorf("m.environment = %q, want empty for a null environment", m.environment)
+	}
+	if m.recID != "REC-266" {
+		t.Errorf("m.recID = %q, want %q", m.recID, "REC-266")
+	}
+	// optimized -> saved needs no acceptance field, so it holds even here.
+	if m.status != statusSaved {
+		t.Errorf("m.status = %q, want %q", m.status, statusSaved)
+	}
+}
+
+func TestPopulateDataDerivesDisplayStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		data map[string]interface{}
+		want string
+	}{
+		{
+			// The detail endpoint omits saving_acceptance, so the CLI cannot tell an
+			// accepted rec from an open one and must not guess.
+			name: "a pending detail with no acceptance field stays pending",
+			data: map[string]interface{}{"status": statusPending},
+			want: statusPending,
+		},
+		{
+			name: "an untouched recommendation is available once the field arrives",
+			data: map[string]interface{}{"status": statusPending, "saving_acceptance": nil},
+			want: statusAvailable,
+		},
+		{
+			name: "an accepted recommendation stays pending",
+			data: map[string]interface{}{"status": statusPending, "saving_acceptance": savingAcceptanceAccepted},
+			want: statusPending,
+		},
+		{
+			name: "a request awaiting an admin needs approval",
+			data: map[string]interface{}{"status": statusProcessing, "execution_request_status": executionRequestPendingApproval},
+			want: statusAwaitingApproval,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &recommendationViewModel{}
+			m.populateData(tt.data)
+			if m.status != tt.want {
+				t.Errorf("m.status = %q, want %q", m.status, tt.want)
+			}
+		})
 	}
 }
