@@ -17,7 +17,7 @@ var costsMonthlyCmd = &cobra.Command{
   l4 costs monthly --json | jq '.data.data_points[]'`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagWeb {
-			return openWeb("/spending")
+			return openWeb(costsWebPath(flagMonthlyProvider))
 		}
 
 		client, err := newSDKClientFn()

@@ -134,6 +134,17 @@ func openWeb(path string) error {
 	return openBrowser(url)
 }
 
+// costsWebPath resolves the dashboard view behind `l4 costs --web`. There is no
+// global spending route: the dashboard scopes cost and usage per provider
+// (/providers/:providerId). Without a provider we hand off to the root and let
+// the dashboard redirect to whatever it currently lands on.
+func costsWebPath(providerID string) string {
+	if providerID == "" {
+		return "/"
+	}
+	return "/providers/" + providerID
+}
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate via browser (shortcut for 'auth login')",

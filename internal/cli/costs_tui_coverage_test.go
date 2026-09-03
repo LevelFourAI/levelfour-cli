@@ -167,8 +167,8 @@ func TestCostsModelOpenInBrowser(t *testing.T) {
 
 	m := readyCostsModel(t)
 	m.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
-	if !strings.Contains(openedURL, "spending") {
-		t.Errorf("o should open /spending, got %q", openedURL)
+	if !strings.Contains(openedURL, "/providers/aws") {
+		t.Errorf("o should open the provider cost view, got %q", openedURL)
 	}
 }
 

@@ -20,7 +20,7 @@ var costsSummaryCmd = &cobra.Command{
   l4 costs summary --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagWeb {
-			return openWeb("/spending")
+			return openWeb(costsWebPath(flagSummaryProvider))
 		}
 
 		client, err := newSDKClientFn()

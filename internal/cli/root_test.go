@@ -388,3 +388,12 @@ func TestLoginShortcutInRootHelp(t *testing.T) {
 		t.Errorf("login shortcut should appear in root help:\n%s", got)
 	}
 }
+
+func TestCostsWebPath(t *testing.T) {
+	if got := costsWebPath(""); got != "/" {
+		t.Errorf("costsWebPath(\"\") = %q, want %q", got, "/")
+	}
+	if got := costsWebPath("aws"); got != "/providers/aws" {
+		t.Errorf("costsWebPath(\"aws\") = %q, want %q", got, "/providers/aws")
+	}
+}

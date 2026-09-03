@@ -38,7 +38,7 @@ Supported dimensions: ` + strings.Join(supportedFilterDimensions, ", ") + `.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagWeb {
-			return openWeb("/spending")
+			return openWeb(costsWebPath(flagFiltersProvider))
 		}
 
 		client, err := newSDKClientFn()
