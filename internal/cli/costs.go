@@ -51,7 +51,7 @@ var costsBreakdownCmd = &cobra.Command{
   l4 costs breakdown --format csv > costs.csv`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagWeb {
-			return openWeb("/spending")
+			return openWeb(costsWebPath(flagBreakdownProvider))
 		}
 
 		page, _ := cmd.Flags().GetInt("page")

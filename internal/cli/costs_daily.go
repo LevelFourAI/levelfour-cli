@@ -24,7 +24,7 @@ var costsDailyCmd = &cobra.Command{
   l4 costs daily --json | jq '.data.data_points[]'`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagWeb {
-			return openWeb("/spending")
+			return openWeb(costsWebPath(flagDailyProvider))
 		}
 
 		client, err := newSDKClientFn()

@@ -355,8 +355,8 @@ func TestCostsSummaryWebFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(openedURL, "/spending") {
-		t.Errorf("expected /spending URL, got %q", openedURL)
+	if !strings.HasSuffix(openedURL, "/") {
+		t.Errorf("expected the dashboard root with no provider selected, got %q", openedURL)
 	}
 }
 
@@ -377,8 +377,8 @@ func TestCostsBreakdownWebFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(openedURL, "/spending") {
-		t.Errorf("expected /spending URL, got %q", openedURL)
+	if !strings.HasSuffix(openedURL, "/") {
+		t.Errorf("expected the dashboard root with no provider selected, got %q", openedURL)
 	}
 }
 
