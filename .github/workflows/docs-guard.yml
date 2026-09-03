@@ -1,0 +1,28 @@
+name: Docs guard
+
+# Internal working documents (handover notes, session summaries, remediation writeups,
+# plan files) must never reach this repository. Where a local hook is wired it catches most
+# of them, but this job is the layer that cannot be skipped with --no-verify and does not
+# depend on anyone having installed hooks. It audits the whole tracked tree, not just the
+# pull request diff, so the repository cannot drift back one merge at a time.
+
+on:
+  pull_request:
+  push:
+    branches: [main, preview]
+
+permissions:
+  contents: read
+
+jobs:
+  check-docs:
+    name: No internal working documents
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Audit tracked markdown
+        run: scripts/check-docs.sh
