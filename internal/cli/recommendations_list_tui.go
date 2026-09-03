@@ -468,7 +468,7 @@ func (m recommendationsListModel) buildRows() []btable.Row {
 		row = append(row, fmt.Sprintf("$%.2f", item.GetMonthlySavings()))
 		status := ""
 		if s := item.GetStatus(); s != nil {
-			status = string(*s)
+			status = recommendationStatusFromItem(string(*s), item.GetExtraProperties())
 		}
 		row = append(row, status)
 

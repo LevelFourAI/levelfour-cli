@@ -48,7 +48,7 @@ var recommendationsCmd = &cobra.Command{
 
 var recommendationsListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List cost optimization recommendations",
+	Short: "List savings recommendations",
 	Example: `  l4 recommendations list
   l4 recommendations list --service RDS --status available
   l4 recommendations list --sort-by monthly_savings --sort-order desc
@@ -247,7 +247,7 @@ var recColumns = []recColumn{
 		}
 		return ""
 	}},
-	{"Monthly Savings", 0, func(r *levelfourgo.ProviderBreakdownItem) string {
+	{"Savings $", 0, func(r *levelfourgo.ProviderBreakdownItem) string {
 		return fmt.Sprintf("$%.2f", r.GetMonthlySavings())
 	}},
 	{"Savings %", 100, func(r *levelfourgo.ProviderBreakdownItem) string {
@@ -255,7 +255,7 @@ var recColumns = []recColumn{
 	}},
 	{"Status", 0, func(r *levelfourgo.ProviderBreakdownItem) string {
 		if s := r.GetStatus(); s != nil {
-			return string(*s)
+			return recommendationStatusFromItem(string(*s), r.GetExtraProperties())
 		}
 		return ""
 	}},
@@ -360,10 +360,24 @@ var recommendationsViewCmd = &cobra.Command{
 	},
 }
 
+// toMap flattens an SDK model, extra properties included. The generated MarshalJSON does not
+// re-emit them, so marshalling alone drops every field the API sends that the SDK does not model.
 func toMap(v interface{}) map[string]interface{} {
 	b, _ := json.Marshal(v)
 	var m map[string]interface{}
 	_ = json.Unmarshal(b, &m)
+	if m == nil {
+		m = map[string]interface{}{}
+	}
+	if extra, ok := v.(interface {
+		GetExtraProperties() map[string]interface{}
+	}); ok {
+		for key, value := range extra.GetExtraProperties() {
+			if _, taken := m[key]; !taken {
+				m[key] = value
+			}
+		}
+	}
 	return m
 }
 
@@ -378,7 +392,7 @@ func renderRecommendationViewStatic(data *levelfourgo.RecommendationDetail) {
 	output.KeyValue("Monthly Savings", fmt.Sprintf("$%.2f", data.GetMonthlySavings()))
 	output.KeyValue("Annual Savings", fmt.Sprintf("$%.2f", data.GetAnnualSavings()))
 	if pct := data.GetSavingsPercentage(); pct > 0 {
-		output.KeyValue("Savings", fmt.Sprintf("%.1f%%", pct))
+		output.KeyValue("Savings %", fmt.Sprintf("%.1f%%", pct))
 	}
 
 	if actions := data.GetActions(); actions != nil {
@@ -407,7 +421,7 @@ func renderRecommendationMetadata(data *levelfourgo.RecommendationDetail) {
 	}
 	output.KeyValue("Environment", env)
 	if s := data.GetStatus(); s != nil {
-		output.KeyValue("Status", output.StatusBadge(string(*s)))
+		output.KeyValue("Status", output.StatusBadge(recommendationStatusFromItem(string(*s), data.GetExtraProperties())))
 	}
 	if ap := data.GetAnalysisPeriod(); ap != nil && *ap != "" {
 		output.KeyValue("Analysis Period", formatDate(*ap))
@@ -445,7 +459,7 @@ func renderComparisonData(items []any) {
 		return
 	}
 	fmt.Fprintln(output.Stdout)
-	output.Header("Comparison")
+	output.Header("What will change")
 	for _, item := range items {
 		m, ok := item.(map[string]interface{})
 		if !ok {
