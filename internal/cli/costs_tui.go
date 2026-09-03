@@ -323,7 +323,7 @@ func (m costsModel) updateCostsNormal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		return m.handleCostsPageNav(msg)
 
 	case key.Matches(msg, costsKeys.Open):
-		_ = openWeb("/spending")
+		_ = openWeb(costsWebPath(m.providerID))
 		return m, nil
 	}
 

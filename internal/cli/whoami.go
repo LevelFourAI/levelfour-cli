@@ -14,7 +14,7 @@ var whoamiCmd = &cobra.Command{
 	Short: "Show current identity and organization context",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagWeb {
-			return openWeb("/settings")
+			return openWeb("/control-plane")
 		}
 
 		client, err := newSDKClientFn()

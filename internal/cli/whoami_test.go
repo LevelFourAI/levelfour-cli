@@ -207,8 +207,8 @@ func TestWhoamiWebFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(openedURL, "/settings") {
-		t.Errorf("expected /settings URL, got %q", openedURL)
+	if !strings.Contains(openedURL, "/control-plane") {
+		t.Errorf("expected /control-plane URL, got %q", openedURL)
 	}
 }
 
