@@ -341,17 +341,26 @@ func savingsBar(pct float64, barWidth int) string {
 	return green.Render(bar) + fmt.Sprintf(" %.1f%%", pct)
 }
 
+// Keyed by status token, so every status the API can return has a colour. The
+// previous map keyed on invented values (in_review, active, complete) that the
+// API never sends, which left real statuses such as available and rejected
+// falling through to muted grey.
 var tuiStatusColors = map[string]lipglossv2.ANSIColor{
-	"active":     output.BrandSuccess,
-	"optimized":  output.BrandSuccess,
-	"complete":   output.BrandSuccess,
-	"failed":     output.BrandError,
-	"error":      output.BrandError,
-	"pending":    output.BrandWarning,
-	"processing": output.BrandWarning,
-	"in_review":  output.BrandPrimary,
+	statusAvailable:        output.BrandPrimary,
+	statusPending:          output.BrandWarning,
+	statusAwaitingApproval: output.BrandPrimary,
+	statusProcessing:       output.BrandWarning,
+	statusInProgress:       output.BrandWarning,
+	statusCompleted:        output.BrandSuccess,
+	statusFailed:           output.BrandError,
+	statusWarning:          output.BrandWarning,
+	statusOptimized:        output.BrandSuccess,
+	statusSaved:            output.BrandSuccess,
+	statusRejected:         output.BrandError,
+	statusUnavailable:      output.BrandMuted,
 }
 
+// tuiStatusBadge takes a status token and renders the dashboard's label for it.
 func tuiStatusBadge(status string) string {
 	c, ok := tuiStatusColors[strings.ToLower(status)]
 	if !ok {
@@ -363,7 +372,7 @@ func tuiStatusBadge(status string) string {
 		Background(c).
 		PaddingLeft(1).
 		PaddingRight(1).
-		Render(status)
+		Render(recommendationStatusLabel(status))
 }
 
 func strippedToOriginalMap(content string) (string, []int) {
@@ -412,14 +421,14 @@ func buildSummaryTab(m recommendationViewModel, width int) recommendationTab {
 	muted := lipglossv2.NewStyle().Foreground(output.BrandMuted)
 
 	var lines []string
-	lines = append(lines, fmt.Sprintf("  Service:      %s", m.service))
-	lines = append(lines, fmt.Sprintf("  Environment:  %s", m.environment))
-	lines = append(lines, fmt.Sprintf("  Status:       %s", m.status))
+	lines = append(lines, fmt.Sprintf("  Service:          %s", m.service))
+	lines = append(lines, fmt.Sprintf("  Environment:      %s", m.environment))
+	lines = append(lines, fmt.Sprintf("  Status:           %s", recommendationStatusLabel(m.status)))
 	if m.analysisPeriod != "" {
-		lines = append(lines, fmt.Sprintf("  Analysis:     %s", formatDate(m.analysisPeriod)))
+		lines = append(lines, fmt.Sprintf("  Analysis Period:  %s", formatDate(m.analysisPeriod)))
 	}
 	if m.createdAt != "" {
-		lines = append(lines, fmt.Sprintf("  Created:      %s", relativeTime(m.createdAt)))
+		lines = append(lines, fmt.Sprintf("  Created:          %s", relativeTime(m.createdAt)))
 	}
 	if m.description != "" {
 		lines = append(lines, "")
@@ -436,7 +445,7 @@ func buildSummaryTab(m recommendationViewModel, width int) recommendationTab {
 	lines = append(lines, fmt.Sprintf("  Monthly Savings:   %s", green.Render(fmt.Sprintf("$%.2f/mo", m.monthlySavings))))
 	lines = append(lines, fmt.Sprintf("  Annual Savings:    %s", green.Render(fmt.Sprintf("$%.2f/yr", m.annualSavings))))
 	if m.pct > 0 {
-		lines = append(lines, fmt.Sprintf("  Savings:           %s", green.Render(fmt.Sprintf("%.1f%%", m.pct))))
+		lines = append(lines, fmt.Sprintf("  Savings %%:         %s", green.Render(fmt.Sprintf("%.1f%%", m.pct))))
 		lines = append(lines, "")
 		lines = append(lines, "  "+savingsBar(m.pct, 20))
 	}
@@ -489,7 +498,7 @@ func mergeImplementationRaw(impl, exec string) string {
 func buildTabs(m recommendationViewModel, width int) []recommendationTab {
 	return []recommendationTab{
 		buildSummaryTab(m, width),
-		markdownTab("Analysis", m.rawKeyTakeaway, width),
+		markdownTab("Key Takeaway", m.rawKeyTakeaway, width),
 		markdownTab("Implementation", mergeImplementationRaw(m.rawImplementation, m.rawExecution), width),
 	}
 }
@@ -527,10 +536,14 @@ func newBaseModel() recommendationViewModel {
 }
 
 func (m *recommendationViewModel) populateData(data map[string]interface{}) {
-	m.recID = fmt.Sprintf("%v", data["recommendation_id"])
-	m.service = fmt.Sprintf("%v", data["service"])
-	m.environment = fmt.Sprintf("%v", data["environment"])
-	m.status = fmt.Sprintf("%v", data["status"])
+	// These are nullable server-side, so assert rather than format: fmt's %v
+	// renders a missing environment as the literal "<nil>".
+	m.recID, _ = data["recommendation_id"].(string)
+	m.service, _ = data["service"].(string)
+	m.environment, _ = data["environment"].(string)
+
+	rawStatus, _ := data["status"].(string)
+	m.status = recommendationDisplayStatusFromExtra(rawStatus, data)
 	m.createdAt, _ = data["created_at"].(string)
 	m.analysisPeriod, _ = data["analysis_period"].(string)
 	m.currentSpending = toFloat(data["current_spending"])
