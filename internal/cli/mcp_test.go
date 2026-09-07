@@ -552,3 +552,108 @@ func TestMCPInstallDoesNotLogInWhenThereIsNoTerminal(t *testing.T) {
 		t.Errorf("err = %v, want it to name the environment variable", err)
 	}
 }
+
+// --endpoint writes a URL into a client's entry. Claude Desktop has no URL in
+// its entry: it is given a command, and the server that command starts resolves
+// its own backend. Installing both together pointed the remote clients at the
+// given server and left Claude Desktop on the default, saying nothing, so the
+// person testing against a preview server had one client still answering from
+// production.
+func TestInstallRefusesAnEndpointItCannotAimAtEveryClient(t *testing.T) {
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+
+	cursor, _ := mcpinstall.Find(mcpinstall.Cursor)
+	desktop, _ := mcpinstall.Find(mcpinstall.ClaudeDesktop)
+	mcpClassify = func() (present, hinted []mcpinstall.Client) {
+		return []mcpinstall.Client{cursor, desktop}, nil
+	}
+
+	var installed []string
+	mcpInstall = func(_ context.Context, c mcpinstall.Client, _ mcpinstall.Options) (mcpinstall.Result, error) {
+		installed = append(installed, c.ID)
+		return mcpinstall.Result{Client: c.ID}, nil
+	}
+
+	_, _, err := executeCommand(t, "mcp", "install", "--endpoint", "https://mcp.example.test/mcp")
+	if err == nil {
+		t.Fatal("the install went ahead and split the clients across two servers")
+	}
+	if !strings.Contains(err.Error(), desktop.Label) {
+		t.Errorf("error does not name the client that cannot be aimed: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--client "+mcpinstall.Cursor) {
+		t.Errorf("error does not name the clients the flag does apply to: %v", err)
+	}
+	if len(installed) != 0 {
+		t.Errorf("configured %v before refusing, leaving a half-applied endpoint", installed)
+	}
+}
+
+// Narrowing to the clients a URL reaches is the way through, and it must work.
+func TestInstallAcceptsAnEndpointForRemoteClientsAlone(t *testing.T) {
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+
+	var got string
+	mcpInstall = func(_ context.Context, c mcpinstall.Client, o mcpinstall.Options) (mcpinstall.Result, error) {
+		got = o.Endpoint
+		return mcpinstall.Result{Client: c.ID}, nil
+	}
+
+	_, _, err := executeCommand(t, "mcp", "install",
+		"--client", mcpinstall.Cursor, "--endpoint", "https://mcp.example.test/mcp")
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if got != "https://mcp.example.test/mcp" {
+		t.Errorf("endpoint written = %q, want the one given", got)
+	}
+}
+
+// Without the flag, a set containing the stdio client is the ordinary install.
+func TestInstallWithoutAnEndpointStillConfiguresTheStdioClient(t *testing.T) {
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+
+	desktop, _ := mcpinstall.Find(mcpinstall.ClaudeDesktop)
+	mcpClassify = func() (present, hinted []mcpinstall.Client) {
+		return []mcpinstall.Client{desktop}, nil
+	}
+
+	var installed []string
+	mcpInstall = func(_ context.Context, c mcpinstall.Client, _ mcpinstall.Options) (mcpinstall.Result, error) {
+		installed = append(installed, c.ID)
+		return mcpinstall.Result{Client: c.ID}, nil
+	}
+
+	if _, _, err := executeCommand(t, "mcp", "install"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if len(installed) != 1 || installed[0] != mcpinstall.ClaudeDesktop {
+		t.Errorf("configured %v, want Claude Desktop", installed)
+	}
+}
+
+// Naming only the client that cannot be aimed leaves nothing for the flag to
+// apply to, so the error says that rather than suggesting an empty --client.
+func TestInstallEndpointWithOnlyTheStdioClientNamed(t *testing.T) {
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+
+	_, _, err := executeCommand(t, "mcp", "install",
+		"--client", mcpinstall.ClaudeDesktop, "--endpoint", "https://mcp.example.test/mcp")
+	if err == nil {
+		t.Fatal("expected a refusal")
+	}
+	if !strings.Contains(err.Error(), "no other client in this set") {
+		t.Errorf("error = %v, want the no-other-client wording", err)
+	}
+	if strings.Contains(err.Error(), "--client ") {
+		t.Errorf("error suggests naming clients when there are none to name: %v", err)
+	}
+}

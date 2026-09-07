@@ -69,7 +69,6 @@ var mcpInstallCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
 		apiKey, err := ensureAuthenticated(cmd, args)
 		if err != nil {
 			return err
@@ -355,6 +354,46 @@ func labelsOf(clients []mcpinstall.Client) []string {
 	return labels
 }
 
+// guardEndpoint refuses --endpoint when the set includes a client it cannot aim.
+//
+// Installing anyway configured the remote clients against the given server and
+// left the stdio one on the default, silently. Someone pointing their editors at
+// a preview server would have had one client still answering from production,
+// and the only symptom is one assistant disagreeing with the others about the
+// same question.
+//
+// Refusing rather than deriving: the flag is an MCP server URL and the stdio
+// server needs a REST API base, which is a different address that cannot be
+// guessed from it.
+func guardEndpoint(clients []mcpinstall.Client) error {
+	if flagMCPEndpoint == "" {
+		return nil
+	}
+
+	var stranded, aimable []string
+	for _, c := range clients {
+		if c.TakesEndpoint() {
+			aimable = append(aimable, c.ID)
+			continue
+		}
+		stranded = append(stranded, c.Label)
+	}
+	if len(stranded) == 0 {
+		return nil
+	}
+	if len(aimable) == 0 {
+		return fmt.Errorf(
+			"--endpoint cannot aim %s, which runs `l4 mcp serve` locally rather than being "+
+				"pointed at a URL. There is no other client in this set for the flag to apply to",
+			strings.Join(stranded, " and "))
+	}
+	return fmt.Errorf(
+		"--endpoint cannot aim %s, which runs `l4 mcp serve` locally rather than being pointed "+
+			"at a URL, so it would stay on the default while the others moved. Name the clients "+
+			"it applies to: --client %s",
+		strings.Join(stranded, " and "), strings.Join(aimable, ","))
+}
+
 func mcpEndpoint() string {
 	if flagMCPEndpoint != "" {
 		return flagMCPEndpoint
@@ -384,6 +423,10 @@ func resolveMCPClients() ([]mcpinstall.Client, error) {
 				strings.Join(mcpinstall.IDs(), ", "))
 		}
 
+		if err := guardEndpoint(detected); err != nil {
+			return nil, err
+		}
+
 		output.Info(fmt.Sprintf("Detected %s. Configuring all of them; use --client to narrow.",
 			strings.Join(labelsOf(detected), ", ")))
 		if len(suggested) > 0 {
@@ -393,7 +436,11 @@ func resolveMCPClients() ([]mcpinstall.Client, error) {
 		return detected, nil
 	}
 
-	return namedClients()
+	named, err := namedClients()
+	if err != nil {
+		return nil, err
+	}
+	return named, guardEndpoint(named)
 }
 
 func namedClients() ([]mcpinstall.Client, error) {
@@ -469,7 +516,7 @@ func init() {
 	mcpInstallCmd.Flags().StringSliceVar(&flagMCPClients, "client", nil,
 		"Client to configure ("+strings.Join(mcpinstall.IDs(), ", ")+"); repeatable, defaults to every one detected")
 	mcpInstallCmd.Flags().StringVar(&flagMCPName, "name", mcp.ServerName, "Name for the server entry")
-	mcpInstallCmd.Flags().StringVar(&flagMCPEndpoint, "endpoint", "", "MCP endpoint to point clients at")
+	mcpInstallCmd.Flags().StringVar(&flagMCPEndpoint, "endpoint", "", "MCP endpoint to point remote clients at; the stdio client cannot be aimed")
 	mcpInstallCmd.Flags().StringVar(&flagMCPKeySource, "key-source", string(mcpinstall.KeyInline),
 		"Where clients read the credential: inline (written into the config, 0600) or env (a reference to $"+
 			mcpinstall.CredentialEnvVar+", so no key is stored)")
