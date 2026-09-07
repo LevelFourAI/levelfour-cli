@@ -317,3 +317,24 @@ func TestVSCodeInputsMergeOnID(t *testing.T) {
 		t.Error("an inline install declared a prompt it does not use")
 	}
 }
+
+// Which clients an MCP URL can aim is what `--endpoint` is gated on, so the
+// answer is asserted per client rather than inferred from the entry builder.
+func TestTakesEndpoint(t *testing.T) {
+	for _, c := range Clients {
+		want := c.ID != ClaudeDesktop
+		if got := c.TakesEndpoint(); got != want {
+			t.Errorf("%s TakesEndpoint() = %v, want %v", c.ID, got, want)
+		}
+	}
+
+	// The one that does not is the one given a command instead of a URL.
+	desktop, _ := Find(ClaudeDesktop)
+	entry := desktop.Entry(Options{Name: "levelfour", Endpoint: "https://mcp.example.test/mcp", Binary: "/bin/l4"})
+	if _, hasURL := entry[fieldURL]; hasURL {
+		t.Error("the stdio entry carries a url, so it could have been aimed after all")
+	}
+	if entry[fieldCommand] != "/bin/l4" {
+		t.Errorf("command = %v, want the binary", entry[fieldCommand])
+	}
+}

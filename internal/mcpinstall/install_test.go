@@ -862,3 +862,115 @@ func TestInstallWritesThroughASymlinkedConfig(t *testing.T) {
 		t.Error("the entry did not reach the file the link points at")
 	}
 }
+
+func TestReplaceFileReportsAFailedWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mcp.json")
+
+	orig := createTemp
+	t.Cleanup(func() { createTemp = orig })
+	// Handed back already closed, so the write cannot land.
+	createTemp = func(dir, pattern string) (*os.File, error) {
+		f, err := os.CreateTemp(dir, pattern)
+		if err != nil {
+			return nil, err
+		}
+		return f, f.Close()
+	}
+
+	err := replaceFile(path, []byte("{}"))
+	if err == nil {
+		t.Fatal("a write that never landed was reported as success")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("err = %v, want the path in it", err)
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Error("the target was replaced even though the write failed")
+	}
+	// The temp file must not be left behind holding a partial config.
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".l4-tmp-") {
+			t.Errorf("temp file %s survived the failure", e.Name())
+		}
+	}
+}
+
+func TestReplaceFileReportsADirectoryItCannotWriteInto(t *testing.T) {
+	err := replaceFile(filepath.Join(t.TempDir(), "no-such-dir", "mcp.json"), []byte("{}"))
+	if err == nil {
+		t.Fatal("expected a failure creating the temporary file")
+	}
+}
+
+func TestUninstallReportsAPathItCannotResolve(t *testing.T) {
+	withGOOS(t, "darwin")
+	cursor, _ := Find(Cursor)
+	orig := userHomeDir
+	t.Cleanup(func() { userHomeDir = orig })
+	userHomeDir = func() (string, error) { return "", errors.New("no home") }
+
+	if _, err := Uninstall(context.Background(), cursor, testOptions()); err == nil {
+		t.Fatal("expected the home lookup failure to surface")
+	}
+	if got := Backups(cursor, "levelfour"); got != nil {
+		t.Errorf("Backups = %v, want nil when the path cannot be resolved", got)
+	}
+}
+
+// A name that is not a valid glob must not look like "no backups".
+func TestBackupsReportsNothingForAnUnmatchableName(t *testing.T) {
+	withHome(t)
+	withGOOS(t, "darwin")
+	cursor, _ := Find(Cursor)
+	if got := Backups(cursor, "["); got != nil {
+		t.Errorf("Backups = %v, want nil for a name that cannot be globbed", got)
+	}
+}
+
+func TestUninstallReportsABackupItCannotTake(t *testing.T) {
+	home := withHome(t)
+	withGOOS(t, "darwin")
+	cursor, _ := Find(Cursor)
+	ctx := context.Background()
+
+	if _, err := Install(ctx, cursor, testOptions()); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".cursor")
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	if _, err := Uninstall(ctx, cursor, testOptions()); err == nil {
+		t.Fatal("removed an entry without being able to back the file up first")
+	}
+}
+
+func TestRemoveEntryLeavesAFileItCannotRead(t *testing.T) {
+	if err := removeEntry("/nowhere/mcp.json", []byte("{not json"), sectionMCPServers, "levelfour"); err == nil {
+		t.Error("a file that does not parse was treated as removable")
+	}
+	// A section that is not an object has no entry to remove, and rewriting the
+	// file around it would discard whatever the vendor put there.
+	if err := removeEntry("/nowhere/mcp.json", []byte(`{"mcpServers":"not an object"}`),
+		sectionMCPServers, "levelfour"); err != nil {
+		t.Errorf("err = %v, want the file left alone", err)
+	}
+}
+
+func TestBearerUsesTheReferenceWhenAskedFor(t *testing.T) {
+	code, _ := Find(ClaudeCode)
+	desktop, _ := Find(ClaudeDesktop)
+	o := Options{APIKey: "l4_live_secret", KeySource: KeyFromEnv}
+
+	if got := bearer(code, o); got != "Bearer ${"+CredentialEnvVar+"}" {
+		t.Errorf("bearer = %q, want the environment reference", got)
+	}
+	// No reference to write, so the key is the only thing left to send.
+	if got := bearer(desktop, o); got != "Bearer l4_live_secret" {
+		t.Errorf("bearer = %q, want the key for a client with no keyRef", got)
+	}
+}

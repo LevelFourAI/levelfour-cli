@@ -10,7 +10,7 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
 go test -race -coverprofile=coverage.out ./internal/...
 
-TOTAL=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
 echo "Coverage: ${TOTAL}%"
 rm coverage.out
 

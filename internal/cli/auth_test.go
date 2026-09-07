@@ -1382,3 +1382,50 @@ func TestLoginKeepsAKeyTheKeychainRefuses(t *testing.T) {
 		}
 	})
 }
+
+// The rescue file is the last thing holding a key the login flow already minted.
+// When it cannot be written, the error has to say so, name the original cause,
+// and tell the user to revoke: the key exists on the account either way.
+func TestRescueCredentialWhenTheFileCannotBeWrittenEither(t *testing.T) {
+	origTerminal := isTerminal
+	isTerminal = func() bool { return false }
+	t.Cleanup(func() { isTerminal = origTerminal })
+
+	origDir := config.ExportConfigDir()
+	t.Cleanup(func() { config.SetConfigDir(origDir) })
+	// A file where the directory should be, so MkdirAll cannot make one.
+	blocked := filepath.Join(t.TempDir(), "levelfour")
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config.SetConfigDir(blocked)
+
+	err := rescueCredential("l4_live_secret", errors.New("keychain is locked"))
+	if err == nil {
+		t.Fatal("a key with nothing holding it was reported as a success")
+	}
+	for _, want := range []string{"keychain is locked", "revoke", "not a directory"} {
+		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(want)) {
+			t.Errorf("error is missing %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "l4_live_secret") {
+		t.Error("the key itself is in the error, which will be logged")
+	}
+}
+
+func TestWriteRescueFileReportsADirectoryItCannotWriteInto(t *testing.T) {
+	origDir := config.ExportConfigDir()
+	t.Cleanup(func() { config.SetConfigDir(origDir) })
+
+	dir := filepath.Join(t.TempDir(), "levelfour")
+	if err := os.MkdirAll(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	config.SetConfigDir(dir)
+
+	if _, err := writeRescueFile("l4_live_secret"); err == nil {
+		t.Fatal("expected the write into a read-only directory to fail")
+	}
+}

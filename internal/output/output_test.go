@@ -842,3 +842,26 @@ func TestTableSavingsPercentColor(t *testing.T) {
 		t.Error("table should produce output")
 	}
 }
+
+// Under --json, --jq or --template stdout belongs to the payload: a notice
+// printed there lands ahead of the document and stops it parsing.
+func TestNoticeStreamMovesOffStdoutUnderFormattingFlags(t *testing.T) {
+	origJSON, origJQ, origTmpl := JSONMode, JQExpression, TemplateFmt
+	t.Cleanup(func() { JSONMode, JQExpression, TemplateFmt = origJSON, origJQ, origTmpl })
+
+	JSONMode, JQExpression, TemplateFmt = false, "", ""
+	if noticeStream() != Stdout {
+		t.Error("plain output should speak on stdout")
+	}
+	for _, set := range []func(){
+		func() { JSONMode = true },
+		func() { JQExpression = ".data" },
+		func() { TemplateFmt = "{{.}}" },
+	} {
+		JSONMode, JQExpression, TemplateFmt = false, "", ""
+		set()
+		if noticeStream() != Stderr {
+			t.Error("a notice would have corrupted the payload on stdout")
+		}
+	}
+}

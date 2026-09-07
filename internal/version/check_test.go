@@ -22,6 +22,10 @@ func clearCIEnv(t *testing.T) {
 }
 
 func TestCheckForUpdateDevVersion(t *testing.T) {
+	// Without this the isCI guard returns first on a runner, and the dev-version
+	// guard this test exists for is never reached.
+	clearCIEnv(t)
+
 	msg := CheckForUpdate("dev")
 	if msg != "" {
 		t.Errorf("expected empty for dev version, got %q", msg)
