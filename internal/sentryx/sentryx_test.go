@@ -53,8 +53,17 @@ func TestInitWithEnvDSN(t *testing.T) {
 		if !opts.AttachStacktrace {
 			t.Errorf("AttachStacktrace = false, want true")
 		}
-		if opts.SendDefaultPII {
-			t.Errorf("SendDefaultPII = true, want false")
+		if opts.DataCollection == nil {
+			t.Fatalf("DataCollection = nil, want personally identifying data switched off")
+		}
+		if !opts.DataCollection.UserInfo.IsSet || opts.DataCollection.UserInfo.Value {
+			t.Errorf("DataCollection.UserInfo = %+v, want explicitly set to false", opts.DataCollection.UserInfo)
+		}
+		if opts.DataCollection.Cookies.Mode != sentry.CollectionOff {
+			t.Errorf("DataCollection.Cookies.Mode = %v, want CollectionOff", opts.DataCollection.Cookies.Mode)
+		}
+		if len(opts.DataCollection.HTTPBodies) != 0 {
+			t.Errorf("DataCollection.HTTPBodies = %v, want none", opts.DataCollection.HTTPBodies)
 		}
 		if opts.BeforeSend == nil {
 			t.Errorf("BeforeSend = nil, want set")
