@@ -1164,7 +1164,7 @@ func TestPromptForAPINormalization(t *testing.T) {
 		if callCount == 1 {
 			return runFieldWithInput(f, "2\n")
 		}
-		return runFieldWithInput(f, "api-preview.levelfour.ai\n")
+		return runFieldWithInput(f, "api.example.com\n")
 	}
 	defer func() { runField = origRunField }()
 
@@ -1172,7 +1172,7 @@ func TestPromptForAPINormalization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "https://api-preview.levelfour.ai" {
+	if result != "https://api.example.com" {
 		t.Errorf("got %q, want normalized URL", result)
 	}
 }
@@ -1284,7 +1284,7 @@ func TestNormalizeURL(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"bare domain", "api-preview.levelfour.ai", "https://api-preview.levelfour.ai"},
+		{"bare domain", "api.example.com", "https://api.example.com"},
 		{"https prefix", "https://api.levelfour.ai", "https://api.levelfour.ai"},
 		{"http prefix", "http://localhost:8000", "http://localhost:8000"},
 		{"empty string", "", "https://"},
