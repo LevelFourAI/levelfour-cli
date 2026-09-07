@@ -354,30 +354,14 @@ func labelsOf(clients []mcpinstall.Client) []string {
 	return labels
 }
 
-// guardEndpoint refuses --endpoint when the set includes a client it cannot aim.
-//
-// Installing anyway configured the remote clients against the given server and
-// left the stdio one on the default, silently. Someone pointing their editors at
-// a preview server would have had one client still answering from production,
-// and the only symptom is one assistant disagreeing with the others about the
-// same question.
-//
-// Refusing rather than deriving: the flag is an MCP server URL and the stdio
-// server needs a REST API base, which is a different address that cannot be
-// guessed from it.
+// Refused rather than derived: this is an MCP server URL, and the stdio server
+// needs a REST API base, which cannot be guessed from it.
 func guardEndpoint(clients []mcpinstall.Client) error {
 	if flagMCPEndpoint == "" {
 		return nil
 	}
 
-	var stranded, aimable []string
-	for _, c := range clients {
-		if c.TakesEndpoint() {
-			aimable = append(aimable, c.ID)
-			continue
-		}
-		stranded = append(stranded, c.Label)
-	}
+	stranded, aimable := splitByEndpointReach(clients)
 	if len(stranded) == 0 {
 		return nil
 	}
@@ -392,6 +376,17 @@ func guardEndpoint(clients []mcpinstall.Client) error {
 			"at a URL, so it would stay on the default while the others moved. Name the clients "+
 			"it applies to: --client %s",
 		strings.Join(stranded, " and "), strings.Join(aimable, ","))
+}
+
+func splitByEndpointReach(clients []mcpinstall.Client) (stranded, aimable []string) {
+	for _, c := range clients {
+		if c.TakesEndpoint() {
+			aimable = append(aimable, c.ID)
+			continue
+		}
+		stranded = append(stranded, c.Label)
+	}
+	return stranded, aimable
 }
 
 func mcpEndpoint() string {

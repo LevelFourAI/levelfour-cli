@@ -78,8 +78,7 @@ type Client struct {
 	bins []string
 	app  string
 
-	// Runs `l4 mcp serve` instead of being given a URL, so no MCP endpoint appears
-	// in its entry and none can be written there.
+	// Given a command rather than a URL, so no endpoint can be written into it.
 	stdio bool
 
 	path      func() (string, error)
@@ -180,10 +179,6 @@ func IDs() []string {
 
 func (c Client) ConfigPath() (string, error) { return c.path() }
 
-// TakesEndpoint reports whether an MCP URL reaches this client. The stdio client
-// is handed a command rather than a URL, and the server that command starts
-// resolves the API it reads through the CLI's own configuration, so an endpoint
-// meant for a remote server has nowhere to go.
 func (c Client) TakesEndpoint() bool { return !c.stdio }
 
 type Presence int

@@ -78,8 +78,7 @@ const (
 
 var (
 	now = time.Now
-	// A seam, so the failure paths below can be reached from a test. Nothing else
-	// in this package can make a write to a fresh temporary file fail.
+	// A seam: nothing else here can make a write to a fresh temp file fail.
 	createTemp = os.CreateTemp
 )
 
@@ -206,8 +205,7 @@ func decodeConfig(path string, data []byte) (map[string]any, error) {
 	return root, nil
 }
 
-// writeThenClose keeps the file closed on either outcome. Both failures mean the
-// same thing to the caller, so they are one path rather than two.
+// One path, because both failures mean the same thing to the caller.
 func writeThenClose(f *os.File, data []byte) error {
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
