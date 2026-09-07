@@ -6,10 +6,15 @@ description = "LevelFour API Key"
 regex = '''l4_(live|test)_[a-zA-Z0-9]{16,}'''
 tags = ["key", "levelfour"]
 
+  # Fixtures deliberately carry fake keys.
+  [rules.allowlist]
+  paths = [
+    '''_test\.go$''',
+    '''testdata/''',
+    '''README\.md$''',
+  ]
+
 [allowlist]
 paths = [
-  '''_test\.go$''',
-  '''testdata/''',
   '''vendor/''',
-  '''README\.md$''',
 ]

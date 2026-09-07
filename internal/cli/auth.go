@@ -52,7 +52,7 @@ var promptForAPI = func() (string, error) {
 	var customURL string
 	err = runField(huh.NewInput().
 		Title("API base URL:").
-		Placeholder("api-preview.levelfour.ai").
+		Placeholder("api.levelfour.ai").
 		Value(&customURL).
 		WithTheme(output.L4Theme()))
 	if err != nil {

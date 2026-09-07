@@ -9,7 +9,7 @@ The official command-line tool for [LevelFour](https://levelfour.ai). Surfaces c
 
 ## Installation
 
-### Homebrew (macOS, Linux)
+### Homebrew (macOS)
 
 ```bash
 brew install LevelFourAI/tap/levelfour
@@ -20,6 +20,8 @@ brew install LevelFourAI/tap/levelfour
 ```bash
 go install github.com/LevelFourAI/levelfour-cli/cmd/levelfour@latest
 ```
+
+This produces a single binary named `levelfour`. Symlink it to `l4` if you want the short form the examples below use.
 
 ### Direct download
 
@@ -32,10 +34,11 @@ l4 auth login                                  # browser-based authentication
 l4 whoami                                      # confirm identity
 l4 costs summary                               # KPI overview
 l4 recommendations list --status available     # pending savings opportunities
+l4 rec accept REC-1234                         # accept one of them
 l4 estimate ./infra/                           # estimate Terraform costs locally
 ```
 
-The package installs two interchangeable binaries: `levelfour` (long form) and `l4` (short form, recommended for everyday use).
+The Homebrew cask and the release archives install two interchangeable binaries: `levelfour` (long form) and `l4` (short form, recommended for everyday use).
 
 ## Connect your coding agent (MCP)
 
@@ -75,7 +78,23 @@ l4 mcp install --key-source env    # then export LEVELFOUR_TOKEN where the clien
 
 VS Code needs no environment variable either way: with `--key-source env` it is given an `inputs` prompt and stores the key in its own secret storage. Claude Desktop's config only starts stdio servers, so it runs `l4 mcp serve` instead and never receives a key at all.
 
-`l4 mcp serve` runs the read-only tools locally over stdin and stdout, reading your data through the LevelFour API with the stored credential. The hosted catalog depends on your key: a `read` key is shown 16 tools, a `read-write` key is shown those plus 2 that record an accept or reject decision. `l4 mcp serve` carries the same 16 under the same names, so an agent that learned to route against the hosted server gets the same answers here. To accept or reject from the terminal, use `l4 rec accept` and `l4 rec reject`. At startup it prints its version and tool count on stderr, which is where your client keeps its log.
+`l4 mcp serve` runs the read-only tools locally over stdin and stdout, reading your data through the LevelFour API with the stored credential. The hosted catalog depends on your key: a `read` key is shown 16 tools, a `read-write` key is shown those plus 2 that write: one records an accept or reject decision, the other updates an anomaly's status. `l4 mcp serve` carries the same 16 under the same names, so an agent that learned to route against the hosted server gets the same answers here. To accept or reject from the terminal, use `l4 rec accept` and `l4 rec reject`. At startup it prints its version and tool count on stderr, which is where your client keeps its log.
+
+## Act on a recommendation
+
+Accept, reject or request execution without leaving the terminal. `rec` and `recs` are aliases for `recommendations`.
+
+```bash
+l4 rec accept REC-1234                  # confirms first; -y to skip
+l4 rec reject REC-1234 --reason operational
+l4 rec execute REC-1234 --method iac
+```
+
+`--reason` takes `operational`, `strategy`, `not_applicable` or `other`. Pass `--explanation` alongside `--reason other` to say why in free text.
+
+`--method` takes `one-click` (the default), `iac`, `one-click-plus-iac` or `manual`, and applies only to `execute`, which requires a recommendation you have already accepted.
+
+Every one of these prompts for confirmation. Pass `-y`/`--yes` to skip the prompt in a script.
 
 ## Authentication
 
@@ -90,16 +109,16 @@ For CI:
 ```yaml
 - env:
     LEVELFOUR_TOKEN: ${{ secrets.LEVELFOUR_TOKEN }}
-  run: l4 recommendations list --status available --jq '.data.items[].recommendation_id'
+  run: l4 recommendations list --status available --jq '.data.data.items[].recommendation_id'
 ```
 
 ## Output formats
 
-Every command supports machine-readable output:
+Most read commands support machine-readable output:
 
 ```bash
 l4 costs summary --json                                       # raw JSON
-l4 recommendations list --jq '.data.items[].monthly_savings'  # filter with jq
+l4 recommendations list --jq '.data.data.items[].monthly_savings'  # filter with jq
 l4 costs breakdown --format csv                               # CSV for spreadsheets
 ```
 
@@ -111,8 +130,8 @@ See [output formats](https://docs.levelfour.ai/cli/output-formats) for the full 
 |------|---------|
 | `0` | Success |
 | `1` | General error |
-| `2` | Issues found (`l4 estimate --fail-above` triggered, recommendations exceed threshold) |
-| `4` | Authentication required (no token, expired, or invalid) |
+| `2` | Issues found (`l4 estimate --fail-above` or `l4 diff --fail-above` triggered) |
+| `4` | Not authenticated (no token found). An expired or rejected token surfaces as `1` |
 | `130` | Interrupted (Ctrl+C) |
 
 Stable; script against them.
@@ -125,13 +144,17 @@ Crash telemetry is **opt-in** and **off by default**. Enable with:
 l4 telemetry enable
 ```
 
-What it sends: panic stack traces and the failing command name. Home paths are rewritten to `~`, AWS access keys and known token env vars are redacted, and HTTP headers/cookies are stripped before transport. See `l4 telemetry --help`.
+What it sends: panic stack traces. Home paths are rewritten to `~`, AWS access key ids are redacted, and HTTP headers and cookies are stripped before transport. See `l4 telemetry --help`.
+
+## Update check
+
+After every command, `l4` asks GitHub for the latest published release and prints a one-line notice on stderr when a newer version exists. The result is cached for 24 hours. It sends no data about you or your account, and it is skipped automatically in CI and for `dev` builds.
 
 ## Documentation
 
 - [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli): full command reference and recipes
 - [docs.levelfour.ai/sdks/go](https://docs.levelfour.ai/sdks/go): the Go SDK that powers the CLI
-- [api.md](https://github.com/LevelFourAI/levelfour-go/blob/main/api.md): underlying API methods
+- [levelfour-go](https://github.com/LevelFourAI/levelfour-go): the Go SDK source and its method reference
 
 ## Reporting issues
 

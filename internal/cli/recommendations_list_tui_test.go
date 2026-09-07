@@ -661,7 +661,7 @@ func TestListModelFetchCurrentPageExecute(t *testing.T) {
 					"total_savings": 100,
 					"items": []interface{}{
 						map[string]interface{}{
-							"recommendation_id": "FETCH-001", "service": "S3",
+							"recommendation_id": "REC-0001", "service": "S3",
 							"monthly_savings": 100, "savings_percentage": 50,
 							"status": "available",
 						},
@@ -699,8 +699,8 @@ func TestListModelFetchCurrentPageExecute(t *testing.T) {
 	if len(result.items) != 1 {
 		t.Errorf("items = %d, want 1", len(result.items))
 	}
-	if result.items[0].GetRecommendationID() != "FETCH-001" {
-		t.Errorf("id = %q, want FETCH-001", result.items[0].GetRecommendationID())
+	if result.items[0].GetRecommendationID() != "REC-0001" {
+		t.Errorf("id = %q, want REC-0001", result.items[0].GetRecommendationID())
 	}
 }
 

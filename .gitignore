@@ -1,6 +1,8 @@
 # Binaries (root-level only, so cmd/levelfour/ is not matched)
 /levelfour
 /l4
+bin/
+build/
 *.exe
 *.dll
 *.so
@@ -9,7 +11,10 @@
 # Test
 *.test
 *.out
-coverage.txt
+coverage*.txt
+*.prof
+*.pprof
+*.coverprofile
 
 # IDE
 .idea/
