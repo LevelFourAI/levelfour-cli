@@ -41,16 +41,11 @@ var rootCmd = &cobra.Command{
 		output.JSONMode = flagJSON || flagJQ != ""
 		output.JQExpression = flagJQ
 		output.TemplateFmt = flagTemplate
-		output.CSVMode = flagCSV
 		output.QuietMode = flagQuiet
 		output.NoColor = flagNoColor || os.Getenv("NO_COLOR") != ""
 
 		if flagQuiet && (output.JSONMode || flagCSV || flagTemplate != "") {
 			return fmt.Errorf("--quiet is mutually exclusive with --json, --csv, --jq, --template")
-		}
-
-		if flagCSV {
-			output.Warning("--csv is only supported by export commands. Use 'l4 export <subcommand> --format csv'.")
 		}
 
 		if cfg, err := config.Load(); err == nil && cfg.Telemetry {
@@ -159,7 +154,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&flagToken, "token", "t", "", "API token override (for CI/scripting)")
 	rootCmd.PersistentFlags().StringVar(&flagAPI, "api", "", "API base URL")
 	rootCmd.PersistentFlags().BoolVarP(&flagWeb, "web", "w", false, "Open in browser instead of terminal output")
-	rootCmd.PersistentFlags().BoolVar(&flagCSV, "csv", false, "Output in CSV format")
+	rootCmd.PersistentFlags().BoolVar(&flagCSV, "csv", false, "Deprecated: has no effect")
+	// No command reads it; kept accepted so existing invocations still work.
+	_ = rootCmd.PersistentFlags().MarkDeprecated("csv", "use 'l4 export <subcommand> --format csv' instead")
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Suppress all output, communicate via exit code only")
 	rootCmd.PersistentFlags().BoolVar(&flagNoColor, "no-color", false, "Disable colored output")
 

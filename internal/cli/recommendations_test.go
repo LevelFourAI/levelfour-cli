@@ -43,7 +43,7 @@ func recommendationsListServer() *httptest.Server {
 							"monthly_savings":    150.00,
 							"savings_percentage": 30.0,
 							"status":             "available",
-							"saving_accepted_by": "bruno@levelfour.ai",
+							"saving_accepted_by": "someone@example.com",
 						},
 						map[string]interface{}{
 							"recommendation_id":  "rec-002",
@@ -594,7 +594,7 @@ func TestRecommendationsListWideColumns(t *testing.T) {
 	if !strings.Contains(got, "123456789012") {
 		t.Errorf("wide output should contain account value: %q", got)
 	}
-	if !strings.Contains(got, "bruno@levelfour.ai") {
+	if !strings.Contains(got, "someone@example.com") {
 		t.Errorf("wide output should contain author value: %q", got)
 	}
 }

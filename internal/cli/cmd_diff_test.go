@@ -298,6 +298,61 @@ func TestDiffFailAboveWithGithubComment(t *testing.T) {
 	}
 }
 
+func TestDiffFailAboveWithFormatJSON(t *testing.T) {
+	srv := httptest.NewServer(diffAPIHandler())
+	defer srv.Close()
+
+	tfDir := t.TempDir()
+	writeTFFile(t, tfDir, "main.tf", basicTF)
+
+	_, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "json", "--fail-above", "50")
+	if err != ErrIssuesFound {
+		t.Errorf("err = %v, want ErrIssuesFound", err)
+	}
+}
+
+func TestDiffFailAboveWithGlobalJSONFlag(t *testing.T) {
+	srv := httptest.NewServer(diffAPIHandler())
+	defer srv.Close()
+
+	tfDir := t.TempDir()
+	writeTFFile(t, tfDir, "main.tf", basicTF)
+
+	_, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--json", "--fail-above", "50")
+	if err != ErrIssuesFound {
+		t.Errorf("err = %v, want ErrIssuesFound", err)
+	}
+}
+
+func TestDiffFailAboveBelowThresholdWithJSON(t *testing.T) {
+	srv := httptest.NewServer(diffAPIHandler())
+	defer srv.Close()
+
+	tfDir := t.TempDir()
+	writeTFFile(t, tfDir, "main.tf", basicTF)
+
+	_, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--json", "--fail-above", "500")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDiffRenderErrorBeatsFailAbove(t *testing.T) {
+	srv := httptest.NewServer(diffAPIHandler())
+	defer srv.Close()
+
+	tfDir := t.TempDir()
+	writeTFFile(t, tfDir, "main.tf", basicTF)
+
+	_, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--jq", "(((", "--fail-above", "50")
+	if err == nil {
+		t.Fatal("expected the jq parse error")
+	}
+	if err == ErrIssuesFound {
+		t.Error("render error was replaced by ErrIssuesFound")
+	}
+}
+
 func TestDiffGlobalJSONFlag(t *testing.T) {
 	srv := httptest.NewServer(diffAPIHandler())
 	defer srv.Close()

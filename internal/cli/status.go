@@ -9,7 +9,7 @@ import (
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show API health and evaluation status",
+	Short: "Show API health and the base URL in use",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newSDKClientFn()
 		if err != nil {

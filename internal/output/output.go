@@ -20,7 +20,6 @@ var (
 	JSONMode     bool
 	JQExpression string
 	TemplateFmt  string
-	CSVMode      bool
 	QuietMode    bool
 	NoColor      bool
 	Stdout       io.Writer = os.Stdout

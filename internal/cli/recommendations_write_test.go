@@ -40,7 +40,7 @@ func decisionEnvelope(decision string) map[string]interface{} {
 		"data": map[string]interface{}{
 			"recommendation_id":     "REC-1234",
 			"saving_acceptance":     decision,
-			"saving_accepted_by":    "bruno@levelfour.ai",
+			"saving_accepted_by":    "someone@example.com",
 			"saving_accepted_at":    "2026-08-21T10:00:00Z",
 			"rejection_reason":      "operational",
 			"rejection_explanation": "Owned by a migrating team",
@@ -61,7 +61,7 @@ func TestRecommendationDecisionCommands(t *testing.T) {
 			args:     []string{"rec", "accept", "REC-1234", "--yes"},
 			wantPath: "/api/v1/recommendations/REC-1234/decision",
 			wantBody: map[string]interface{}{"decision": "accepted"},
-			wantOut:  []string{"REC-1234 accepted", "bruno@levelfour.ai"},
+			wantOut:  []string{"REC-1234 accepted", "someone@example.com"},
 		},
 		{
 			name:     "reject without a reason",

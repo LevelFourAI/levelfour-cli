@@ -29,7 +29,7 @@ func testItems() []*levelfourgo.ProviderBreakdownItem {
 	env2 := "staging"
 	acct := "123456789012"
 	tag := "Squad-Platform"
-	author := "bruno@levelfour.ai"
+	author := "someone@example.com"
 	statusAvailable := levelfourgo.ProviderBreakdownItemStatus("available")
 	statusPending := levelfourgo.ProviderBreakdownItemStatus("pending")
 
