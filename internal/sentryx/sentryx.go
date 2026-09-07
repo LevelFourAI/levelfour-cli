@@ -43,7 +43,17 @@ func Init(opts InitOptions) (bool, error) {
 		Environment:      opts.Environment,
 		AttachStacktrace: true,
 		BeforeSend:       BeforeSend,
-		SendDefaultPII:   false,
+		// Replaces the deprecated SendDefaultPII: false.
+		DataCollection: &sentry.DataCollection{
+			UserInfo:   sentry.Set(false),
+			HTTPBodies: []sentry.BodyType{},
+			Cookies:    &sentry.KeyValueCollectionBehavior{Mode: sentry.CollectionOff},
+			HTTPHeaders: &sentry.HeaderCollectionConfig{
+				Request:  &sentry.KeyValueCollectionBehavior{Mode: sentry.CollectionDenyList},
+				Response: &sentry.KeyValueCollectionBehavior{Mode: sentry.CollectionDenyList},
+			},
+			QueryParams: &sentry.KeyValueCollectionBehavior{Mode: sentry.CollectionDenyList},
+		},
 	})
 	if err != nil {
 		return false, err
