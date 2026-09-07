@@ -76,7 +76,12 @@ const (
 	dirMode    = 0o700
 )
 
-var now = time.Now
+var (
+	now = time.Now
+	// A seam, so the failure paths below can be reached from a test. Nothing else
+	// in this package can make a write to a fresh temporary file fail.
+	createTemp = os.CreateTemp
+)
 
 // Install never overwrites a config blind: a file that is not valid JSON stops
 // the install rather than being replaced.
@@ -201,6 +206,16 @@ func decodeConfig(path string, data []byte) (map[string]any, error) {
 	return root, nil
 }
 
+// writeThenClose keeps the file closed on either outcome. Both failures mean the
+// same thing to the caller, so they are one path rather than two.
+func writeThenClose(f *os.File, data []byte) error {
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
 func sectionOf(root map[string]any, name, path string) (map[string]any, error) {
 	value, exists := root[name]
 	if !exists || value == nil {
@@ -246,18 +261,14 @@ func replaceFile(path string, data []byte) error {
 		path = resolved
 	}
 
-	temp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".l4-tmp-")
+	temp, err := createTemp(filepath.Dir(path), filepath.Base(path)+".l4-tmp-")
 	if err != nil {
 		return fmt.Errorf("cannot write %s: %w", path, err)
 	}
 	// Removing the temp file is a no-op once the rename has consumed it.
 	defer func() { _ = os.Remove(temp.Name()) }()
 
-	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
-		return fmt.Errorf("cannot write %s: %w", path, err)
-	}
-	if err := temp.Close(); err != nil {
+	if err := writeThenClose(temp, data); err != nil {
 		return fmt.Errorf("cannot write %s: %w", path, err)
 	}
 	return os.Rename(temp.Name(), path)

@@ -40,7 +40,7 @@ jobs:
 
       - name: Enforce coverage threshold
         run: |
-          TOTAL=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
           echo "Total coverage: ${TOTAL}%"
           echo "## Test Coverage: ${TOTAL}%" >> "$GITHUB_STEP_SUMMARY"
           if (( $(echo "$TOTAL < 100.0" | bc -l) )); then

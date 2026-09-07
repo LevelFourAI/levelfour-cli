@@ -191,3 +191,60 @@ func TestPickedEmptyListStillCarriesItsHint(t *testing.T) {
 		t.Errorf("hint = %v, want the reason the list is empty", got["hint"])
 	}
 }
+
+// A route that picks a bare list returns it whole, so bound is the only thing
+// standing between a large one and the model.
+func TestPickedListIsCappedByBound(t *testing.T) {
+	rows := make([]any, maxPageSize+10)
+	for i := range rows {
+		rows[i] = i
+	}
+
+	bounded := call{bound: true}
+	got, rowsKey := bounded.shape(rows, nil)
+	if kept := got.([]any); len(kept) != maxPageSize {
+		t.Errorf("bound kept %d of %d, want %d", len(kept), len(rows), maxPageSize)
+	}
+	if rowsKey != "" {
+		t.Errorf("rowsKey = %q, want empty: a bare list has no key inside it", rowsKey)
+	}
+
+	unbounded := call{}
+	if kept, _ := unbounded.shape(rows, nil); len(kept.([]any)) != len(rows) {
+		t.Error("an unbounded call trimmed a list it was not asked to cap")
+	}
+}
+
+// A REST route can answer with a scalar. It is passed through rather than being
+// forced into a shape it does not have.
+func TestShapePassesThroughWhatIsNeitherObjectNorList(t *testing.T) {
+	got, rowsKey := call{rows: rowsItems}.shape("just a string", nil)
+	if got != "just a string" || rowsKey != "" {
+		t.Errorf("shape(scalar) = %v, %q", got, rowsKey)
+	}
+}
+
+// The pre-cap total is only believed when it is actually larger. A stale or
+// absent one must not shrink the denominator below what was really trimmed.
+func TestTotalOfFallsBackToTheListItWasGiven(t *testing.T) {
+	rows := []any{1, 2, 3, 4}
+	cases := []struct {
+		name   string
+		target trimTarget
+		result map[string]any
+		want   int
+	}{
+		{"no total field named", trimTarget{}, map[string]any{}, 4},
+		{"field absent", trimTarget{totalAt: metricsTotalKey}, map[string]any{}, 4},
+		{"field is not an int", trimTarget{totalAt: metricsTotalKey}, map[string]any{metricsTotalKey: "200"}, 4},
+		{"field smaller than the list", trimTarget{totalAt: metricsTotalKey}, map[string]any{metricsTotalKey: 2}, 4},
+		{"field larger", trimTarget{totalAt: metricsTotalKey}, map[string]any{metricsTotalKey: 200}, 200},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.target.totalOf(tc.result, rows); got != tc.want {
+				t.Errorf("totalOf = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

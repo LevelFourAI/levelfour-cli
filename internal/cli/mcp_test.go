@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/mcp"
 	"github.com/LevelFourAI/levelfour-cli/internal/mcpinstall"
+	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	"github.com/spf13/cobra"
 	kr "github.com/zalando/go-keyring"
 )
@@ -655,5 +659,172 @@ func TestInstallEndpointWithOnlyTheStdioClientNamed(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "--client ") {
 		t.Errorf("error suggests naming clients when there are none to name: %v", err)
+	}
+}
+
+func TestResolveKeySource(t *testing.T) {
+	orig := flagMCPKeySource
+	t.Cleanup(func() { flagMCPKeySource = orig })
+
+	cases := []struct {
+		flag string
+		want mcpinstall.KeySource
+		bad  bool
+	}{
+		{"inline", mcpinstall.KeyInline, false},
+		{"env", mcpinstall.KeyFromEnv, false},
+		{"vault", "", true},
+		{"", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.flag, func(t *testing.T) {
+			flagMCPKeySource = tc.flag
+			got, err := resolveKeySource()
+			if tc.bad {
+				if err == nil {
+					t.Fatalf("--key-source %q was accepted, and an unknown value must not fall "+
+						"through to writing the credential", tc.flag)
+				}
+				if !strings.Contains(err.Error(), "inline or env") {
+					t.Errorf("error does not name the valid choices: %v", err)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Errorf("got %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// A backup taken over an existing install still holds that credential, so the
+// count of what is left behind has to be right, and --purge-backups has to
+// actually delete them.
+func TestHandleBackupsCountsAndPurges(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cursor, _ := mcpinstall.Find(mcpinstall.Cursor)
+
+	dir := filepath.Join(home, ".cursor")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, stamp := range []string{"20260827-093000", "20260827-093100"} {
+		name := filepath.Join(dir, "mcp.json.l4-backup-levelfour-"+stamp)
+		if err := os.WriteFile(name, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	origName, origPurge := flagMCPName, flagMCPPurge
+	t.Cleanup(func() { flagMCPName, flagMCPPurge = origName, origPurge })
+	flagMCPName = "levelfour"
+
+	flagMCPPurge = false
+	if sweep := handleBackups([]mcpinstall.Client{cursor}); sweep.remaining != 2 || sweep.purged != 0 {
+		t.Errorf("without --purge-backups sweep = %+v, want 2 remaining", sweep)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*l4-backup*")); len(left) != 2 {
+		t.Errorf("counting the backups deleted %d of them", 2-len(left))
+	}
+
+	flagMCPPurge = true
+	if sweep := handleBackups([]mcpinstall.Client{cursor}); sweep.purged != 2 || sweep.remaining != 0 {
+		t.Errorf("with --purge-backups sweep = %+v, want 2 purged", sweep)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*l4-backup*")); len(left) != 0 {
+		t.Errorf("%d backup(s) survived the purge", len(left))
+	}
+}
+
+// A backup that cannot be removed is counted as left behind, not as purged: the
+// message tells the user a credential may still be on disk.
+func TestHandleBackupsCountsWhatItCouldNotRemove(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cursor, _ := mcpinstall.Find(mcpinstall.Cursor)
+
+	dir := filepath.Join(home, ".cursor")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mcp.json.l4-backup-levelfour-20260827-093000"),
+		[]byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	origName, origPurge := flagMCPName, flagMCPPurge
+	t.Cleanup(func() { flagMCPName, flagMCPPurge = origName, origPurge })
+	flagMCPName, flagMCPPurge = "levelfour", true
+
+	if sweep := handleBackups([]mcpinstall.Client{cursor}); sweep.purged != 0 || sweep.remaining != 1 {
+		t.Errorf("sweep = %+v, want the undeletable backup counted as remaining", sweep)
+	}
+}
+
+func TestPrintUninstallResults(t *testing.T) {
+	var out, errOut bytes.Buffer
+	origOut, origErr := output.Stdout, output.Stderr
+	output.Stdout, output.Stderr = &out, &errOut
+	t.Cleanup(func() { output.Stdout, output.Stderr = origOut, origErr })
+
+	origName := flagMCPName
+	t.Cleanup(func() { flagMCPName = origName })
+	flagMCPName = "levelfour"
+
+	printUninstallResults(
+		[]mcpinstall.Result{
+			{Label: "Cursor", Action: "removed", Backup: "/tmp/mcp.json.l4-backup-levelfour-1"},
+			{Label: "VS Code", Action: mcpinstall.ActionAbsent},
+		},
+		[]string{"Windsurf: permission denied"},
+		backupSweep{purged: 2, remaining: 3},
+	)
+
+	combined := out.String() + errOut.String()
+	for _, want := range []string{
+		"Cursor: removed entry",
+		"l4-backup-levelfour-1",
+		`VS Code: no entry "levelfour" to remove`,
+		"Windsurf: permission denied",
+		"Deleted 2 backup file(s).",
+		"3 backup file(s) left in place",
+		"--purge-backups",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Errorf("output is missing %q:\n%s", want, combined)
+		}
+	}
+}
+
+// A client whose directory survives its uninstall is named, never written to.
+func TestResolveMCPClientsNamesWhatItSkips(t *testing.T) {
+	stubMCP(t)
+	defer resetFlags()
+
+	var out bytes.Buffer
+	origOut := output.Stdout
+	output.Stdout = &out
+	t.Cleanup(func() { output.Stdout = origOut })
+
+	cursor, _ := mcpinstall.Find(mcpinstall.Cursor)
+	vscode, _ := mcpinstall.Find(mcpinstall.VSCode)
+	mcpClassify = func() (present, hinted []mcpinstall.Client) {
+		return []mcpinstall.Client{cursor}, []mcpinstall.Client{vscode}
+	}
+
+	got, err := resolveMCPClients()
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != mcpinstall.Cursor {
+		t.Fatalf("resolved %v, want Cursor alone", labelsOf(got))
+	}
+	if !strings.Contains(out.String(), "Skipping "+vscode.Label) {
+		t.Errorf("the skipped client was not named:\n%s", out.String())
 	}
 }
