@@ -150,6 +150,48 @@ What it sends: panic stack traces. Home paths are rewritten to `~`, AWS access k
 
 After every command, `l4` asks GitHub for the latest published release and prints a one-line notice on stderr when a newer version exists. The result is cached for 24 hours. It sends no data about you or your account, and it is skipped automatically in CI and for `dev` builds.
 
+## Command reference
+
+Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`.
+
+| Command | What it does |
+|---|---|
+| `l4 auth login` / `status` / `logout` | Authenticate, inspect the stored credential, remove it. `l4 login` is a shortcut |
+| `l4 whoami` | Identity and scope of the credential in use |
+| `l4 status` | API health and the base URL in use |
+| `l4 integrations list` | Connected cloud providers |
+| `l4 costs summary` | Spending and savings overview with KPIs and top services |
+| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination |
+| `l4 costs daily` / `monthly` | Spending aggregated per day or per month |
+| `l4 costs filters [dimension]` | Discover the filter dimensions and values `breakdown` accepts |
+| `l4 recommendations list` / `view <id>` | Browse savings opportunities. Both take `--tui` |
+| `l4 rec accept` / `reject` / `execute <id>` | Act on one, covered above |
+| `l4 estimate [path ...]` | Estimate Terraform costs locally |
+| `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |
+| `l4 export costs` / `recommendations` | Bulk export as CSV or JSON via `--format` |
+| `l4 api <endpoint>` | Authenticated raw API request, for anything not yet wrapped |
+| `l4 mcp install` / `status` / `serve` / `uninstall` | Coding-agent integration, covered above |
+| `l4 config get` / `set` / `list` | Persistent settings |
+| `l4 telemetry enable` / `disable` / `status` | Opt-in crash reporting, covered below |
+| `l4 completion <shell>` | Completion script for bash, zsh, fish or powershell |
+
+### Global flags
+
+Accepted by every command, though the output formats apply only to commands that render data.
+
+| Flag | Effect |
+|---|---|
+| `--json` | JSON output |
+| `--jq <expr>` | Filter JSON output with jq syntax |
+| `--template <tmpl>` | Format output with a Go template |
+| `-t`, `--token` | API token override, for CI and scripting |
+| `--api` | API base URL override |
+| `-w`, `--web` | Open in a browser instead of printing |
+| `-q`, `--quiet` | Suppress output, communicate through the exit code |
+| `--no-color` | Disable colour. `NO_COLOR` does the same |
+
+`--csv` is deprecated and has no effect. Use `l4 export <subcommand> --format csv`.
+
 ## Documentation
 
 - [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli): full command reference and recipes
