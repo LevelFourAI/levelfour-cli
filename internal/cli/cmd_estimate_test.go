@@ -313,6 +313,61 @@ func TestEstimateFailAboveWithGithubComment(t *testing.T) {
 	}
 }
 
+func TestEstimateFailAboveWithFormatJSON(t *testing.T) {
+	srv := httptest.NewServer(estimateAPIHandler())
+	defer srv.Close()
+
+	tfDir := t.TempDir()
+	writeTFFile(t, tfDir, "main.tf", basicTF)
+
+	_, _, err := executeCommand(t, "estimate", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "json", "--fail-above", "50")
+	if err != ErrIssuesFound {
+		t.Errorf("err = %v, want ErrIssuesFound", err)
+	}
+}
+
+func TestEstimateFailAboveWithGlobalJSONFlag(t *testing.T) {
+	srv := httptest.NewServer(estimateAPIHandler())
+	defer srv.Close()
+
+	tfDir := t.TempDir()
+	writeTFFile(t, tfDir, "main.tf", basicTF)
+
+	_, _, err := executeCommand(t, "estimate", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--json", "--fail-above", "50")
+	if err != ErrIssuesFound {
+		t.Errorf("err = %v, want ErrIssuesFound", err)
+	}
+}
+
+func TestEstimateFailAboveBelowThresholdWithJSON(t *testing.T) {
+	srv := httptest.NewServer(estimateAPIHandler())
+	defer srv.Close()
+
+	tfDir := t.TempDir()
+	writeTFFile(t, tfDir, "main.tf", basicTF)
+
+	_, _, err := executeCommand(t, "estimate", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--json", "--fail-above", "500")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEstimateRenderErrorBeatsFailAbove(t *testing.T) {
+	srv := httptest.NewServer(estimateAPIHandler())
+	defer srv.Close()
+
+	tfDir := t.TempDir()
+	writeTFFile(t, tfDir, "main.tf", basicTF)
+
+	_, _, err := executeCommand(t, "estimate", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--jq", "(((", "--fail-above", "50")
+	if err == nil {
+		t.Fatal("expected the jq parse error")
+	}
+	if err == ErrIssuesFound {
+		t.Error("render error was replaced by ErrIssuesFound")
+	}
+}
+
 func TestEstimateGlobalJSONFlag(t *testing.T) {
 	srv := httptest.NewServer(estimateAPIHandler())
 	defer srv.Close()

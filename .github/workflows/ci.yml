@@ -64,6 +64,9 @@ jobs:
         with:
           version: v2.11
           args: --timeout=5m
+          # `config verify` fetches a JSON schema over the network and fails the
+          # job when that times out, which has nothing to do with the code.
+          verify: false
 
   go-security:
     name: Go Security & Compliance

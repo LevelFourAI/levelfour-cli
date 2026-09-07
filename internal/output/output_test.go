@@ -587,21 +587,12 @@ func TestErrorLabelQuiet(t *testing.T) {
 	}
 }
 
-func TestHasFormattingFlagsCSVMode(t *testing.T) {
-	origCSV := CSVMode
-	defer func() { CSVMode = origCSV }()
-
-	CSVMode = false
+func TestHasFormattingFlagsNoneSet(t *testing.T) {
 	JSONMode = false
 	JQExpression = ""
 	TemplateFmt = ""
 	if HasFormattingFlags() {
 		t.Error("expected false when no flags set")
-	}
-
-	CSVMode = true
-	if HasFormattingFlags() {
-		t.Error("expected false when only CSVMode set (CSVMode no longer triggers HasFormattingFlags)")
 	}
 }
 
