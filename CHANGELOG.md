@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3](https://github.com/LevelFourAI/levelfour-cli/compare/v0.1.2...v0.1.3) (2026-09-08)
+
+
+### Features
+
+* **recommendations:** print the status a person reads ([#23](https://github.com/LevelFourAI/levelfour-cli/issues/23)) ([9566390](https://github.com/LevelFourAI/levelfour-cli/commit/956639082b0e9c70c5b0ec2490be0f68ef2a9447))
+
+
+### Bug Fixes
+
+* **web:** open the view that exists behind --web ([#24](https://github.com/LevelFourAI/levelfour-cli/issues/24)) ([9e1bc1d](https://github.com/LevelFourAI/levelfour-cli/commit/9e1bc1d1933a0e73aefd1285ecc562537754a8a0))
+
+
+### Documentation
+
+* **readme:** add a command and global flag reference ([#29](https://github.com/LevelFourAI/levelfour-cli/issues/29)) ([dfd278e](https://github.com/LevelFourAI/levelfour-cli/commit/dfd278e413c53556991985c710507d757ec3f78d))
+
+
+### Build
+
+* **deps:** bump the github-actions group across 1 directory with 7 updates ([#15](https://github.com/LevelFourAI/levelfour-cli/issues/15)) ([b508a44](https://github.com/LevelFourAI/levelfour-cli/commit/b508a44705e10dd3d2e300c01a297dbb730dc94a))
+* **deps:** bump the go-modules group across 1 directory with 6 updates ([#21](https://github.com/LevelFourAI/levelfour-cli/issues/21)) ([7aafa8a](https://github.com/LevelFourAI/levelfour-cli/commit/7aafa8a24e6cdc6926c924c87d6df12c73c7dcc3))
+
 ## [0.1.2](https://github.com/LevelFourAI/levelfour-cli/compare/v0.1.1...v0.1.2) (2026-09-07)
 
 
