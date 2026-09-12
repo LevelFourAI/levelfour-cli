@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1161,7 +1164,7 @@ func TestPromptForAPINormalization(t *testing.T) {
 		if callCount == 1 {
 			return runFieldWithInput(f, "2\n")
 		}
-		return runFieldWithInput(f, "api-preview.levelfour.ai\n")
+		return runFieldWithInput(f, "api.example.com\n")
 	}
 	defer func() { runField = origRunField }()
 
@@ -1169,7 +1172,7 @@ func TestPromptForAPINormalization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "https://api-preview.levelfour.ai" {
+	if result != "https://api.example.com" {
 		t.Errorf("got %q, want normalized URL", result)
 	}
 }
@@ -1281,7 +1284,7 @@ func TestNormalizeURL(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"bare domain", "api-preview.levelfour.ai", "https://api-preview.levelfour.ai"},
+		{"bare domain", "api.example.com", "https://api.example.com"},
 		{"https prefix", "https://api.levelfour.ai", "https://api.levelfour.ai"},
 		{"http prefix", "http://localhost:8000", "http://localhost:8000"},
 		{"empty string", "", "https://"},
@@ -1312,5 +1315,117 @@ func TestAuthLoginResolveError(t *testing.T) {
 	_, _, err := executeCommand(t, "auth", "login")
 	if err == nil {
 		t.Error("expected error when prompt fails")
+	}
+}
+
+// The device flow has already completed by the time the keychain is written, and
+// the browser has told the user they are authenticated. Returning the error
+// alone threw the key away, leaving a live credential nobody held and nobody
+// knew to revoke.
+func TestLoginKeepsAKeyTheKeychainRefuses(t *testing.T) {
+	origStore, origTerminal := keyring.StoreFunc, isTerminal
+	t.Cleanup(func() { keyring.StoreFunc, isTerminal = origStore, origTerminal })
+	keyring.StoreFunc = func(string) error { return errors.New("no keychain here") }
+
+	t.Run("at a terminal it prints the key", func(t *testing.T) {
+		isTerminal = func() bool { return true }
+		var out bytes.Buffer
+		origStdout := output.Stdout
+		output.Stdout = &out
+		t.Cleanup(func() { output.Stdout = origStdout })
+
+		err := rescueCredential("l4_live_rescued", errors.New("no keychain here"))
+		if err == nil {
+			t.Fatal("a failed store must still be an error")
+		}
+		if !strings.Contains(out.String(), "l4_live_rescued") {
+			t.Errorf("the key was not shown: %s", out.String())
+		}
+		if !strings.Contains(out.String(), credentialEnvVar) {
+			t.Errorf("output does not say how to use it: %s", out.String())
+		}
+	})
+
+	t.Run("without a terminal it writes a file instead", func(t *testing.T) {
+		dir := t.TempDir()
+		config.SetConfigDir(dir)
+		t.Cleanup(func() { config.SetConfigDir("") })
+		isTerminal = func() bool { return false }
+
+		var out bytes.Buffer
+		origStdout := output.Stdout
+		output.Stdout = &out
+		t.Cleanup(func() { output.Stdout = origStdout })
+
+		if err := rescueCredential("l4_live_rescued", errors.New("no keychain here")); err == nil {
+			t.Fatal("a failed store must still be an error")
+		}
+		// stdout here is a log or a redirect, so the key must not be in it.
+		if strings.Contains(out.String(), "l4_live_rescued") {
+			t.Error("the key was printed to a non-terminal stdout")
+		}
+
+		path := filepath.Join(dir, "rescued-api-key")
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("no rescue file: %v", err)
+		}
+		if strings.TrimSpace(string(body)) != "l4_live_rescued" {
+			t.Errorf("file holds %q", body)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mode := info.Mode().Perm(); mode != 0o600 {
+			t.Errorf("mode = %o, want 600: this file holds a credential", mode)
+		}
+	})
+}
+
+// The rescue file is the last thing holding a key the login flow already minted.
+// When it cannot be written, the error has to say so, name the original cause,
+// and tell the user to revoke: the key exists on the account either way.
+func TestRescueCredentialWhenTheFileCannotBeWrittenEither(t *testing.T) {
+	origTerminal := isTerminal
+	isTerminal = func() bool { return false }
+	t.Cleanup(func() { isTerminal = origTerminal })
+
+	origDir := config.ExportConfigDir()
+	t.Cleanup(func() { config.SetConfigDir(origDir) })
+	// A file where the directory should be, so MkdirAll cannot make one.
+	blocked := filepath.Join(t.TempDir(), "levelfour")
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config.SetConfigDir(blocked)
+
+	err := rescueCredential("l4_live_secret", errors.New("keychain is locked"))
+	if err == nil {
+		t.Fatal("a key with nothing holding it was reported as a success")
+	}
+	for _, want := range []string{"keychain is locked", "revoke", "not a directory"} {
+		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(want)) {
+			t.Errorf("error is missing %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "l4_live_secret") {
+		t.Error("the key itself is in the error, which will be logged")
+	}
+}
+
+func TestWriteRescueFileReportsADirectoryItCannotWriteInto(t *testing.T) {
+	origDir := config.ExportConfigDir()
+	t.Cleanup(func() { config.SetConfigDir(origDir) })
+
+	dir := filepath.Join(t.TempDir(), "levelfour")
+	if err := os.MkdirAll(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	config.SetConfigDir(dir)
+
+	if _, err := writeRescueFile("l4_live_secret"); err == nil {
+		t.Fatal("expected the write into a read-only directory to fail")
 	}
 }

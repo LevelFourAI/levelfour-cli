@@ -30,7 +30,7 @@ repos:
 
       - id: zizmor
         name: zizmor
-        entry: zizmor --no-online-audits --config .zizmor.yml
+        entry: zizmor --no-online-audits
         language: system
         files: \.github/workflows/.*\.yml$
 

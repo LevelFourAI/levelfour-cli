@@ -41,16 +41,11 @@ var rootCmd = &cobra.Command{
 		output.JSONMode = flagJSON || flagJQ != ""
 		output.JQExpression = flagJQ
 		output.TemplateFmt = flagTemplate
-		output.CSVMode = flagCSV
 		output.QuietMode = flagQuiet
 		output.NoColor = flagNoColor || os.Getenv("NO_COLOR") != ""
 
 		if flagQuiet && (output.JSONMode || flagCSV || flagTemplate != "") {
 			return fmt.Errorf("--quiet is mutually exclusive with --json, --csv, --jq, --template")
-		}
-
-		if flagCSV {
-			output.Warning("--csv is only supported by export commands. Use 'l4 export <subcommand> --format csv'.")
 		}
 
 		if cfg, err := config.Load(); err == nil && cfg.Telemetry {
@@ -134,6 +129,17 @@ func openWeb(path string) error {
 	return openBrowser(url)
 }
 
+// costsWebPath resolves the dashboard view behind `l4 costs --web`. There is no
+// global spending route: the dashboard scopes cost and usage per provider
+// (/providers/:providerId). Without a provider we hand off to the root and let
+// the dashboard redirect to whatever it currently lands on.
+func costsWebPath(providerID string) string {
+	if providerID == "" {
+		return "/"
+	}
+	return "/providers/" + providerID
+}
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate via browser (shortcut for 'auth login')",
@@ -159,7 +165,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&flagToken, "token", "t", "", "API token override (for CI/scripting)")
 	rootCmd.PersistentFlags().StringVar(&flagAPI, "api", "", "API base URL")
 	rootCmd.PersistentFlags().BoolVarP(&flagWeb, "web", "w", false, "Open in browser instead of terminal output")
-	rootCmd.PersistentFlags().BoolVar(&flagCSV, "csv", false, "Output in CSV format")
+	rootCmd.PersistentFlags().BoolVar(&flagCSV, "csv", false, "Deprecated: has no effect")
+	// No command reads it; kept accepted so existing invocations still work.
+	_ = rootCmd.PersistentFlags().MarkDeprecated("csv", "use 'l4 export <subcommand> --format csv' instead")
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Suppress all output, communicate via exit code only")
 	rootCmd.PersistentFlags().BoolVar(&flagNoColor, "no-color", false, "Disable colored output")
 
@@ -172,6 +180,7 @@ func init() {
 	diffCmd.GroupID = groupCore
 	exportCmd.GroupID = groupCore
 	apiCmd.GroupID = groupCore
+	mcpCmd.GroupID = groupCore
 
 	authCmd.GroupID = groupAuth
 	loginCmd.GroupID = groupAuth
@@ -188,6 +197,7 @@ func init() {
 	rootCmd.AddCommand(diffCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(apiCmd)
+	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(configureCmd)
 	rootCmd.AddCommand(completionCmd)

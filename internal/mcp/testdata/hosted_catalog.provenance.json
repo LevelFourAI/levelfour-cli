@@ -1,0 +1,11 @@
+{
+  "derived": "Write-partition tools keep only name and annotations: this CLI does not serve them. Example identifiers in descriptions are replaced with synthetic ones.",
+  "sha256": "a49d4c3a50405cb784f51848c455d23783792007a3021d5fdc0fd8ee4ad72937",
+  "source_path": "the MCP server's generated tool snapshot",
+  "source_repo": "levelfour-api",
+  "stripped": [
+    "decide-recommendation",
+    "update-anomaly-status"
+  ],
+  "upstream_sha256": "12cb4c5894597c985a2ab640a18690d3eca8184ff3f42597dff552e302d20d72"
+}

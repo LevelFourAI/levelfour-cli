@@ -20,7 +20,6 @@ var (
 	JSONMode     bool
 	JQExpression string
 	TemplateFmt  string
-	CSVMode      bool
 	QuietMode    bool
 	NoColor      bool
 	Stdout       io.Writer = os.Stdout
@@ -181,18 +180,26 @@ func PaginationFooter(current, total, totalItems int, hasNext bool) {
 	}
 }
 
+// Keyed by the lowercased rendered cell, so recommendation entries use the
+// dashboard's own labels ("Saved", "Needs Approval") rather than raw enum
+// values. Health and execution words are kept alongside them because the same
+// map colours `l4 status` and the execution tables.
 var statusColors = map[string]lipgloss.Color{
-	"active":      lipgloss.Color("114"),
-	"optimized":   lipgloss.Color("114"),
-	"complete":    lipgloss.Color("114"),
-	"available":   lipgloss.Color("75"),
-	"failed":      lipgloss.Color("167"),
-	"error":       lipgloss.Color("167"),
-	"rejected":    lipgloss.Color("167"),
-	"unavailable": lipgloss.Color("242"),
-	"pending":     lipgloss.Color("173"),
-	"processing":  lipgloss.Color("173"),
-	"in_review":   lipgloss.Color("141"),
+	"available":      lipgloss.Color("75"),
+	"pending":        lipgloss.Color("173"),
+	"needs approval": lipgloss.Color("141"),
+	"processing":     lipgloss.Color("173"),
+	"in progress":    lipgloss.Color("173"),
+	"saved":          lipgloss.Color("114"),
+	"completed":      lipgloss.Color("114"),
+	"rejected":       lipgloss.Color("167"),
+	"unavailable":    lipgloss.Color("242"),
+	"warning":        lipgloss.Color("173"),
+	"active":         lipgloss.Color("114"),
+	"optimized":      lipgloss.Color("114"),
+	"complete":       lipgloss.Color("114"),
+	"failed":         lipgloss.Color("167"),
+	"error":          lipgloss.Color("167"),
 }
 
 func savingsPercentStyle(cell string, base lipgloss.Style) lipgloss.Style {
@@ -295,11 +302,22 @@ func Error(msg string) {
 	fmt.Fprintf(Stderr, "%s %s\n", errorStyle.Render("Error:"), msg)
 }
 
+// noticeStream is where prose meant for a person goes. Under --json, --jq or
+// --template, stdout belongs to the payload: a notice printed there lands ahead
+// of the JSON and the whole document stops parsing. The notice is still worth
+// showing, so it moves to stderr rather than being dropped.
+func noticeStream() io.Writer {
+	if HasFormattingFlags() {
+		return Stderr
+	}
+	return Stdout
+}
+
 func Success(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(Stdout, successStyle.Render("\u2713 "+msg))
+	fmt.Fprintln(noticeStream(), successStyle.Render("\u2713 "+msg))
 }
 
 func Warning(msg string) {
@@ -313,7 +331,7 @@ func Info(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(Stdout, msg)
+	fmt.Fprintln(noticeStream(), msg)
 }
 
 func InfoLabel(msg string) {
@@ -321,7 +339,7 @@ func InfoLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("114")).Render("INFO")
-	fmt.Fprintf(Stdout, "%s %s\n", label, msg)
+	fmt.Fprintf(noticeStream(), "%s %s\n", label, msg)
 }
 
 func WarnLabel(msg string) {

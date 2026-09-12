@@ -26,7 +26,7 @@ func confirmAction(prompt string) bool {
 	fmt.Fprintf(output.Stdout, "%s [y/N]: ", prompt)
 	line, _ := bufio.NewReader(stdinReader).ReadString('\n')
 	answer := strings.ToLower(strings.TrimSpace(line))
-	return answer == "y" || answer == "yes"
+	return answer == "y" || answer == wordYes
 }
 
 // postWrite sends an authenticated POST carrying a fresh Idempotency-Key and

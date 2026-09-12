@@ -9,7 +9,7 @@ The official command-line tool for [LevelFour](https://levelfour.ai). Surfaces c
 
 ## Installation
 
-### Homebrew (macOS, Linux)
+### Homebrew (macOS)
 
 ```bash
 brew install LevelFourAI/tap/levelfour
@@ -20,6 +20,8 @@ brew install LevelFourAI/tap/levelfour
 ```bash
 go install github.com/LevelFourAI/levelfour-cli/cmd/levelfour@latest
 ```
+
+This produces a single binary named `levelfour`. Symlink it to `l4` if you want the short form the examples below use.
 
 ### Direct download
 
@@ -32,10 +34,67 @@ l4 auth login                                  # browser-based authentication
 l4 whoami                                      # confirm identity
 l4 costs summary                               # KPI overview
 l4 recommendations list --status available     # pending savings opportunities
+l4 rec accept REC-1234                         # accept one of them
 l4 estimate ./infra/                           # estimate Terraform costs locally
 ```
 
-The package installs two interchangeable binaries: `levelfour` (long form) and `l4` (short form, recommended for everyday use).
+The Homebrew cask and the release archives install two interchangeable binaries: `levelfour` (long form) and `l4` (short form, recommended for everyday use).
+
+## Connect your coding agent (MCP)
+
+Give Claude Code, Claude Desktop, Cursor, VS Code or Windsurf access to your cloud spend and savings recommendations:
+
+```bash
+l4 mcp install
+```
+
+It logs you in if you are not already, detects the agent clients on this machine, and writes an entry into each one. Then restart the client and ask it:
+
+> what are we spending this month
+
+Narrow it, or install one entry per organization (an API key belongs to exactly one):
+
+```bash
+l4 mcp install --client cursor
+l4 mcp install --client cursor --name levelfour-rw     # a second entry, e.g. a read-write key
+l4 mcp status                                          # what is wired up, and what is not
+```
+
+Existing config files are parsed and merged rather than replaced, only the entry under `--name` is touched, and a dated `.l4-backup-<name>-<timestamp>` copy is taken first.
+
+| Client | Written to | Transport |
+|---|---|---|
+| Claude Code | `~/.claude.json` | Remote HTTP |
+| Claude Desktop | `claude_desktop_config.json` | Local stdio (`l4 mcp serve`) |
+| Cursor | `~/.cursor/mcp.json` | Remote HTTP |
+| VS Code | user-profile `mcp.json` | Remote HTTP |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | Remote HTTP |
+
+Remote clients talk to `https://mcp.levelfour.ai/mcp` and carry your API key in an `Authorization` header. By default the key is written into the config file. Every file this command writes, `~/.claude.json` included, is created `0600` on macOS and Linux. Each is written to a temporary file and renamed into place, so the mode is set before the key is on disk and an interrupted write cannot truncate a config you already had. Pass `--key-source env` to write a reference instead, and the key never lands in the file:
+
+```bash
+l4 mcp install --key-source env    # then export LEVELFOUR_TOKEN where the client starts
+```
+
+VS Code needs no environment variable either way: with `--key-source env` it is given an `inputs` prompt and stores the key in its own secret storage. Claude Desktop's config only starts stdio servers, so it runs `l4 mcp serve` instead and never receives a key at all.
+
+`l4 mcp serve` runs the read-only tools locally over stdin and stdout, reading your data through the LevelFour API with the stored credential. The hosted catalog depends on your key: a `read` key is shown 16 tools, a `read-write` key is shown those plus 2 that write: one records an accept or reject decision, the other updates an anomaly's status. `l4 mcp serve` carries the same 16 under the same names, so an agent that learned to route against the hosted server gets the same answers here. To accept or reject from the terminal, use `l4 rec accept` and `l4 rec reject`. At startup it prints its version and tool count on stderr, which is where your client keeps its log.
+
+## Act on a recommendation
+
+Accept, reject or request execution without leaving the terminal. `rec` and `recs` are aliases for `recommendations`.
+
+```bash
+l4 rec accept REC-1234                  # confirms first; -y to skip
+l4 rec reject REC-1234 --reason operational
+l4 rec execute REC-1234 --method iac
+```
+
+`--reason` takes `operational`, `strategy`, `not_applicable` or `other`. Pass `--explanation` alongside `--reason other` to say why in free text.
+
+`--method` takes `one-click` (the default), `iac`, `one-click-plus-iac` or `manual`, and applies only to `execute`, which requires a recommendation you have already accepted.
+
+Every one of these prompts for confirmation. Pass `-y`/`--yes` to skip the prompt in a script.
 
 ## Authentication
 
@@ -50,16 +109,16 @@ For CI:
 ```yaml
 - env:
     LEVELFOUR_TOKEN: ${{ secrets.LEVELFOUR_TOKEN }}
-  run: l4 recommendations list --status available --jq '.data.items[].recommendation_id'
+  run: l4 recommendations list --status available --jq '.data.data.items[].recommendation_id'
 ```
 
 ## Output formats
 
-Every command supports machine-readable output:
+Most read commands support machine-readable output:
 
 ```bash
 l4 costs summary --json                                       # raw JSON
-l4 recommendations list --jq '.data.items[].monthly_savings'  # filter with jq
+l4 recommendations list --jq '.data.data.items[].monthly_savings'  # filter with jq
 l4 costs breakdown --format csv                               # CSV for spreadsheets
 ```
 
@@ -71,8 +130,8 @@ See [output formats](https://docs.levelfour.ai/cli/output-formats) for the full 
 |------|---------|
 | `0` | Success |
 | `1` | General error |
-| `2` | Issues found (`l4 estimate --fail-above` triggered, recommendations exceed threshold) |
-| `4` | Authentication required (no token, expired, or invalid) |
+| `2` | Issues found (`l4 estimate --fail-above` or `l4 diff --fail-above` triggered) |
+| `4` | Not authenticated (no token found). An expired or rejected token surfaces as `1` |
 | `130` | Interrupted (Ctrl+C) |
 
 Stable; script against them.
@@ -85,13 +144,59 @@ Crash telemetry is **opt-in** and **off by default**. Enable with:
 l4 telemetry enable
 ```
 
-What it sends: panic stack traces and the failing command name. Home paths are rewritten to `~`, AWS access keys and known token env vars are redacted, and HTTP headers/cookies are stripped before transport. See `l4 telemetry --help`.
+What it sends: panic stack traces. Home paths are rewritten to `~`, AWS access key ids are redacted, and HTTP headers and cookies are stripped before transport. See `l4 telemetry --help`.
+
+## Update check
+
+After every command, `l4` asks GitHub for the latest published release and prints a one-line notice on stderr when a newer version exists. The result is cached for 24 hours. It sends no data about you or your account, and it is skipped automatically in CI and for `dev` builds.
+
+## Command reference
+
+Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`.
+
+| Command | What it does |
+|---|---|
+| `l4 auth login` / `status` / `logout` | Authenticate, inspect the stored credential, remove it. `l4 login` is a shortcut |
+| `l4 whoami` | Identity and scope of the credential in use |
+| `l4 status` | API health and the base URL in use |
+| `l4 integrations list` | Connected cloud providers |
+| `l4 costs summary` | Spending and savings overview with KPIs and top services |
+| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination |
+| `l4 costs daily` / `monthly` | Spending aggregated per day or per month |
+| `l4 costs filters [dimension]` | Discover the filter dimensions and values `breakdown` accepts |
+| `l4 recommendations list` / `view <id>` | Browse savings opportunities. Both take `--tui` |
+| `l4 rec accept` / `reject` / `execute <id>` | Act on one, covered above |
+| `l4 estimate [path ...]` | Estimate Terraform costs locally |
+| `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |
+| `l4 export costs` / `recommendations` | Bulk export as CSV or JSON via `--format` |
+| `l4 api <endpoint>` | Authenticated raw API request, for anything not yet wrapped |
+| `l4 mcp install` / `status` / `serve` / `uninstall` | Coding-agent integration, covered above |
+| `l4 config get` / `set` / `list` | Persistent settings |
+| `l4 telemetry enable` / `disable` / `status` | Opt-in crash reporting, covered below |
+| `l4 completion <shell>` | Completion script for bash, zsh, fish or powershell |
+
+### Global flags
+
+Accepted by every command, though the output formats apply only to commands that render data.
+
+| Flag | Effect |
+|---|---|
+| `--json` | JSON output |
+| `--jq <expr>` | Filter JSON output with jq syntax |
+| `--template <tmpl>` | Format output with a Go template |
+| `-t`, `--token` | API token override, for CI and scripting |
+| `--api` | API base URL override |
+| `-w`, `--web` | Open in a browser instead of printing |
+| `-q`, `--quiet` | Suppress output, communicate through the exit code |
+| `--no-color` | Disable colour. `NO_COLOR` does the same |
+
+`--csv` is deprecated and has no effect. Use `l4 export <subcommand> --format csv`.
 
 ## Documentation
 
 - [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli): full command reference and recipes
 - [docs.levelfour.ai/sdks/go](https://docs.levelfour.ai/sdks/go): the Go SDK that powers the CLI
-- [api.md](https://github.com/LevelFourAI/levelfour-go/blob/main/api.md): underlying API methods
+- [levelfour-go](https://github.com/LevelFourAI/levelfour-go): the Go SDK source and its method reference
 
 ## Reporting issues
 

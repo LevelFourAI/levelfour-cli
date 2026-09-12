@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LevelFourAI/levelfour-cli/internal/mcp"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	kr "github.com/zalando/go-keyring"
 )
@@ -29,7 +30,6 @@ func resetFlags() {
 	output.JSONMode = false
 	output.JQExpression = ""
 	output.TemplateFmt = ""
-	output.CSVMode = false
 	output.QuietMode = false
 	output.NoColor = false
 
@@ -99,6 +99,10 @@ func resetFlags() {
 	flagRecsSearch = ""
 	flagRecsSortBy = ""
 	flagRecsSortOrder = ""
+
+	flagMCPClients = nil
+	flagMCPName = mcp.ServerName
+	flagMCPEndpoint = ""
 }
 
 func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
@@ -274,7 +278,7 @@ func TestDashboardURL(t *testing.T) {
 	}{
 		{"with leading slash", "https://api.levelfour.ai", "/settings", "https://dashboard.levelfour.ai/settings"},
 		{"without leading slash", "https://api.levelfour.ai", "settings", "https://dashboard.levelfour.ai/settings"},
-		{"custom api", "https://api.staging.levelfour.ai", "/drift", "https://dashboard.staging.levelfour.ai/drift"},
+		{"custom api", "https://api.example.com", "/drift", "https://dashboard.example.com/drift"},
 		{"trailing slash api", "https://api.levelfour.ai/", "/savings", "https://dashboard.levelfour.ai/savings"},
 	}
 	for _, tt := range tests {
@@ -310,7 +314,7 @@ func TestOpenWeb(t *testing.T) {
 	}
 }
 
-func TestCSVFlagWarning(t *testing.T) {
+func TestCSVFlagDeprecated(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1/providers":
@@ -342,13 +346,20 @@ func TestCSVFlagWarning(t *testing.T) {
 	flagToken = "l4_test_testkey123456789a"
 	defer resetFlags()
 
-	_, errBuf, err := executeCommand(t, "costs", "summary", "--csv")
+	_, _, err := executeCommand(t, "costs", "summary", "--csv")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := errBuf.String()
-	if !strings.Contains(got, "--csv is only supported by export commands") {
-		t.Errorf("expected CSV warning, got %q", got)
+
+	f := rootCmd.PersistentFlags().Lookup("csv")
+	if f == nil {
+		t.Fatal("--csv flag is missing")
+	}
+	if f.Deprecated == "" {
+		t.Error("--csv should be marked deprecated")
+	}
+	if !strings.Contains(f.Deprecated, "export") {
+		t.Errorf("deprecation message should point at export, got %q", f.Deprecated)
 	}
 }
 
@@ -381,5 +392,14 @@ func TestLoginShortcutInRootHelp(t *testing.T) {
 	got := outBuf.String()
 	if !strings.Contains(got, "login:") {
 		t.Errorf("login shortcut should appear in root help:\n%s", got)
+	}
+}
+
+func TestCostsWebPath(t *testing.T) {
+	if got := costsWebPath(""); got != "/" {
+		t.Errorf("costsWebPath(\"\") = %q, want %q", got, "/")
+	}
+	if got := costsWebPath("aws"); got != "/providers/aws" {
+		t.Errorf("costsWebPath(\"aws\") = %q, want %q", got, "/providers/aws")
 	}
 }
