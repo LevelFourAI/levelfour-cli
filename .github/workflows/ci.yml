@@ -151,7 +151,7 @@ jobs:
 
       - name: Secret scanning (Gitleaks)
         if: always()
-        uses: gacts/gitleaks@c9a0338361dc45a01aa7ebaaa5330179f3c62873
+        uses: gacts/gitleaks@4fd785dcdaf557fda64e05b0ae033b8f7d82fb81
         with:
           config-path: .gitleaks.toml
 
