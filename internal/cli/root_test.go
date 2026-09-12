@@ -103,6 +103,18 @@ func resetFlags() {
 	flagMCPClients = nil
 	flagMCPName = mcp.ServerName
 	flagMCPEndpoint = ""
+
+	flagTagsOrigin = ""
+	flagTagsProvider = ""
+	flagTagsSearch = ""
+	flagTagsStart = ""
+	flagTagsEnd = ""
+	flagTagsValue = ""
+	flagTagsPage = defaultTagsPage
+	flagTagsPageSize = defaultTagsPageSize
+	flagTagsFile = ""
+	flagTagsDryRun = false
+	flagTagsYes = false
 }
 
 func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
@@ -126,14 +138,22 @@ func executeCommand(t *testing.T, args ...string) (*bytes.Buffer, *bytes.Buffer,
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
+	// Drained while the command runs: output past the pipe buffer blocks the write for good.
+	var pipeBuf bytes.Buffer
+	drained := make(chan struct{})
+	go func() {
+		pipeBuf.ReadFrom(r)
+		close(drained)
+	}()
+
 	rootCmd.SetOut(w)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs(args)
 	err := rootCmd.Execute()
 
 	w.Close()
-	var pipeBuf bytes.Buffer
-	pipeBuf.ReadFrom(r)
+	<-drained
+	r.Close()
 	os.Stdout = origStdout
 
 	combined := outBuf.String() + pipeBuf.String()

@@ -130,7 +130,7 @@ See [output formats](https://docs.levelfour.ai/cli/output-formats) for the full 
 |------|---------|
 | `0` | Success |
 | `1` | General error |
-| `2` | Issues found (`l4 estimate --fail-above` or `l4 diff --fail-above` triggered) |
+| `2` | Issues found (`l4 estimate --fail-above` or `l4 diff --fail-above` triggered, or `l4 tags apply --dry-run` found changes) |
 | `4` | Not authenticated (no token found). An expired or rejected token surfaces as `1` |
 | `130` | Interrupted (Ctrl+C) |
 
@@ -168,6 +168,9 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 rec accept` / `reject` / `execute <id>` | Act on one, covered above |
 | `l4 estimate [path ...]` | Estimate Terraform costs locally |
 | `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |
+| `l4 tags list` / `show <key>` / `coverage` | Provider and virtual tag keys: spend, rules, and how much spend carries a tag |
+| `l4 tags resources <key>` / `costs <key>` | Resources a key covers, and spend per value |
+| `l4 tags preview` / `apply` / `delete` | Try a virtual tag from a YAML file, create or replace it, or delete it |
 | `l4 export costs` / `recommendations` | Bulk export as CSV or JSON via `--format` |
 | `l4 api <endpoint>` | Authenticated raw API request, for anything not yet wrapped |
 | `l4 mcp install` / `status` / `serve` / `uninstall` | Coding-agent integration, covered above |
