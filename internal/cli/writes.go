@@ -33,13 +33,23 @@ func confirmAction(prompt string) bool {
 // returns the decoded response envelope. The API deduplicates writes on that
 // header, so a retried invocation cannot double-apply.
 func postWrite(path string, payload interface{}) (map[string]interface{}, error) {
+	return sendWrite("POST", path, payload)
+}
+
+// sendWrite is postWrite for the other write verbs. A nil payload sends no
+// body, which is what DELETE needs.
+func sendWrite(method, path string, payload interface{}) (map[string]interface{}, error) {
 	client, err := newSDKClientFn()
 	if err != nil {
 		return nil, err
 	}
 
-	body, _ := json.Marshal(payload)
-	raw, err := client.Raw().DoRawWithHeaders("POST", path, bytes.NewReader(body), map[string]string{
+	var body io.Reader
+	if payload != nil {
+		encoded, _ := json.Marshal(payload)
+		body = bytes.NewReader(encoded)
+	}
+	raw, err := client.Raw().DoRawWithHeaders(method, path, body, map[string]string{
 		"Idempotency-Key": api.NewIdempotencyKey(),
 	})
 	if err != nil {
@@ -54,6 +64,39 @@ func postWrite(path string, payload interface{}) (map[string]interface{}, error)
 		return nil, fmt.Errorf("invalid JSON response: %w", err)
 	}
 	return envelope, nil
+}
+
+func readEnvelope(path string) (map[string]interface{}, error) {
+	client, err := newSDKClientFn()
+	if err != nil {
+		return nil, err
+	}
+
+	raw, err := client.Raw().DoRaw("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if raw.StatusCode >= 400 {
+		return nil, classifyStatusError(raw.StatusCode, raw.DecodeError())
+	}
+
+	var envelope map[string]interface{}
+	if err := json.Unmarshal(raw.Body, &envelope); err != nil {
+		return nil, fmt.Errorf("invalid JSON response: %w", err)
+	}
+	return envelope, nil
+}
+
+// envelopeList pulls the "data" array out of a response envelope.
+func envelopeList(envelope map[string]interface{}) []map[string]interface{} {
+	raw, _ := envelope["data"].([]interface{})
+	items := make([]map[string]interface{}, 0, len(raw))
+	for _, entry := range raw {
+		if item, ok := entry.(map[string]interface{}); ok {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 // envelopeData pulls the "data" object out of a response envelope.
