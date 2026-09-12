@@ -214,7 +214,7 @@ func resolveTagKeyID(ref, origin string) (string, error) {
 	return id, err
 }
 
-// Hands back the rows it read, so rendering a stored key id as a name costs no second list.
+// Returns the rows too, so rendering a stored id as a name costs no second list.
 func resolveTagKey(ref, origin string) (string, []tagKeyRow, error) {
 	if strings.HasPrefix(ref, virtualKeyPrefix) || strings.HasPrefix(ref, providerKeyPrefix) {
 		return ref, nil, nil

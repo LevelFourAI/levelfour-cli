@@ -18,12 +18,10 @@ import (
 // stdinReader is the source the confirmation prompt reads from. Tests swap it.
 var stdinReader io.Reader = os.Stdin
 
-// The answer arrives on stdin, so stdin decides whether anybody can give one. isTerminal reads
-// stdout, which answers a different question: whether a TUI has somewhere to draw.
+// The answer arrives on stdin. isTerminal reads stdout, a different question.
 var canPrompt = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
 
-// requireApproval refuses a write that nobody can approve, for the two tags commands whose
-// blast radius reaches months of already-evaluated spend.
+// For the two tags writes whose blast radius reaches months of already-evaluated spend.
 func requireApproval(prompt, unattended string) (bool, error) {
 	if flagTagsYes {
 		return true, nil

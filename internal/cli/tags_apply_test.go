@@ -18,7 +18,6 @@ func applyRoutes(extra map[string]tagsRoute) map[string]tagsRoute {
 	return routes
 }
 
-// Adds a config at the top, turns team-a into an exact match, and drops effective_from.
 func changedTeamsYAML() string {
 	spec := strings.Replace(teamsYAML, "effective_from: \"2026-06\"\n", "", 1)
 	spec = strings.Replace(spec, "operator: flexible_match", "operator: is", 1)

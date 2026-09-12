@@ -31,7 +31,6 @@ type tagsServer struct {
 	requests []tagsRequest
 }
 
-// serveTags answers "METHOD /path" from routes and 404s anything else, the way the API does for an unknown key.
 func serveTags(t *testing.T, routes map[string]tagsRoute) *tagsServer {
 	t.Helper()
 	s := &tagsServer{}

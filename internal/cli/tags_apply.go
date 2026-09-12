@@ -166,7 +166,6 @@ func newApplyPlan(current *tagKeyDetail, desired tagDefinition, diff tagDiff) ta
 	return plan
 }
 
-// A settings-only change goes through PATCH and leaves the rules untouched.
 func sendTagApply(current *tagKeyDetail, desired tagDefinition, diff tagDiff) (map[string]interface{}, error) {
 	switch {
 	case current == nil:

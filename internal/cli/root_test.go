@@ -138,8 +138,7 @@ func executeCommand(t *testing.T, args ...string) (*bytes.Buffer, *bytes.Buffer,
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	// Drained while the command runs: output larger than the pipe buffer, as the
-	// completion scripts are, would otherwise block the write for good.
+	// Drained while the command runs: output past the pipe buffer blocks the write for good.
 	var pipeBuf bytes.Buffer
 	drained := make(chan struct{})
 	go func() {
