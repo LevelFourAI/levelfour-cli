@@ -96,6 +96,42 @@ l4 rec execute REC-1234 --method iac
 
 Every one of these prompts for confirmation. Pass `-y`/`--yes` to skip the prompt in a script.
 
+## Cost alerts
+
+Watch an account or a saved cost view and notify the people you name on it. `alerts` and
+`alert` are aliases for `costalerts`.
+
+```bash
+l4 costalerts list                      # what is configured, and what is firing
+l4 costalerts sources                   # ids a rule can point at
+l4 costalerts create --file rule.json   # confirms first; -y to skip
+l4 costalerts events <id>               # what this alert has said, newest first
+l4 costalerts pause <id>                # stop notifying, keep the history
+```
+
+A rule is a JSON file, so it can be reviewed in a pull request before it reaches the API:
+
+```json
+{
+  "name": "Production budget",
+  "params": {
+    "kind": "budget",
+    "budget": 40000,
+    "reset": "monthly",
+    "rules": [{ "amount": 80, "unit": "percent" }]
+  },
+  "source_id": "123456789012",
+  "recipients": [{ "name": "Ana", "email": "ana@example.com", "member": true }]
+}
+```
+
+`source_id` is an id from `l4 costalerts sources`. Read a rule back with
+`l4 costalerts get <id> --json` to see every field the API returns. Pass `--file -`
+to pipe the rule in from stdin.
+
+Creating, pausing, resuming and deleting need a read-write API key, and each prompts for
+confirmation unless you pass `-y`/`--yes`.
+
 ## Authentication
 
 `l4` resolves credentials in a fixed order:
@@ -152,7 +188,7 @@ After every command, `l4` asks GitHub for the latest published release and print
 
 ## Command reference
 
-Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`.
+Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`, and `alerts` for `costalerts`.
 
 | Command | What it does |
 |---|---|
@@ -166,6 +202,9 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 costs filters [dimension]` | Discover the filter dimensions and values `breakdown` accepts |
 | `l4 recommendations list` / `view <id>` | Browse savings opportunities. Both take `--tui` |
 | `l4 rec accept` / `reject` / `execute <id>` | Act on one, covered above |
+| `l4 costalerts list` / `get <id>` / `events <id>` | Cost alerts, their state and their history |
+| `l4 costalerts sources` | What an alert can watch |
+| `l4 costalerts create` / `pause` / `resume` / `delete` | Manage alerts, covered above |
 | `l4 estimate [path ...]` | Estimate Terraform costs locally |
 | `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |
 | `l4 export costs` / `recommendations` | Bulk export as CSV or JSON via `--format` |
