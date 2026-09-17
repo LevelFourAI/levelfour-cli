@@ -73,7 +73,7 @@ func runTagsPreview() error {
 	output.Info("")
 	output.KPICards([]output.KPICard{
 		{Label: "Total spend", Value: formatSpend(result.TotalSpend)},
-		{Label: "Unallocated", Value: formatSpend(result.UnallocatedSpend)},
+		{Label: labelUnallocated, Value: formatSpend(result.UnallocatedSpend)},
 		{Label: "Shadowed", Value: formatSpend(result.ShadowedSpend)},
 	})
 	if len(result.Values) == 0 {

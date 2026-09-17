@@ -62,9 +62,13 @@ func runTagsList() error {
 			formatSpend(r.Spend),
 			formatShare(r.SpendSharePct),
 			orDash(r.Status),
+			shadowsLabel(r.SharesProviderKey),
 		})
 	}
-	output.Table([]string{"Name", "ID", "Origin", "Providers", "Values", "Resources", "Spend", "Share", "Status"}, tableRows)
+	output.Table(
+		[]string{"Name", "ID", "Origin", "Providers", "Values", "Resources", "Spend", "Share", "Status", "Shadows"},
+		tableRows,
+	)
 	return nil
 }
 

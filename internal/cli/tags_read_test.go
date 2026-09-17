@@ -16,7 +16,7 @@ const resourcesJSON = `{"items":[
   {"resource_id":"logs-bucket","name":"logs-bucket","type":"","provider":"gcp","account_id":"","value_id":null,"value_name":null,"value_source":null,"ratio":1.0,"spend":5}
 ],"pagination":{"total_items":11,"total_pages":3,"current_page":2,"page_size":5,"has_next":true,"has_previous":true}}`
 
-const byTagJSON = `{"tag_key":"Teams","teams":[
+const byTagJSON = `{"tag_key":"Teams","origin":"virtual","teams":[
   {"id":"data","label":"data","total":1200.5,"total_pct":24.0,"categories":{"compute":1200.5,"storage":0,"network":0,"database":0,"other":0}},
   {"id":"team-a","label":"team-a","total":800,"total_pct":16,"categories":{"compute":0,"storage":800,"network":0,"database":0,"other":0}}
 ],"unmapped":{"total":250.25}}`
@@ -147,7 +147,7 @@ func TestTagsCosts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	assertContains(t, out.String(), "Teams", "$2000.50", "$250.25", "data", "$1200.50", "24.0%", "16.0%")
+	assertContains(t, out.String(), "Teams", "virtual", "Unallocated", "$2000.50", "$250.25", "data", "$1200.50", "24.0%", "16.0%")
 	req, _ := srv.last(http.MethodGet, "/api/v1/costs/by-tag")
 	for param, want := range map[string]string{"tag_key": "Teams", "provider": "all", "start": "2026-08-01", "end": "2026-08-31"} {
 		if got := req.query.Get(param); got != want {
@@ -163,6 +163,20 @@ func TestTagsCostsNoValues(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertContains(t, out.String(), "$42.00", "No spend holds a value of this key in the window.")
+}
+
+// A name can resolve to either origin, and the two unmapped totals are different quantities: a
+// virtual key's is the spend its rules left over, a provider key's is the spend carrying no tag.
+func TestTagsCostsNamesTheUnmappedTotalAfterTheOrigin(t *testing.T) {
+	serveTags(t, map[string]tagsRoute{
+		"GET /api/v1/costs/by-tag": okRoute(`{"tag_key":"team","origin":"provider","teams":[],"unmapped":{"total":42}}`),
+	})
+	out, _, err := executeCommand(t, "tags", "costs", "team")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertContains(t, out.String(), "provider", "Untagged")
+	assertNotContains(t, out.String(), "Unallocated")
 }
 
 func TestTagsPreview(t *testing.T) {
@@ -256,4 +270,30 @@ func TestTagsShowReportsAFailedKeyListLookup(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("error = %v, want it to contain boom", err)
 	}
+}
+
+// A virtual key can carry the name of a provider key and take its place in every read, which is
+// the one fact about a key that changes what the other commands report for that name.
+func TestTagsMarkAKeyThatShadowsAProviderKey(t *testing.T) {
+	const shadowing = `[{"id":"vtk_teams01","name":"team","origin":"virtual","description":"Owning team",
+	  "providers":["aws"],"value_count":2,"resource_count":3,"spend":10,"spend_share_pct":5,
+	  "status":"active","shares_provider_key":true,"values":[]}]`
+	serveTags(t, map[string]tagsRoute{keysRoute: okRoute(shadowing)})
+
+	out, _, err := executeCommand(t, "tags", "list")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertContains(t, out.String(), "Shadows", "provider key")
+}
+
+func TestTagsShowSaysWhenAKeyShadowsAProviderKey(t *testing.T) {
+	detail := strings.Replace(teamsDetailJSON, `"shares_provider_key":false`, `"shares_provider_key":true`, 1)
+	serveTags(t, map[string]tagsRoute{"GET /api/v1/tags/keys/vtk_teams01": okRoute(detail)})
+
+	out, _, err := executeCommand(t, "tags", "show", "vtk_teams01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertContains(t, out.String(), "Shadows", "the provider key of the same name")
 }

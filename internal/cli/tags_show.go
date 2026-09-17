@@ -33,7 +33,7 @@ func runTagsShow(ref string) error {
 	if err := validateWindow(); err != nil {
 		return err
 	}
-	id, rows, err := resolveTagKey(ref, "")
+	id, rows, err := resolveTagKey(ref)
 	if err != nil {
 		return err
 	}
@@ -97,6 +97,9 @@ func renderTagKeyDetail(d tagKeyDetail, names keyNames) {
 	output.KeyValue("Description", orDash(d.Description))
 	output.KeyValue("Providers", orDash(strings.Join(d.Providers, ", ")))
 	output.KeyValue("Status", output.StatusBadge(orDash(d.Status)))
+	if d.SharesProviderKey {
+		output.KeyValue("Shadows", "the provider key of the same name")
+	}
 	if d.Origin == tagOriginVirtual {
 		output.KeyValue("Effective from", effectiveFromLabel(d.EffectiveFrom))
 		output.KeyValue("Can override", strconv.FormatBool(d.CanOverride))
@@ -112,7 +115,7 @@ func renderTagKeyDetail(d tagKeyDetail, names keyNames) {
 	output.Info("")
 	output.KPICards([]output.KPICard{
 		{Label: "Total spend", Value: formatSpend(d.TotalSpend)},
-		{Label: "Unallocated", Value: formatSpend(d.UnallocatedSpend)},
+		{Label: labelUnallocated, Value: formatSpend(d.UnallocatedSpend)},
 		{Label: "Resources", Value: strconv.Itoa(d.ResourceCount)},
 	})
 	printNumbered("Collapsed keys, checked before the configs:", collapsedItems(d.CollapsedKeys, names))

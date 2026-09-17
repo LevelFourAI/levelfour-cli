@@ -9,21 +9,22 @@ import (
 const deleteTeamsRoute = "DELETE /api/v1/tags/virtual/vtk_teams01"
 
 func TestTagsDeleteByName(t *testing.T) {
-	srv := serveTags(t, map[string]tagsRoute{keysRoute: okRoute(tagKeysJSON), deleteTeamsRoute: {status: http.StatusNoContent}})
+	srv := serveTags(t, map[string]tagsRoute{"DELETE /api/v1/tags/virtual/Teams": {status: http.StatusNoContent}})
 	out, _, err := executeCommand(t, "tags", "delete", "Teams", "--yes")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertContains(t, out.String(), "Deleted virtual tag Teams")
-	req, ok := srv.last(http.MethodDelete, "/api/v1/tags/virtual/vtk_teams01")
+	req, ok := srv.last(http.MethodDelete, "/api/v1/tags/virtual/Teams")
 	if !ok {
 		t.Fatal("expected a DELETE")
 	}
 	if req.key != "" {
 		t.Error("a DELETE must not carry an Idempotency-Key")
 	}
-	if lookup, _ := srv.last(http.MethodGet, "/api/v1/tags/keys"); lookup.query.Get("origin") != "virtual" {
-		t.Errorf("lookup origin = %q, want virtual", lookup.query.Get("origin"))
+	// The route resolves a virtual key by name, so the name must not cost a list request first.
+	if _, listed := srv.last(http.MethodGet, "/api/v1/tags/keys"); listed {
+		t.Error("a name must go straight to the route rather than being resolved to an id first")
 	}
 }
 
@@ -33,7 +34,7 @@ func TestTagsDeleteJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	assertContains(t, out.String(), `"deleted": true`, `"id": "vtk_teams01"`)
+	assertContains(t, out.String(), `"deleted": true`, `"key": "vtk_teams01"`)
 }
 
 func TestTagsDeleteConfirmation(t *testing.T) {
@@ -70,7 +71,14 @@ func TestTagsDeleteErrors(t *testing.T) {
 		wantErr string
 	}{
 		{"provider key", "ptk_dGVhbQ", nil, "provider tags come from the bill and cannot be deleted"},
-		{"unknown name", "Owner", map[string]tagsRoute{keysRoute: okRoute(tagKeysJSON)}, `no virtual tag key named "Owner"`},
+		{
+			"unknown name", "Owner",
+			map[string]tagsRoute{
+				"DELETE /api/v1/tags/virtual/Owner": errRoute(
+					http.StatusNotFound, `{"code":"tag_not_found","message":"Not found: Owner"}`),
+			},
+			"Not found: Owner",
+		},
 		{
 			"read by another key", "vtk_teams01",
 			map[string]tagsRoute{deleteTeamsRoute: errRoute(http.StatusConflict, `{"code":"has_dependents","message":"Another key reads this key","details":{"dependents":[{"id":"vtk_cc03","name":"Cost Centers"},"Business Units"]}}`)},

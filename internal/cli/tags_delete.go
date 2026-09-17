@@ -37,15 +37,13 @@ func runTagsDelete(ref string) error {
 		output.Info("Aborted.")
 		return nil
 	}
-	id, err := resolveTagKeyID(ref, tagOriginVirtual)
-	if err != nil {
-		return err
-	}
-	if err := deleteWrite(virtualTagPath(id)); err != nil {
+	// The route resolves a virtual key by name, and this command only ever addresses virtual
+	// keys, so the reference goes as given rather than costing a list request to turn into an id.
+	if err := deleteWrite(virtualTagPath(ref)); err != nil {
 		return err
 	}
 	if output.HasFormattingFlags() {
-		return output.PrintResult(map[string]interface{}{"id": id, "deleted": true})
+		return output.PrintResult(map[string]interface{}{"key": ref, "deleted": true})
 	}
 	output.Success(fmt.Sprintf("Deleted virtual tag %s", ref))
 	return nil

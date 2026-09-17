@@ -50,7 +50,7 @@ func runTagsResources(ref string) error {
 	if err := validateChoice(paramProvider, flagTagsProvider, tagProviders); err != nil {
 		return err
 	}
-	id, err := resolveTagKeyID(ref, "")
+	id, err := resolveTagKeyID(ref)
 	if err != nil {
 		return err
 	}

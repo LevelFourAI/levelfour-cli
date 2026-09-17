@@ -30,6 +30,7 @@ const (
 	tagOriginVirtual  = "virtual"
 	tagOriginProvider = "provider"
 
+	labelUnallocated  = "Unallocated"
 	virtualKeyPrefix  = "vtk_"
 	providerKeyPrefix = "ptk_"
 
@@ -68,15 +69,23 @@ var (
 )
 
 type tagKeyRow struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Origin        string   `json:"origin"`
-	Providers     []string `json:"providers"`
-	ValueCount    int      `json:"value_count"`
-	ResourceCount int      `json:"resource_count"`
-	Spend         float64  `json:"spend"`
-	SpendSharePct float64  `json:"spend_share_pct"`
-	Status        string   `json:"status"`
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Origin            string   `json:"origin"`
+	Providers         []string `json:"providers"`
+	ValueCount        int      `json:"value_count"`
+	ResourceCount     int      `json:"resource_count"`
+	Spend             float64  `json:"spend"`
+	SpendSharePct     float64  `json:"spend_share_pct"`
+	Status            string   `json:"status"`
+	SharesProviderKey bool     `json:"shares_provider_key"`
+}
+
+func shadowsLabel(shares bool) string {
+	if shares {
+		return "provider key"
+	}
+	return "-"
 }
 
 type tagValueRef struct {
@@ -107,18 +116,19 @@ type tagWindow struct {
 
 type tagKeyDetail struct {
 	tagDefinition
-	ID               string            `json:"id"`
-	Origin           string            `json:"origin"`
-	Providers        []string          `json:"providers"`
-	Status           string            `json:"status"`
-	RulesVersion     int               `json:"rules_version"`
-	Values           []tagValueSummary `json:"values"`
-	TotalSpend       float64           `json:"total_spend"`
-	UnallocatedSpend float64           `json:"unallocated_spend"`
-	ResourceCount    int               `json:"resource_count"`
-	Dependents       []tagValueRef     `json:"dependents"`
-	Job              *tagJob           `json:"job"`
-	Window           tagWindow         `json:"window"`
+	ID                string            `json:"id"`
+	Origin            string            `json:"origin"`
+	Providers         []string          `json:"providers"`
+	Status            string            `json:"status"`
+	SharesProviderKey bool              `json:"shares_provider_key"`
+	RulesVersion      int               `json:"rules_version"`
+	Values            []tagValueSummary `json:"values"`
+	TotalSpend        float64           `json:"total_spend"`
+	UnallocatedSpend  float64           `json:"unallocated_spend"`
+	ResourceCount     int               `json:"resource_count"`
+	Dependents        []tagValueRef     `json:"dependents"`
+	Job               *tagJob           `json:"job"`
+	Window            tagWindow         `json:"window"`
 }
 
 type tagMutation struct {
@@ -209,30 +219,29 @@ func matchTagKey(rows []tagKeyRow, name string) (tagKeyRow, bool) {
 	return match, found
 }
 
-func resolveTagKeyID(ref, origin string) (string, error) {
-	id, _, err := resolveTagKey(ref, origin)
+func resolveTagKeyID(ref string) (string, error) {
+	id, _, err := resolveTagKey(ref)
 	return id, err
 }
 
 // Returns the rows too, so rendering a stored id as a name costs no second list.
-func resolveTagKey(ref, origin string) (string, []tagKeyRow, error) {
+//
+// The key routes resolve a name themselves, but only against virtual keys: a provider key is
+// addressable by its id alone. A caller that accepts either origin therefore still has to look a
+// bare name up here, because nothing in the name says which of the two it is. The commands that
+// address virtual keys alone skip this and send the reference as given.
+func resolveTagKey(ref string) (string, []tagKeyRow, error) {
 	if strings.HasPrefix(ref, virtualKeyPrefix) || strings.HasPrefix(ref, providerKeyPrefix) {
 		return ref, nil, nil
 	}
-	params := url.Values{}
-	setParam(params, paramOrigin, origin)
-	_, rows, err := listTagKeys(params)
+	_, rows, err := listTagKeys(url.Values{})
 	if err != nil {
 		return "", nil, err
 	}
 	if row, ok := matchTagKey(rows, ref); ok {
 		return row.ID, rows, nil
 	}
-	noun := "tag key"
-	if origin == tagOriginVirtual {
-		noun = "virtual tag key"
-	}
-	return "", nil, fmt.Errorf("no %s named %q: run 'l4 tags list' to see the keys", noun, ref)
+	return "", nil, fmt.Errorf("no tag key named %q: run 'l4 tags list' to see the keys", ref)
 }
 
 func validateChoice(flag, value string, choices []string) error {

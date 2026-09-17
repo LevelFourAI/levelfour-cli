@@ -161,7 +161,7 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 status` | API health and the base URL in use |
 | `l4 integrations list` | Connected cloud providers |
 | `l4 costs summary` | Spending and savings overview with KPIs and top services |
-| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination |
+| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination. Groups and filters by a virtual tag with `--virtual-tag-key` |
 | `l4 costs daily` / `monthly` | Spending aggregated per day or per month |
 | `l4 costs filters [dimension]` | Discover the filter dimensions and values `breakdown` accepts |
 | `l4 recommendations list` / `view <id>` | Browse savings opportunities. Both take `--tui` |

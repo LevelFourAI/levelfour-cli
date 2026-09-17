@@ -29,10 +29,21 @@ type tagCostItem struct {
 
 type tagCostData struct {
 	TagKey   string        `json:"tag_key"`
+	Origin   string        `json:"origin"`
 	Teams    []tagCostItem `json:"teams"`
 	Unmapped struct {
 		Total float64 `json:"total"`
 	} `json:"unmapped"`
+}
+
+// A virtual key's rules cover the whole bill, so its unmapped total is the spend no rule
+// assigned. A provider key's is the spend that simply carries no such tag, which is a different
+// quantity, and the same name can resolve to either.
+func unallocatedLabel(origin string) string {
+	if origin == tagOriginVirtual {
+		return labelUnallocated
+	}
+	return "Untagged"
 }
 
 func runTagsCosts(ref string) error {
@@ -63,10 +74,11 @@ func runTagsCosts(ref string) error {
 		rows = append(rows, []string{item.Label, formatSpend(item.Total), formatShare(item.TotalPct)})
 	}
 	output.KeyValue("Tag key", data.TagKey)
+	output.KeyValue("Origin", orDash(data.Origin))
 	output.Info("")
 	output.KPICards([]output.KPICard{
 		{Label: "Allocated", Value: formatSpend(allocated)},
-		{Label: "Unallocated", Value: formatSpend(data.Unmapped.Total)},
+		{Label: unallocatedLabel(data.Origin), Value: formatSpend(data.Unmapped.Total)},
 	})
 	if len(rows) == 0 {
 		output.Info("No spend holds a value of this key in the window.")
