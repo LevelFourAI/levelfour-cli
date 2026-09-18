@@ -151,7 +151,7 @@ jobs:
 
       - name: Secret scanning (Gitleaks)
         if: always()
-        uses: gacts/gitleaks@c9a0338361dc45a01aa7ebaaa5330179f3c62873
+        uses: gacts/gitleaks@4fd785dcdaf557fda64e05b0ae033b8f7d82fb81
         with:
           config-path: .gitleaks.toml
 
@@ -170,7 +170,7 @@ jobs:
 
       - name: Workflow security audit (zizmor)
         if: always()
-        uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99  # v0.6.3
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482  # v0.6.4
         with:
           advanced-security: false
 
