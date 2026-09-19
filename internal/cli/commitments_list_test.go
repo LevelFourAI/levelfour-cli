@@ -2,7 +2,6 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,12 +26,15 @@ const (
 		`"holder_account_id":"111122223333","holder_account_name":"payer","expires_in_seconds":8121600,` +
 		`"utilization_pct":100,"coverage_pct":0,"protects_monthly":null,"saturated":true,"status":"active"}]}}`
 
-	gcpListBody = `{"data":{"items":[{"id":"cud-1","provider":"gcp","service":"compute",` +
-		`"service_label":"Compute","account_id":"proj-1","account_name":"Project One",` +
-		`"region":"us-central1","kind":"committed_use_discount","start_date":"2026-01-01",` +
-		`"end_date":"","status":"active","current_utilization_pct":91.4,"current_coverage_pct":52,` +
-		`"monthly_commitment_usd":1200}],"pagination":{"total_items":1,"total_pages":1,` +
-		`"current_page":1,"page_size":200,"has_next":false,"has_previous":false}}}`
+	// A Committed Use Discount now carries a fee and an expiry through this route.
+	gcpPortfolioBody = `{"data":{"basis":"net","totals":{"commitment_count":1,` +
+		`"fee_monthly_list":1200,"fee_monthly_net":1200,"protects_monthly":1200,` +
+		`"rightsizing_monthly":0,"expiring_within_30d":0,"organization_count":1},"rows":[` +
+		`{"id":"cud-1","service":"compute","service_label":"Compute",` +
+		`"kind":"committed_use_discount","holder_account_id":"proj-1",` +
+		`"holder_account_name":"Project One","expires_in_seconds":7776000,` +
+		`"end_at":"2026-12-18T00:00:00Z","utilization_pct":91.4,"coverage_pct":52,` +
+		`"protects_monthly":1200,"saturated":false,"status":"active"}]}}`
 )
 
 func awsPortfolioServer(t *testing.T) {
@@ -160,26 +162,27 @@ func TestCommitmentsListReadsTheListBasis(t *testing.T) {
 	}
 }
 
-// Google Cloud rows come from the plain list route, because that is the payload
-// the Committed Use Discount sweep fills.
-func TestCommitmentsListReadsGoogleCloudFromTheListRoute(t *testing.T) {
+func TestCommitmentsListReadsGoogleCloudFromThePortfolio(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{
-		"": gcpListBody,
+		"/portfolio": gcpPortfolioBody,
 	}))
 
 	out, _, err := executeCommand(t, "commitments", "list")
 	if err != nil {
 		t.Fatalf("list error: %v", err)
 	}
-	for _, want := range []string{"cud-1", "CUD", "Project One", "$1200.00", notMeasured} {
+	for _, want := range []string{"cud-1", "CUD", "Project One", "$1200.00/mo", "90d", "52.0%"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
 	}
+	if strings.Contains(out.String(), notMeasured) {
+		t.Errorf("nothing here is unmeasured any more:\n%s", out.String())
+	}
 }
 
 func TestCommitmentsListFiltersGoogleCloudKinds(t *testing.T) {
-	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"": gcpListBody}))
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"/portfolio": gcpPortfolioBody}))
 
 	out, _, err := executeCommand(t, "commitments", "list", "--kind", "cud")
 	if err != nil {
@@ -189,63 +192,9 @@ func TestCommitmentsListFiltersGoogleCloudKinds(t *testing.T) {
 		t.Errorf("--kind cud should keep the row:\n%s", out.String())
 	}
 
-	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"": gcpListBody}))
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"/portfolio": gcpPortfolioBody}))
 	if _, _, err = executeCommand(t, "commitments", "list", "--kind", "ri"); err == nil {
 		t.Error("--kind ri is not a Google Cloud kind and should be refused")
-	}
-}
-
-// pagedListServer answers page 1 with has_next set, so a caller that stops
-// there sees half the portfolio.
-func pagedListServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/providers" {
-			writeProviderList(w, []string{providerGCP})
-			return
-		}
-		page := r.URL.Query().Get("page")
-		id, hasNext := "cud-page-one", true
-		if page == "2" {
-			id, hasNext = "cud-page-two", false
-		}
-		_, _ = io.WriteString(w, strings.NewReplacer(
-			"cud-1", id,
-			`"has_next":false`, fmt.Sprintf(`"has_next":%t`, hasNext),
-		).Replace(gcpListBody))
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// A portfolio wider than one page must not be reported as if it were the whole
-// thing. Silently short output is worse than slow output.
-func TestCommitmentsListWalksEveryPage(t *testing.T) {
-	useCommitmentsServer(t, pagedListServer(t))
-
-	out, _, err := executeCommand(t, "commitments", "list")
-	if err != nil {
-		t.Fatalf("list error: %v", err)
-	}
-	for _, want := range []string{"cud-page-one", "cud-page-two"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output missing %q, so a page was dropped:\n%s", want, out.String())
-		}
-	}
-	if !strings.Contains(out.String(), "Commitments") || !strings.Contains(out.String(), "2") {
-		t.Errorf("the count should reflect every page:\n%s", out.String())
-	}
-}
-
-func TestExportCommitmentsWalksEveryPage(t *testing.T) {
-	useCommitmentsServer(t, pagedListServer(t))
-
-	out, _, err := executeCommand(t, "export", "commitments", "--format", "csv")
-	if err != nil {
-		t.Fatalf("export error: %v", err)
-	}
-	if !strings.Contains(out.String(), "cud-page-one") || !strings.Contains(out.String(), "cud-page-two") {
-		t.Errorf("an export must be complete:\n%s", out.String())
 	}
 }
 
@@ -281,7 +230,7 @@ func TestCommitmentsListStaysQuietWhenNoFilterIsSet(t *testing.T) {
 
 func TestCommitmentsListWithNoGoogleCloudRows(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{
-		"": `{"data":{"items":[],"pagination":{"total_items":0,"total_pages":0,"current_page":1,"page_size":200}}}`,
+		"/portfolio": `{"data":{"basis":"net","totals":{"commitment_count":0},"rows":[]}}`,
 	}))
 
 	out, _, err := executeCommand(t, "commitments", "list")
@@ -299,7 +248,7 @@ func TestCommitmentsListJSON(t *testing.T) {
 		t.Fatalf("list --jq error: %v", err)
 	}
 
-	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"": gcpListBody}))
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"/portfolio": gcpPortfolioBody}))
 	out, _, err := executeCommand(t, "commitments", "list", "--json")
 	if err != nil {
 		t.Fatalf("list --json error: %v", err)

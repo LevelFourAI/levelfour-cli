@@ -20,10 +20,6 @@ const (
 	kindSpendCommitment  = "spend_commitment"
 
 	defaultExpiryWindow = "90d"
-
-	// The route's ceiling. Every caller below walks the pages rather than
-	// trusting one to be enough.
-	listPageSize = "200"
 )
 
 var kindLabels = map[string]string{
@@ -74,10 +70,7 @@ var commitmentsListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if provider == providerAWS {
-			return runPortfolioList(client, provider, kind)
-		}
-		return runPlainList(client, provider, kind)
+		return runPortfolioList(client, provider, kind)
 	},
 }
 
@@ -150,62 +143,7 @@ func runPortfolioList(client *api.SDKClient, provider, kind string) error {
 	return nil
 }
 
-// runPlainList filters kind and status here rather than in the query. It holds
-// every page already, so filtering in this client costs one pass over rows it
-// has, and it behaves the same against an API whose own kind filter accepts all
-// four kinds and one whose filter predates two of them.
-func runPlainList(client *api.SDKClient, provider, kind string) error {
-	items, err := fetchAllCommitments(client, provider)
-	if err != nil {
-		return handleCommitmentsError(err)
-	}
-
-	if output.HasFormattingFlags() {
-		noteUnappliedFilters(map[string]string{"--kind": flagListKind, "--status": flagListStatus})
-		return output.PrintResult(map[string][]api.CommitmentListItem{"items": items})
-	}
-
-	items = filterCommitmentItems(items, kind, flagListStatus)
-	if len(items) == 0 {
-		output.Info("No commitments match.")
-		return nil
-	}
-	renderCommitmentItems(items)
-	output.KeyValue("Commitments", strconv.Itoa(len(items)))
-	return nil
-}
-
-// fetchAllCommitments walks every page. Stopping at the first would understate
-// a portfolio in silence: the count printed and the rows exported would both be
-// short with nothing saying so. `fetchAllRecommendations` in export.go walks its
-// pages the same way.
-//
-// The assembled items are the whole payload rather than a page of it, which is
-// why a formatting flag prints these rather than one response envelope.
-// CommitmentListItem mirrors every field the route returns, so nothing is lost
-// in the round trip.
-func fetchAllCommitments(client *api.SDKClient, provider string) ([]api.CommitmentListItem, error) {
-	var items []api.CommitmentListItem
-	for page := 1; ; page++ {
-		listing, _, err := api.GetCommitments[api.CommitmentList](client.Raw(), "",
-			map[string]string{
-				"provider":  provider,
-				"page":      strconv.Itoa(page),
-				"page_size": listPageSize,
-			})
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, listing.Items...)
-		if !listing.Pagination.HasNext {
-			return items, nil
-		}
-	}
-}
-
-// noteUnappliedFilters says which flags shaped the table and not the payload.
-// The list route cannot express these filters, so they run in this client, and
-// a formatting flag that prints the payload prints rows the table dropped.
+// The portfolio route expresses none of these filters, so they run here.
 func noteUnappliedFilters(named map[string]string) {
 	set := make([]string, 0, len(named))
 	for name, value := range named {
@@ -337,16 +275,6 @@ func filterPortfolio(rows []api.CommitmentPortfolioRow, kind, status string) []a
 	return kept
 }
 
-func filterCommitmentItems(items []api.CommitmentListItem, kind, status string) []api.CommitmentListItem {
-	kept := make([]api.CommitmentListItem, 0, len(items))
-	for _, item := range items {
-		if matches(item.Kind, kind) && matches(item.Status, status) {
-			kept = append(kept, item)
-		}
-	}
-	return kept
-}
-
 func matches(value, wanted string) bool {
 	return wanted == "" || value == wanted
 }
@@ -388,35 +316,6 @@ func renderPortfolioRows(rows []api.CommitmentPortfolioRow) {
 		})
 	}
 	output.Table(headers, table)
-}
-
-func renderCommitmentItems(items []api.CommitmentListItem) {
-	headers := []string{"ID", columnService, "Kind", columnAccount, "Ends", "Status", "Util", "Coverage", "Committed/mo"}
-	table := make([][]string, 0, len(items))
-	for _, item := range items {
-		table = append(table, []string{
-			item.ID,
-			item.ServiceLabel,
-			kindLabel(item.Kind),
-			item.AccountName,
-			endDateCell(item.EndDate),
-			item.Status,
-			pctValue(item.CurrentUtilizationPct),
-			coverageCell(item.Kind, item.CurrentCoveragePct),
-			moneyValue(item.MonthlyCommitmentUSD),
-		})
-	}
-	output.Table(headers, table)
-}
-
-// endDateCell keeps an absent term honest. Committed Use Discount lifecycle
-// needs an export that is not enabled, so the date arrives empty rather than
-// wrong, and an empty cell would read as a commitment that never ends.
-func endDateCell(endDate string) string {
-	if endDate == "" {
-		return notMeasured
-	}
-	return endDate
 }
 
 // coverageCell refuses to print a Savings Plan's coverage. Cost Explorer cannot

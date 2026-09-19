@@ -50,19 +50,19 @@ func TestExportCommitmentsJSON(t *testing.T) {
 }
 
 func TestExportCommitmentsGoogleCloud(t *testing.T) {
-	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"": gcpListBody}))
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"/portfolio": gcpPortfolioBody}))
 
 	out, _, err := executeCommand(t, "export", "commitments", "--format", "csv")
 	if err != nil {
 		t.Fatalf("export error: %v", err)
 	}
-	if !strings.Contains(out.String(), "cud-1,gcp,compute,committed_use_discount") {
-		t.Errorf("Google Cloud rows should export from the list route:\n%s", out.String())
+	if !strings.Contains(out.String(), "cud-1,compute,committed_use_discount") {
+		t.Errorf("Google Cloud rows should export through the portfolio:\n%s", out.String())
 	}
 }
 
 func TestExportCommitmentsGoogleCloudJSON(t *testing.T) {
-	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"": gcpListBody}))
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"/portfolio": gcpPortfolioBody}))
 
 	out, _, err := executeCommand(t, "export", "commitments", "--format", "json")
 	if err != nil {
