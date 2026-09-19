@@ -611,7 +611,7 @@ func (m costsModel) buildTableColumns() []btable.Column {
 }
 
 func (m costsModel) buildTableRows() []btable.Row {
-	_, rows := buildCostsBreakdownRows(m.items, m.width, m.baseState.groupBy)
+	_, rows := buildCostsBreakdownRows(wrapCostItems(m.items), m.width, m.baseState.groupBy)
 	converted := make([]btable.Row, len(rows))
 	for i, r := range rows {
 		converted[i] = btable.Row(r)

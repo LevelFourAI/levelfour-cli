@@ -22,6 +22,9 @@ type costsFilterState struct {
 	tagKey      []string
 	tagValue    []string
 
+	virtualTagKey   string
+	virtualTagValue []string
+
 	sortBy     string
 	sortByDate string
 	sortOrder  string
@@ -45,7 +48,13 @@ var validSortOrders = map[string]struct{}{
 }
 
 var validGroupByValues = map[string]struct{}{
-	"service": {}, "account_id": {}, "region": {}, "tag": {},
+	"service": {}, "account_id": {}, "region": {}, "tag": {}, dimVirtualTag: {},
+}
+
+// A virtual tag's rows carry only these dimensions, so the same grouping the API allows beside one
+// is refused here instead of costing a round trip to be told.
+var groupByBesideVirtualTag = map[string]struct{}{
+	dimVirtualTag: {}, "service": {}, "region": {}, "account_id": {},
 }
 
 func (s *costsFilterState) validate() error {
@@ -66,13 +75,13 @@ func (s *costsFilterState) validate() error {
 	}
 	for _, g := range s.groupBy {
 		if _, ok := validGroupByValues[g]; !ok {
-			return fmt.Errorf("--group-by must be one of service, account_id, region, tag (got %q)", g)
+			return fmt.Errorf("--group-by must be one of service, account_id, region, tag, virtual_tag (got %q)", g)
 		}
 	}
 	if containsString(s.groupBy, "tag") && len(s.tagKey) == 0 {
 		return fmt.Errorf("--tag-key is required when --group-by includes tag")
 	}
-	return nil
+	return s.validateVirtualTag()
 }
 
 func containsString(xs []string, target string) bool {
@@ -171,6 +180,7 @@ func applyRawParamsScalars(params map[string][]string, s costsFilterState) {
 		{"sort_by", s.sortBy},
 		{"sort_by_date", s.sortByDate},
 		{"sort_order", s.sortOrder},
+		{"virtual_tag_key", s.virtualTagKey},
 	}
 	for _, kv := range scalars {
 		if kv.value != "" {
@@ -191,6 +201,7 @@ func applyRawParamsSlices(params map[string][]string, s costsFilterState) {
 		{dimRegion, s.region},
 		{"tag_key", s.tagKey},
 		{"tag_value", s.tagValue},
+		{"virtual_tag_value", s.virtualTagValue},
 	}
 	for _, kv := range slices {
 		if len(kv.values) > 0 {
@@ -199,47 +210,87 @@ func applyRawParamsSlices(params map[string][]string, s costsFilterState) {
 	}
 }
 
+// The virtual tag value rides beside the generated item because that type has no field for it.
+type costItem struct {
+	*levelfourgo.ProviderServiceBreakdownItem
+	virtualTag string
+}
+
+func wrapCostItems(items []*levelfourgo.ProviderServiceBreakdownItem) []costItem {
+	wrapped := make([]costItem, 0, len(items))
+	for _, item := range items {
+		wrapped = append(wrapped, costItem{ProviderServiceBreakdownItem: item})
+	}
+	return wrapped
+}
+
+func (s *costsFilterState) validateVirtualTag() error {
+	if containsString(s.groupBy, dimVirtualTag) && s.virtualTagKey == "" {
+		return fmt.Errorf("--virtual-tag-key is required when --group-by includes virtual_tag")
+	}
+	if s.virtualTagKey == "" {
+		if len(s.virtualTagValue) > 0 {
+			return fmt.Errorf("--virtual-tag-value needs --virtual-tag-key")
+		}
+		return nil
+	}
+	for _, g := range s.groupBy {
+		if _, ok := groupByBesideVirtualTag[g]; !ok {
+			return fmt.Errorf(
+				"--group-by %s cannot be combined with --virtual-tag-key; "+
+					"beside a virtual tag the groupings are virtual_tag, service, region, account_id", g)
+		}
+	}
+	if len(s.tagKey) > 0 || len(s.tagValue) > 0 {
+		return fmt.Errorf("--tag-key and --tag-value cannot be combined with --virtual-tag-key")
+	}
+	return nil
+}
+
 type costColumn struct {
 	header   string
 	minWidth int
-	value    func(*levelfourgo.ProviderServiceBreakdownItem) string
+	value    func(costItem) string
 }
 
 var costColumns = []costColumn{
-	{columnService, 0, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{columnService, 0, func(item costItem) string {
 		return derefOrDash(item.GetService())
 	}},
-	{"Cost", 0, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{"Cost", 0, func(item costItem) string {
 		return fmt.Sprintf("$%.2f", item.GetCost())
 	}},
-	{"Change", 0, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{"Change", 0, func(item costItem) string {
 		return formatChangePercentage(item.GetChangePercentage())
 	}},
-	{"Prev Cost", 100, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{"Prev Cost", 100, func(item costItem) string {
 		p := item.GetPreviousCost()
 		if p == nil {
 			return dashSymbol
 		}
 		return fmt.Sprintf("$%.2f", *p)
 	}},
-	{"Region", 120, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{"Region", 120, func(item costItem) string {
 		return derefOrDash(item.GetRegion())
 	}},
-	{columnAccount, 140, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{columnAccount, 140, func(item costItem) string {
 		return derefOrDash(item.GetAccountID())
 	}},
-	{"Environment", 160, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{"Environment", 160, func(item costItem) string {
 		return derefOrDash(item.GetEnvironment())
 	}},
-	{"Tag Key", 160, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{"Tag Key", 160, func(item costItem) string {
 		return derefOrDash(item.GetTagKey())
 	}},
-	{"Tag Value", 160, func(item *levelfourgo.ProviderServiceBreakdownItem) string {
+	{"Tag Value", 160, func(item costItem) string {
 		return derefOrDash(item.GetTagValue())
+	}},
+	{columnVirtualTag, 160, func(item costItem) string {
+		return orDash(item.virtualTag)
 	}},
 }
 
-func buildCostsBreakdownRows(items []*levelfourgo.ProviderServiceBreakdownItem, width int, groupBy []string) ([]string, [][]string) {
+func buildCostsBreakdownRows(items []costItem, width int, groupBy []string) ([]string, [][]string) {
 	active := activeCostColumns(width, groupBy)
 
 	headers := make([]string, len(active))
@@ -284,6 +335,8 @@ func promotedByGroupBy(groupBy []string) map[string]struct{} {
 		case "tag":
 			out["Tag Key"] = struct{}{}
 			out["Tag Value"] = struct{}{}
+		case dimVirtualTag:
+			out[columnVirtualTag] = struct{}{}
 		}
 	}
 	return out

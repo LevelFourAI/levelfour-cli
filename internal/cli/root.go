@@ -181,6 +181,7 @@ func init() {
 	exportCmd.GroupID = groupCore
 	apiCmd.GroupID = groupCore
 	mcpCmd.GroupID = groupCore
+	tagsCmd.GroupID = groupCore
 
 	authCmd.GroupID = groupAuth
 	loginCmd.GroupID = groupAuth
@@ -198,6 +199,7 @@ func init() {
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(apiCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(tagsCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(configureCmd)
 	rootCmd.AddCommand(completionCmd)

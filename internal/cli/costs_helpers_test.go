@@ -175,7 +175,7 @@ func TestBuildCostsBreakdownRows(t *testing.T) {
 	}
 
 	t.Run("narrow terminal hides wide columns", func(t *testing.T) {
-		headers, rows := buildCostsBreakdownRows(items, 60, nil)
+		headers, rows := buildCostsBreakdownRows(wrapCostItems(items), 60, nil)
 		if len(headers) != 3 {
 			t.Errorf("expected 3 columns at width 60, got %d: %v", len(headers), headers)
 		}
@@ -185,14 +185,14 @@ func TestBuildCostsBreakdownRows(t *testing.T) {
 	})
 
 	t.Run("wide terminal shows all columns", func(t *testing.T) {
-		headers, _ := buildCostsBreakdownRows(items, 200, nil)
+		headers, _ := buildCostsBreakdownRows(wrapCostItems(items), 200, nil)
 		if len(headers) < 7 {
 			t.Errorf("expected at least 7 columns at width 200, got %d: %v", len(headers), headers)
 		}
 	})
 
 	t.Run("group-by promotes columns even on narrow terminals", func(t *testing.T) {
-		headers, _ := buildCostsBreakdownRows(items, 60, []string{"account_id", "region"})
+		headers, _ := buildCostsBreakdownRows(wrapCostItems(items), 60, []string{"account_id", "region"})
 		hasAccount := false
 		hasRegion := false
 		for _, h := range headers {
@@ -213,7 +213,7 @@ func TestBuildCostsBreakdownRows(t *testing.T) {
 
 	t.Run("nil service renders as dash", func(t *testing.T) {
 		nilItem := []*levelfourgo.ProviderServiceBreakdownItem{{Cost: 10.0}}
-		_, rows := buildCostsBreakdownRows(nilItem, 200, nil)
+		_, rows := buildCostsBreakdownRows(wrapCostItems(nilItem), 200, nil)
 		if len(rows) != 1 {
 			t.Fatalf("expected 1 row")
 		}
