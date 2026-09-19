@@ -96,6 +96,27 @@ l4 rec execute REC-1234 --method iac
 
 Every one of these prompts for confirmation. Pass `-y`/`--yes` to skip the prompt in a script.
 
+## Watch your commitments
+
+Read the Reserved Instance, Savings Plan and Committed Use Discount position, and catch a lapse before the bill does. `cmt` is an alias for `commitments`.
+
+```bash
+l4 commitments summary                  # coverage, utilization, effective savings rate
+l4 commitments list --expiring-within 90d
+l4 commitments renewal ri-0a1b2c3d      # what to rebuy, and the instant to buy after
+l4 commitments plan                     # the uncovered base, sized against its hourly floor
+```
+
+`l4 commitments expiring --fail-within 30d` exits `2` when a commitment lapses inside the window, so a pipeline fails instead of a term quietly ending:
+
+```yaml
+- run: l4 commitments expiring --fail-within 30d
+```
+
+Without `--fail-within` it only reports and exits `0`. Durations take `d`, `w` or `m`, where a month is 30 days.
+
+AWS and Google Cloud are both covered. Every command resolves one provider, which `--provider` overrides. Where a figure is not measured for a provider the command prints `not measured` rather than a zero, and where a whole command cannot answer for one it says so in a line and exits `0`. Google Cloud has no on-demand equivalent to compute a savings rate against and no Committed Use Discount lifecycle export, so expiry, renewal planning, purchase planning and contracts are AWS only today.
+
 ## Authentication
 
 `l4` resolves credentials in a fixed order:
@@ -130,7 +151,7 @@ See [output formats](https://docs.levelfour.ai/cli/output-formats) for the full 
 |------|---------|
 | `0` | Success |
 | `1` | General error |
-| `2` | Issues found (`l4 estimate --fail-above` or `l4 diff --fail-above` triggered) |
+| `2` | Issues found (`l4 estimate --fail-above`, `l4 diff --fail-above` or `l4 commitments expiring --fail-within` triggered, or `l4 tags apply --dry-run` found changes) |
 | `4` | Not authenticated (no token found). An expired or rejected token surfaces as `1` |
 | `130` | Interrupted (Ctrl+C) |
 
@@ -152,7 +173,7 @@ After every command, `l4` asks GitHub for the latest published release and print
 
 ## Command reference
 
-Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`.
+Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`, and `cmt` for `commitments`.
 
 | Command | What it does |
 |---|---|
@@ -161,14 +182,24 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 status` | API health and the base URL in use |
 | `l4 integrations list` | Connected cloud providers |
 | `l4 costs summary` | Spending and savings overview with KPIs and top services |
-| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination |
+| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination. Groups and filters by a virtual tag with `--virtual-tag-key` |
 | `l4 costs daily` / `monthly` | Spending aggregated per day or per month |
 | `l4 costs filters [dimension]` | Discover the filter dimensions and values `breakdown` accepts |
 | `l4 recommendations list` / `view <id>` | Browse savings opportunities. Both take `--tui` |
 | `l4 rec accept` / `reject` / `execute <id>` | Act on one, covered above |
+| `l4 commitments summary` | Coverage, utilization and what the commitments are earning |
+| `l4 commitments list` | Every commitment held, soonest to expire first |
+| `l4 commitments expiring` | What lapses soon, with an exit code for CI. Covered below |
+| `l4 commitments view` / `renewal <id>` | One commitment in full, and what to repurchase when it ends |
+| `l4 commitments utilization` | How much of what was bought is being used, per service |
+| `l4 commitments plan` | The uncovered on-demand base and what buying would cover it |
+| `l4 commitments contracts` | Marketplace and private-pricing floors that bill like a commitment |
 | `l4 estimate [path ...]` | Estimate Terraform costs locally |
 | `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |
-| `l4 export costs` / `recommendations` | Bulk export as CSV or JSON via `--format` |
+| `l4 tags list` / `show <key>` / `coverage` | Provider and virtual tag keys: spend, rules, and how much spend carries a tag |
+| `l4 tags resources <key>` / `costs <key>` | Resources a key covers, and spend per value |
+| `l4 tags preview` / `apply` / `delete` | Try a virtual tag from a YAML file, create or replace it, or delete it |
+| `l4 export costs` / `recommendations` / `commitments` | Bulk export as CSV or JSON via `--format` |
 | `l4 api <endpoint>` | Authenticated raw API request, for anything not yet wrapped |
 | `l4 mcp install` / `status` / `serve` / `uninstall` | Coding-agent integration, covered above |
 | `l4 config get` / `set` / `list` | Persistent settings |

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -32,6 +33,8 @@ var (
 	flagBreakdownRegion      []string
 	flagBreakdownTagKey      []string
 	flagBreakdownTagValue    []string
+	flagBreakdownVTagKey     string
+	flagBreakdownVTagValue   []string
 	flagBreakdownProvider    string
 	flagBreakdownFormat      string
 	flagBreakdownTUI         bool
@@ -80,13 +83,17 @@ var costsBreakdownCmd = &cobra.Command{
 			region:      flagBreakdownRegion,
 			tagKey:      flagBreakdownTagKey,
 			tagValue:    flagBreakdownTagValue,
-			sortBy:      flagBreakdownSortBy,
-			sortByDate:  flagBreakdownSortByDate,
-			sortOrder:   flagBreakdownSortOrder,
-			page:        page,
-			pageSize:    pageSize,
-			providerID:  providerID,
-			format:      flagBreakdownFormat,
+
+			virtualTagKey:   flagBreakdownVTagKey,
+			virtualTagValue: flagBreakdownVTagValue,
+
+			sortBy:     flagBreakdownSortBy,
+			sortByDate: flagBreakdownSortByDate,
+			sortOrder:  flagBreakdownSortOrder,
+			page:       page,
+			pageSize:   pageSize,
+			providerID: providerID,
+			format:     flagBreakdownFormat,
 		}
 
 		if err := state.validate(); err != nil {
@@ -95,6 +102,9 @@ var costsBreakdownCmd = &cobra.Command{
 
 		if flagBreakdownFormat == formatCSV || flagBreakdownFormat == "raw" {
 			return runCostsBreakdownRaw(client, providerID, state, flagBreakdownFormat)
+		}
+		if state.virtualTagKey != "" {
+			return runCostsBreakdownVirtualTag(client, providerID, state)
 		}
 
 		req := buildCostsListRequest(state)
@@ -135,7 +145,7 @@ var costsBreakdownCmd = &cobra.Command{
 			return nil
 		}
 
-		headers, rows := buildCostsBreakdownRows(items, terminalWidth(), state.groupBy)
+		headers, rows := buildCostsBreakdownRows(wrapCostItems(items), terminalWidth(), state.groupBy)
 		output.Table(headers, rows)
 
 		if pg := data.GetPagination(); pg != nil {
@@ -199,13 +209,15 @@ func init() {
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownEnd, "end", "", "End date (ISO 8601, e.g. 2026-01-31)")
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownPreset, "preset", "", "Date preset: 30D, 6M, 12M (overrides --start/--end)")
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownGranularity, "granularity", "", "Granularity: daily, monthly")
-	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownGroupBy, "group-by", nil, "Group by: service, account_id, region, tag (repeatable)")
+	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownGroupBy, "group-by", nil, "Group by: service, account_id, region, tag, virtual_tag (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownService, "service", nil, "Filter by service (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownEnvironment, "environment", nil, "Filter by environment (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownAccount, "account", nil, "Filter by account ID (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownRegion, "region", nil, "Filter by region (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownTagKey, "tag-key", nil, "Filter by tag key; required when --group-by includes tag (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownTagValue, "tag-value", nil, "Filter by tag value (repeatable)")
+	costsBreakdownCmd.Flags().StringVar(&flagBreakdownVTagKey, "virtual-tag-key", "", "Report the spend a virtual tag's rules assigned, by its name or id; required when --group-by includes virtual_tag")
+	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownVTagValue, "virtual-tag-value", nil, "Keep only these values of --virtual-tag-key; __unallocated__ keeps the spend no rule assigned (repeatable)")
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownSortBy, "sort-by", "", "Sort field: cost, previous_cost, change_percentage, service, region, account_id")
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownSortByDate, "sort-by-date", "", "Sort by a specific date column (YYYY-MM-DD daily, YYYY-MM monthly); overrides --sort-by")
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownSortOrder, "sort-order", "", "Sort order: asc, desc")
@@ -213,4 +225,70 @@ func init() {
 	costsBreakdownCmd.Flags().BoolVar(&flagBreakdownTUI, "tui", false, "Use interactive split-pane TUI")
 
 	costsCmd.AddCommand(costsBreakdownCmd)
+}
+
+func runCostsBreakdownVirtualTag(client *api.SDKClient, providerID string, state costsFilterState) error {
+	params := buildCostsRawParams(providerID, state, "table")
+	path := fmt.Sprintf("/api/v1/providers/%s/costs/breakdown%s", providerID, api.BuildQueryStringMulti(params))
+	raw, err := client.Raw().DoRaw("GET", path, nil)
+	if err != nil {
+		return err
+	}
+	if raw.StatusCode >= 400 {
+		return fmt.Errorf("API error (%d): %s", raw.StatusCode, strings.TrimSpace(string(raw.Body)))
+	}
+	if output.HasFormattingFlags() {
+		output.PrintRaw(string(raw.Body))
+		return nil
+	}
+	return renderVirtualTagBreakdown(raw.Body, state.groupBy)
+}
+
+// Read alongside the typed items rather than inside them: the generated item type carries its own
+// UnmarshalJSON, so a field added by embedding it is never populated.
+func decodeVirtualTagBreakdown(body []byte) (*levelfourgo.ProviderServiceBreakdownData, []costItem, error) {
+	var typed struct {
+		Data *levelfourgo.ProviderServiceBreakdownData `json:"data"`
+	}
+	if err := json.Unmarshal(body, &typed); err != nil || typed.Data == nil {
+		return nil, nil, fmt.Errorf("unexpected response from the API: %s", strings.TrimSpace(string(body)))
+	}
+	var values struct {
+		Data struct {
+			Items []struct {
+				VirtualTag string `json:"virtual_tag"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &values); err != nil {
+		return nil, nil, fmt.Errorf("unexpected response from the API: %w", err)
+	}
+	items := typed.Data.GetItems()
+	rows := make([]costItem, 0, len(items))
+	for i, item := range items {
+		row := costItem{ProviderServiceBreakdownItem: item}
+		if i < len(values.Data.Items) {
+			row.virtualTag = values.Data.Items[i].VirtualTag
+		}
+		rows = append(rows, row)
+	}
+	return typed.Data, rows, nil
+}
+
+func renderVirtualTagBreakdown(body []byte, groupBy []string) error {
+	data, rows, err := decodeVirtualTagBreakdown(body)
+	if err != nil {
+		return err
+	}
+	renderCostsBreakdownKPIs(data)
+	if len(rows) == 0 {
+		output.Info("No cost breakdown data found.")
+		return nil
+	}
+	headers, tableRows := buildCostsBreakdownRows(rows, terminalWidth(), groupBy)
+	output.Table(headers, tableRows)
+	if pg := data.GetPagination(); pg != nil {
+		output.PaginationFooter(pg.GetCurrentPage(), pg.GetTotalPages(), pg.GetTotalItems(), pg.GetHasNext())
+	}
+	return nil
 }

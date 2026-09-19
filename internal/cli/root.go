@@ -173,6 +173,7 @@ func init() {
 
 	costsCmd.GroupID = groupCore
 	recommendationsCmd.GroupID = groupCore
+	commitmentsCmd.GroupID = groupCore
 	integrationsCmd.GroupID = groupCore
 	statusCmd.GroupID = groupCore
 	whoamiCmd.GroupID = groupCore
@@ -181,6 +182,7 @@ func init() {
 	exportCmd.GroupID = groupCore
 	apiCmd.GroupID = groupCore
 	mcpCmd.GroupID = groupCore
+	tagsCmd.GroupID = groupCore
 
 	authCmd.GroupID = groupAuth
 	loginCmd.GroupID = groupAuth
@@ -190,6 +192,7 @@ func init() {
 
 	rootCmd.AddCommand(costsCmd)
 	rootCmd.AddCommand(recommendationsCmd)
+	rootCmd.AddCommand(commitmentsCmd)
 	rootCmd.AddCommand(integrationsCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(whoamiCmd)
@@ -198,6 +201,7 @@ func init() {
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(apiCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(tagsCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(configureCmd)
 	rootCmd.AddCommand(completionCmd)

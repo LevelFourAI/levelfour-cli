@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
@@ -160,6 +161,133 @@ func fetchAllRecommendations(client *api.SDKClient, accountID string) ([]*levelf
 	return allItems, nil
 }
 
+var exportCommitmentsCmd = &cobra.Command{
+	Use:   "commitments",
+	Short: "Export the commitment ledger",
+	Example: `- Export every commitment as CSV
+
+  $ l4 export commitments --format csv > commitments.csv
+
+- Export Google Cloud commitments as JSON to a file
+
+  $ l4 export commitments --provider gcp --format json --out commitments.json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, provider, err := commitmentClient()
+		if err != nil {
+			return err
+		}
+		if provider == providerAWS {
+			return exportPortfolio(client, provider)
+		}
+		return exportCommitmentList(client, provider)
+	},
+}
+
+func exportPortfolio(client *api.SDKClient, provider string) error {
+	portfolio, body, err := fetchPortfolio(client, provider)
+	if err != nil {
+		return handleCommitmentsError(err)
+	}
+	if flagExportFormat != formatCSV {
+		return writeIndentedJSON(body)
+	}
+
+	headers := []string{
+		"id", "service", "kind", "holder_account_id", "holder_account_name", "end_at",
+		"utilization_pct", "coverage_pct", "protects_monthly", "rightsizing_monthly", "status",
+	}
+	rows := make([][]string, 0, len(portfolio.Rows))
+	for _, row := range portfolio.Rows {
+		rows = append(rows, []string{
+			row.ID,
+			row.Service,
+			row.Kind,
+			row.HolderAccountID,
+			row.HolderAccountName,
+			csvText(row.EndAt),
+			csvFloat(row.UtilizationPct),
+			csvCoverage(row.Kind, row.CoveragePct),
+			csvOptionalFloat(row.ProtectsMonthly),
+			csvOptionalFloat(row.RightsizingMonthly),
+			row.Status,
+		})
+	}
+	return writeOutput(appendCSV(nil, headers, rows))
+}
+
+// An export is only worth having if it is complete, so this walks every page
+// rather than trusting one to hold the whole portfolio.
+func exportCommitmentList(client *api.SDKClient, provider string) error {
+	items, err := fetchAllCommitments(client, provider)
+	if err != nil {
+		return handleCommitmentsError(err)
+	}
+	if flagExportFormat != formatCSV {
+		data, _ := json.MarshalIndent(map[string][]api.CommitmentListItem{"items": items}, "", "  ")
+		return writeOutput(data)
+	}
+
+	headers := []string{
+		"id", "provider", "service", "kind", "account_id", "account_name", "region",
+		"start_date", "end_date", "status", "utilization_pct", "coverage_pct", "monthly_commitment_usd",
+	}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			item.ID,
+			item.Provider,
+			item.Service,
+			item.Kind,
+			item.AccountID,
+			item.AccountName,
+			item.Region,
+			item.StartDate,
+			item.EndDate,
+			item.Status,
+			csvFloat(item.CurrentUtilizationPct),
+			csvCoverage(item.Kind, item.CurrentCoveragePct),
+			csvFloat(item.MonthlyCommitmentUSD),
+		})
+	}
+	return writeOutput(appendCSV(nil, headers, rows))
+}
+
+// writeIndentedJSON re-indents a payload the API already parsed on the way in,
+// so the marshal cannot fail, which is why the error is dropped here the way
+// output.PrintJSON drops its own.
+func writeIndentedJSON(body []byte) error {
+	data, _ := json.MarshalIndent(json.RawMessage(body), "", "  ")
+	return writeOutput(data)
+}
+
+// csvCoverage leaves a Savings Plan's coverage cell empty, which is what a
+// spreadsheet reads as no value. A zero there would claim the plan covers none
+// of the eligible usage, and nothing measures what one plan covers.
+func csvCoverage(kind string, pct float64) string {
+	if kind == kindSavingsPlan {
+		return ""
+	}
+	return csvFloat(pct)
+}
+
+func csvFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+func csvOptionalFloat(v *float64) string {
+	if v == nil {
+		return ""
+	}
+	return csvFloat(*v)
+}
+
+func csvText(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 func writeOutput(data []byte) error {
 	if flagExportOut != "" {
 		return os.WriteFile(flagExportOut, data, 0o600)
@@ -214,13 +342,18 @@ func csvEscape(s string) string {
 }
 
 func init() {
-	for _, cmd := range []*cobra.Command{exportCostsCmd, exportRecommendationsCmd} {
+	for _, cmd := range []*cobra.Command{exportCostsCmd, exportRecommendationsCmd, exportCommitmentsCmd} {
 		cmd.Flags().StringVar(&flagExportFormat, "format", "csv", "Output format: csv, json")
-		cmd.Flags().StringVar(&flagExportAccount, "account", "", "Filter by account")
 		cmd.Flags().StringVar(&flagExportOut, "out", "", "Write to file instead of stdout")
 	}
+	for _, cmd := range []*cobra.Command{exportCostsCmd, exportRecommendationsCmd} {
+		cmd.Flags().StringVar(&flagExportAccount, "account", "", "Filter by account")
+	}
 	exportCostsCmd.Flags().StringVar(&flagExportPeriod, "period", "", "Time period: 7d, 30d, 90d, 365d")
+	exportCommitmentsCmd.Flags().StringVar(&flagCommitmentsProvider, "provider", "",
+		"Provider ID (aws, gcp); auto-detected if omitted")
 
 	exportCmd.AddCommand(exportCostsCmd)
 	exportCmd.AddCommand(exportRecommendationsCmd)
+	exportCmd.AddCommand(exportCommitmentsCmd)
 }
