@@ -114,7 +114,14 @@ func ValidateBaseURL(rawURL string) error {
 }
 
 func SecureHTTPClient() *http.Client {
-	transport := &http.Transport{
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: SecureTransport(),
+	}
+}
+
+func SecureTransport() *http.Transport {
+	return &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   5 * time.Second,
 			KeepAlive: 30 * time.Second,
@@ -126,10 +133,6 @@ func SecureHTTPClient() *http.Client {
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},
-	}
-	return &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: transport,
 	}
 }
 

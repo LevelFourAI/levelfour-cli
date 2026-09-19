@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"github.com/LevelFourAI/levelfour-cli/internal/mcp"
 )
 
 // Also the values --client accepts.
@@ -78,9 +80,6 @@ type Client struct {
 	bins []string
 	app  string
 
-	// Given a command rather than a URL, so no endpoint can be written into it.
-	stdio bool
-
 	path      func() (string, error)
 	entry     func(Client, Options) map[string]any
 	rootPatch func(Client, Options, map[string]any)
@@ -116,7 +115,6 @@ var Clients = []Client{
 			"starts stdio servers. Your API key stays in the system keychain and is never written to this file",
 		Section: sectionMCPServers,
 		// https://modelcontextprotocol.io/docs/develop/connect-local-servers
-		stdio: true,
 		app:   "Claude.app",
 		path:  claudeDesktopConfigPath,
 		entry: stdioEntry,
@@ -178,8 +176,6 @@ func IDs() []string {
 }
 
 func (c Client) ConfigPath() (string, error) { return c.path() }
-
-func (c Client) TakesEndpoint() bool { return !c.stdio }
 
 type Presence int
 
@@ -338,10 +334,16 @@ func vscodeInputs(_ Client, o Options, root map[string]any) {
 	root["inputs"] = append(existing, input)
 }
 
+// The default endpoint is left out rather than pinned, so the entry follows the
+// binary if the hosted address ever moves.
 func stdioEntry(_ Client, o Options) map[string]any {
+	args := []any{"mcp", "serve"}
+	if o.Endpoint != "" && o.Endpoint != mcp.Endpoint {
+		args = append(args, "--endpoint", o.Endpoint)
+	}
 	return map[string]any{
 		fieldCommand: o.Binary,
-		fieldArgs:    []any{"mcp", "serve"},
+		fieldArgs:    args,
 	}
 }
 

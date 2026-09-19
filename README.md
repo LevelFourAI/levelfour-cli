@@ -78,7 +78,7 @@ l4 mcp install --key-source env    # then export LEVELFOUR_TOKEN where the clien
 
 VS Code needs no environment variable either way: with `--key-source env` it is given an `inputs` prompt and stores the key in its own secret storage. Claude Desktop's config only starts stdio servers, so it runs `l4 mcp serve` instead and never receives a key at all.
 
-`l4 mcp serve` runs the read-only tools locally over stdin and stdout, reading your data through the LevelFour API with the stored credential. The hosted catalog depends on your key: a `read` key is shown 16 tools, a `read-write` key is shown those plus 2 that write: one records an accept or reject decision, the other updates an anomaly's status. `l4 mcp serve` carries the same 16 under the same names, so an agent that learned to route against the hosted server gets the same answers here. To accept or reject from the terminal, use `l4 rec accept` and `l4 rec reject`. At startup it prints its version and tool count on stderr, which is where your client keeps its log.
+`l4 mcp serve` connects to `https://mcp.levelfour.ai/mcp` with the stored credential and relays it over stdin and stdout. It serves what the hosted server offers your key: the same tools under the same names, the same prompts and the same resources. Tools the hosted server adds appear without upgrading `l4`, and a `read-write` key also gets the tools that write. It needs network access and MCP access enabled for your organization. Without either, it exits with the reason on stderr, where your client keeps its log, and `l4 mcp status` shows the same reason. `--endpoint` on `install`, `serve` and `status` points every client at another server, Claude Desktop included.
 
 ## Act on a recommendation
 

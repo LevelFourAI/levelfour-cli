@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -30,6 +31,7 @@ var (
 	mcpStatus    = mcpinstall.Status
 	mcpClassify  = mcpinstall.Classify
 	mcpServe     = mcp.Serve
+	mcpProbe     = mcp.Probe
 	osExecutable = os.Executable
 )
 
@@ -38,7 +40,7 @@ var mcpCmd = &cobra.Command{
 	Short: "Connect coding agents to LevelFour over MCP",
 	Long: "Connect coding agents to LevelFour over the Model Context Protocol.\n\n" +
 		"`l4 mcp install` writes the server into the agent clients on this machine. " +
-		"`l4 mcp uninstall` takes it back out. `l4 mcp serve` runs the same tools locally over stdio.",
+		"`l4 mcp uninstall` takes it back out. `l4 mcp serve` relays the hosted server over stdio.",
 }
 
 var mcpInstallCmd = &cobra.Command{
@@ -277,28 +279,67 @@ func printUninstallResults(results []mcpinstall.Result, failures []string, sweep
 var mcpServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run the LevelFour MCP server locally over stdio",
-	Long: "Runs the LevelFour MCP tools on this machine, speaking MCP over stdin and stdout and " +
-		"reading your cloud data through the LevelFour API with the credential in your keychain.\n\n" +
+	Long: "Speaks MCP over stdin and stdout and relays every request to the hosted LevelFour MCP " +
+		"server with the credential in your keychain. It offers exactly what the hosted server " +
+		"offers your key, including tools added after this binary was released.\n\n" +
 		"This is what `l4 mcp install` points Claude Desktop at, because its config file starts " +
 		"stdio servers and cannot send an Authorization header to a remote one. Run it by hand " +
 		"only to debug: on its own it waits for a client that will never speak.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := newAPIClient()
-		if err != nil {
-			return err
+		key, _ := resolveToken()
+		if key == "" {
+			return errNotAuthenticated
 		}
 		// stdout is the protocol stream from here on. Anything the shared output
 		// helpers would print to it would be read as a malformed JSON-RPC frame
 		// and drop the session, so send them where the client keeps its log.
 		output.Stdout = os.Stderr
-		return mcpServe(cmd.Context(), mcp.Session{
-			Fetcher: mcp.NewRESTFetcher(client),
-			Version: Version,
-			In:      os.Stdin,
-			Out:     os.Stdout,
-			Notices: os.Stderr,
+		err := mcpServe(cmd.Context(), mcp.Session{
+			Upstream: mcpUpstream(key),
+			In:       os.Stdin,
+			Out:      os.Stdout,
+			Notices:  os.Stderr,
 		})
+		return explainRefusal(err)
 	},
+}
+
+func mcpUpstream(key string) mcp.Upstream {
+	return mcp.Upstream{Endpoint: mcpEndpoint(), Key: key, Version: Version}
+}
+
+// Any credential can read this, so an answer from it proves the key is live.
+const whoamiPath = "/api/v1/auth/whoami"
+
+// explainRefusal turns a refused credential into the one cause a user can act
+// on. A key the REST API still accepts means MCP access is off for the
+// organization; a key it refuses as well has been revoked or has expired.
+func explainRefusal(err error) error {
+	if !errors.Is(err, mcp.ErrCredentialRefused) {
+		return err
+	}
+	client, clientErr := newAPIClient()
+	if clientErr != nil {
+		return errors.Join(err, clientErr)
+	}
+	if _, apiErr := client.Get(whoamiPath); apiErr != nil {
+		return fmt.Errorf("%w, and so did the LevelFour API (%v): %w", err, apiErr, errNotAuthenticated)
+	}
+	return fmt.Errorf("%w, although the LevelFour API accepts it: MCP access is not enabled for "+
+		"your organization. Contact LevelFour to turn it on", err)
+}
+
+// describeSurface is the status line for what the hosted server offers this
+// key. It reads the live server, since that is what `l4 mcp serve` relays.
+func describeSurface(ctx context.Context, key string) string {
+	if key == "" {
+		return "unknown until you authenticate"
+	}
+	surface, err := mcpProbe(ctx, mcpUpstream(key))
+	if err != nil {
+		return "unavailable: " + explainRefusal(err).Error()
+	}
+	return surface.String()
 }
 
 var mcpStatusCmd = &cobra.Command{
@@ -313,11 +354,12 @@ var mcpStatusCmd = &cobra.Command{
 		}
 
 		key, source := resolveToken()
+		surface := describeSurface(cmd.Context(), key)
 		if output.HasFormattingFlags() {
 			return output.PrintResult(map[string]any{
 				"name":         flagMCPName,
 				"endpoint":     mcpEndpoint(),
-				"surface":      mcp.Summary(),
+				"surface":      surface,
 				"credential":   source,
 				"clients":      states,
 				"api_base_url": config.ResolveAPI(flagAPI),
@@ -326,8 +368,8 @@ var mcpStatusCmd = &cobra.Command{
 
 		output.Header("LevelFour MCP")
 		output.KeyValue("Entry name", flagMCPName)
-		output.KeyValue("Hosted endpoint", mcpEndpoint())
-		output.KeyValue("Local surface", mcp.Summary())
+		output.KeyValue("Endpoint", mcpEndpoint())
+		output.KeyValue("Surface for this key", surface)
 		if key == "" {
 			output.KeyValue("Credential", "none. Run 'l4 auth login'")
 		} else {
@@ -352,41 +394,6 @@ func labelsOf(clients []mcpinstall.Client) []string {
 		labels = append(labels, c.Label)
 	}
 	return labels
-}
-
-// Refused rather than derived: this is an MCP server URL, and the stdio server
-// needs a REST API base, which cannot be guessed from it.
-func guardEndpoint(clients []mcpinstall.Client) error {
-	if flagMCPEndpoint == "" {
-		return nil
-	}
-
-	stranded, aimable := splitByEndpointReach(clients)
-	if len(stranded) == 0 {
-		return nil
-	}
-	if len(aimable) == 0 {
-		return fmt.Errorf(
-			"--endpoint cannot aim %s, which runs `l4 mcp serve` locally rather than being "+
-				"pointed at a URL. There is no other client in this set for the flag to apply to",
-			strings.Join(stranded, " and "))
-	}
-	return fmt.Errorf(
-		"--endpoint cannot aim %s, which runs `l4 mcp serve` locally rather than being pointed "+
-			"at a URL, so it would stay on the default while the others moved. Name the clients "+
-			"it applies to: --client %s",
-		strings.Join(stranded, " and "), strings.Join(aimable, ","))
-}
-
-func splitByEndpointReach(clients []mcpinstall.Client) (stranded, aimable []string) {
-	for _, c := range clients {
-		if c.TakesEndpoint() {
-			aimable = append(aimable, c.ID)
-			continue
-		}
-		stranded = append(stranded, c.Label)
-	}
-	return stranded, aimable
 }
 
 func mcpEndpoint() string {
@@ -418,10 +425,6 @@ func resolveMCPClients() ([]mcpinstall.Client, error) {
 				strings.Join(mcpinstall.IDs(), ", "))
 		}
 
-		if err := guardEndpoint(detected); err != nil {
-			return nil, err
-		}
-
 		output.Info(fmt.Sprintf("Detected %s. Configuring all of them; use --client to narrow.",
 			strings.Join(labelsOf(detected), ", ")))
 		if len(suggested) > 0 {
@@ -431,11 +434,7 @@ func resolveMCPClients() ([]mcpinstall.Client, error) {
 		return detected, nil
 	}
 
-	named, err := namedClients()
-	if err != nil {
-		return nil, err
-	}
-	return named, guardEndpoint(named)
+	return namedClients()
 }
 
 func namedClients() ([]mcpinstall.Client, error) {
@@ -511,7 +510,7 @@ func init() {
 	mcpInstallCmd.Flags().StringSliceVar(&flagMCPClients, "client", nil,
 		"Client to configure ("+strings.Join(mcpinstall.IDs(), ", ")+"); repeatable, defaults to every one detected")
 	mcpInstallCmd.Flags().StringVar(&flagMCPName, "name", mcp.ServerName, "Name for the server entry")
-	mcpInstallCmd.Flags().StringVar(&flagMCPEndpoint, "endpoint", "", "MCP endpoint to point remote clients at; the stdio client cannot be aimed")
+	mcpInstallCmd.Flags().StringVar(&flagMCPEndpoint, "endpoint", "", "MCP endpoint to point every client at; defaults to the hosted server")
 	mcpInstallCmd.Flags().StringVar(&flagMCPKeySource, "key-source", string(mcpinstall.KeyInline),
 		"Where clients read the credential: inline (written into the config, 0600) or env (a reference to $"+
 			mcpinstall.CredentialEnvVar+", so no key is stored)")
@@ -523,7 +522,8 @@ func init() {
 	mcpUninstallCmd.Flags().BoolVarP(&flagMCPYes, wordYes, "y", false, "Skip the confirmation prompt")
 
 	mcpStatusCmd.Flags().StringVar(&flagMCPName, "name", mcp.ServerName, "Name of the server entry to look for")
-	mcpStatusCmd.Flags().StringVar(&flagMCPEndpoint, "endpoint", "", "MCP endpoint to report as the hosted default")
+	mcpStatusCmd.Flags().StringVar(&flagMCPEndpoint, "endpoint", "", "MCP endpoint to check; defaults to the hosted server")
+	mcpServeCmd.Flags().StringVar(&flagMCPEndpoint, "endpoint", "", "MCP endpoint to relay; defaults to the hosted server")
 
 	mcpCmd.AddCommand(mcpInstallCmd)
 	mcpCmd.AddCommand(mcpUninstallCmd)

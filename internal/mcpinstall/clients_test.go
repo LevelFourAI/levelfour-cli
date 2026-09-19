@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/LevelFourAI/levelfour-cli/internal/mcp"
 )
 
 // withHome points every path lookup at a temporary directory, and restores the
@@ -318,23 +320,25 @@ func TestVSCodeInputsMergeOnID(t *testing.T) {
 	}
 }
 
-// Which clients an MCP URL can aim is what `--endpoint` is gated on, so the
-// answer is asserted per client rather than inferred from the entry builder.
-func TestTakesEndpoint(t *testing.T) {
-	for _, c := range Clients {
-		want := c.ID != ClaudeDesktop
-		if got := c.TakesEndpoint(); got != want {
-			t.Errorf("%s TakesEndpoint() = %v, want %v", c.ID, got, want)
-		}
+// `l4 mcp serve` relays whatever endpoint it is given, so the stdio client is
+// aimed with a flag. The default is left out, so an entry follows the binary if
+// the hosted address ever moves.
+func TestTheStdioEntryCarriesOnlyANonDefaultEndpoint(t *testing.T) {
+	desktop, _ := Find(ClaudeDesktop)
+
+	aimed := desktop.Entry(Options{Name: "levelfour", Endpoint: "https://mcp.example.test/mcp", Binary: "/bin/l4"})
+	want := []string{"mcp", "serve", "--endpoint", "https://mcp.example.test/mcp"}
+	if got := stringList(aimed[fieldArgs]); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("aimed args = %v, want %v", got, want)
+	}
+	if _, hasURL := aimed[fieldURL]; hasURL {
+		t.Error("the stdio entry carries a url its client does not read")
 	}
 
-	// The one that does not is the one given a command instead of a URL.
-	desktop, _ := Find(ClaudeDesktop)
-	entry := desktop.Entry(Options{Name: "levelfour", Endpoint: "https://mcp.example.test/mcp", Binary: "/bin/l4"})
-	if _, hasURL := entry[fieldURL]; hasURL {
-		t.Error("the stdio entry carries a url, so it could have been aimed after all")
-	}
-	if entry[fieldCommand] != "/bin/l4" {
-		t.Errorf("command = %v, want the binary", entry[fieldCommand])
+	for _, endpoint := range []string{"", mcp.Endpoint} {
+		entry := desktop.Entry(Options{Name: "levelfour", Endpoint: endpoint, Binary: "/bin/l4"})
+		if got := stringList(entry[fieldArgs]); strings.Join(got, " ") != "mcp serve" {
+			t.Errorf("endpoint %q: args = %v, want the default left out", endpoint, got)
+		}
 	}
 }

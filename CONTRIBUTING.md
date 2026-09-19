@@ -76,7 +76,7 @@ Do not use a bare `Docs:`, `Fix:` or `Feat:` trailer in a commit body. Release P
 - `internal/api/`: HTTP escape hatches for endpoints not yet in the public Go SDK. See `internal/api/types.go` for the transitional note.
 - `internal/output/`: shared rendering primitives (table, JSON, CSV, markdown).
 - `internal/terraform/`: HCL parser for `l4 estimate` and `l4 diff`.
-- `internal/mcp/`: the MCP server surface behind `l4 mcp serve`.
+- `internal/mcp/`: the stdio bridge behind `l4 mcp serve`, which relays the hosted MCP server.
 - `internal/mcpinstall/`: writes and removes MCP entries in agent client configs.
 - `internal/sentryx/`: opt-in crash-telemetry wrapper.
 - `internal/version/`: update check against the latest published release.
