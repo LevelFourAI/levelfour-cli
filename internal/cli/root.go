@@ -173,6 +173,7 @@ func init() {
 
 	costsCmd.GroupID = groupCore
 	recommendationsCmd.GroupID = groupCore
+	commitmentsCmd.GroupID = groupCore
 	integrationsCmd.GroupID = groupCore
 	statusCmd.GroupID = groupCore
 	whoamiCmd.GroupID = groupCore
@@ -191,6 +192,7 @@ func init() {
 
 	rootCmd.AddCommand(costsCmd)
 	rootCmd.AddCommand(recommendationsCmd)
+	rootCmd.AddCommand(commitmentsCmd)
 	rootCmd.AddCommand(integrationsCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(whoamiCmd)

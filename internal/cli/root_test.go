@@ -115,6 +115,30 @@ func resetFlags() {
 	flagTagsFile = ""
 	flagTagsDryRun = false
 	flagTagsYes = false
+
+	flagCommitmentsProvider = ""
+	flagSummaryPeriod = ""
+	flagSummaryScope = "eligible"
+	flagListBasis = "net"
+	flagListKind = ""
+	flagListStatus = ""
+	flagListExpiringWithin = ""
+	flagExpiringWithin = defaultExpiryWindow
+	flagExpiringFailWithin = ""
+	flagUtilInstrument = instrumentRI
+	flagUtilStart = ""
+	flagUtilEnd = ""
+	flagUtilGranularity = "daily"
+	flagUtilService = ""
+	flagPlanFormat = ""
+	flagRenewalFormat = ""
+
+	// pflag never clears Changed once a flag has been set, and every test in
+	// this package drives the one shared rootCmd, so a window set by one test
+	// would otherwise still read as explicitly set in the next.
+	if f := commitmentsExpiringCmd.Flags().Lookup("within"); f != nil {
+		f.Changed = false
+	}
 }
 
 func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
