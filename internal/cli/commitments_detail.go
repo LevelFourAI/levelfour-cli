@@ -79,7 +79,7 @@ func runCommitmentView(client *api.SDKClient, id string) error {
 	output.KeyValue("Committed", moneyValue(detail.MonthlyCommitmentUSD)+"/mo")
 	output.KeyValue("Utilization", pctValue(detail.CurrentUtilizationPct))
 	output.KeyValue("Coverage", coverageCell(detail.Kind, detail.CurrentCoveragePct))
-	output.KeyValue("Protects", moneyOrNotMeasured(detail.ProtectsMonthly)+"/mo")
+	output.KeyValue("Protects", monthlyOrNotMeasured(detail.ProtectsMonthly))
 	output.KeyValue("Exchangeable", boolOrNotMeasured(detail.Exchangeable))
 
 	renderConsumers(detail.Consumers)
