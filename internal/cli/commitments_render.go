@@ -134,6 +134,14 @@ func textOrNotMeasured(v *string) string {
 	return *v
 }
 
+// An empty date reads as a commitment that never ends, so it says otherwise.
+func endDateCell(endDate string) string {
+	if endDate == "" {
+		return notMeasured
+	}
+	return endDate
+}
+
 func boolOrNotMeasured(v *bool) string {
 	if v == nil {
 		return notMeasured

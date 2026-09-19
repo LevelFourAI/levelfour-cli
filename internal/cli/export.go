@@ -176,10 +176,7 @@ var exportCommitmentsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if provider == providerAWS {
-			return exportPortfolio(client, provider)
-		}
-		return exportCommitmentList(client, provider)
+		return exportPortfolio(client, provider)
 	},
 }
 
@@ -210,43 +207,6 @@ func exportPortfolio(client *api.SDKClient, provider string) error {
 			csvOptionalFloat(row.ProtectsMonthly),
 			csvOptionalFloat(row.RightsizingMonthly),
 			row.Status,
-		})
-	}
-	return writeOutput(appendCSV(nil, headers, rows))
-}
-
-// An export is only worth having if it is complete, so this walks every page
-// rather than trusting one to hold the whole portfolio.
-func exportCommitmentList(client *api.SDKClient, provider string) error {
-	items, err := fetchAllCommitments(client, provider)
-	if err != nil {
-		return handleCommitmentsError(err)
-	}
-	if flagExportFormat != formatCSV {
-		data, _ := json.MarshalIndent(map[string][]api.CommitmentListItem{"items": items}, "", "  ")
-		return writeOutput(data)
-	}
-
-	headers := []string{
-		"id", "provider", "service", "kind", "account_id", "account_name", "region",
-		"start_date", "end_date", "status", "utilization_pct", "coverage_pct", "monthly_commitment_usd",
-	}
-	rows := make([][]string, 0, len(items))
-	for _, item := range items {
-		rows = append(rows, []string{
-			item.ID,
-			item.Provider,
-			item.Service,
-			item.Kind,
-			item.AccountID,
-			item.AccountName,
-			item.Region,
-			item.StartDate,
-			item.EndDate,
-			item.Status,
-			csvFloat(item.CurrentUtilizationPct),
-			csvCoverage(item.Kind, item.CurrentCoveragePct),
-			csvFloat(item.MonthlyCommitmentUSD),
 		})
 	}
 	return writeOutput(appendCSV(nil, headers, rows))
