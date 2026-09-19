@@ -151,7 +151,7 @@ See [output formats](https://docs.levelfour.ai/cli/output-formats) for the full 
 |------|---------|
 | `0` | Success |
 | `1` | General error |
-| `2` | Issues found (`l4 estimate --fail-above`, `l4 diff --fail-above` or `l4 commitments expiring --fail-within` triggered) |
+| `2` | Issues found (`l4 estimate --fail-above`, `l4 diff --fail-above` or `l4 commitments expiring --fail-within` triggered, or `l4 tags apply --dry-run` found changes) |
 | `4` | Not authenticated (no token found). An expired or rejected token surfaces as `1` |
 | `130` | Interrupted (Ctrl+C) |
 
@@ -182,7 +182,7 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 status` | API health and the base URL in use |
 | `l4 integrations list` | Connected cloud providers |
 | `l4 costs summary` | Spending and savings overview with KPIs and top services |
-| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination |
+| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination. Groups and filters by a virtual tag with `--virtual-tag-key` |
 | `l4 costs daily` / `monthly` | Spending aggregated per day or per month |
 | `l4 costs filters [dimension]` | Discover the filter dimensions and values `breakdown` accepts |
 | `l4 recommendations list` / `view <id>` | Browse savings opportunities. Both take `--tui` |
@@ -196,6 +196,9 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 commitments contracts` | Marketplace and private-pricing floors that bill like a commitment |
 | `l4 estimate [path ...]` | Estimate Terraform costs locally |
 | `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |
+| `l4 tags list` / `show <key>` / `coverage` | Provider and virtual tag keys: spend, rules, and how much spend carries a tag |
+| `l4 tags resources <key>` / `costs <key>` | Resources a key covers, and spend per value |
+| `l4 tags preview` / `apply` / `delete` | Try a virtual tag from a YAML file, create or replace it, or delete it |
 | `l4 export costs` / `recommendations` / `commitments` | Bulk export as CSV or JSON via `--format` |
 | `l4 api <endpoint>` | Authenticated raw API request, for anything not yet wrapped |
 | `l4 mcp install` / `status` / `serve` / `uninstall` | Coding-agent integration, covered above |

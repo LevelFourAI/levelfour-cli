@@ -327,6 +327,7 @@ var tools = []tool{
 			"",
 			"**Returns:** spend per tag value, plus allocation coverage showing how much spend carries the tag.",
 			"Called with no tag_key, returns the tag keys available so you can pick one.",
+			"tag_key may also be a virtual tag, a key LevelFour assigns from rules, given by name or by id.",
 			"**When to use:** \"What does team X cost\", or any per-team, per-environment or per-owner question.",
 			"Read the coverage figure before reporting a total: untagged spend is not zero spend.",
 			"**Examples:** discover keys: no arguments. Then: tag_key=\"team\".",

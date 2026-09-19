@@ -104,6 +104,18 @@ func resetFlags() {
 	flagMCPName = mcp.ServerName
 	flagMCPEndpoint = ""
 
+	flagTagsOrigin = ""
+	flagTagsProvider = ""
+	flagTagsSearch = ""
+	flagTagsStart = ""
+	flagTagsEnd = ""
+	flagTagsValue = ""
+	flagTagsPage = defaultTagsPage
+	flagTagsPageSize = defaultTagsPageSize
+	flagTagsFile = ""
+	flagTagsDryRun = false
+	flagTagsYes = false
+
 	flagCommitmentsProvider = ""
 	flagSummaryPeriod = ""
 	flagSummaryScope = "eligible"
@@ -150,14 +162,12 @@ func executeCommand(t *testing.T, args ...string) (*bytes.Buffer, *bytes.Buffer,
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	// Drained while the command runs rather than after it. A pipe holds 64KiB,
-	// and the generated bash completion script is larger than that, so a reader
-	// that waits for the close blocks the writer for ever.
+	// Drained while the command runs: output past the pipe buffer blocks the write for good.
 	var pipeBuf bytes.Buffer
 	drained := make(chan struct{})
 	go func() {
-		defer close(drained)
-		_, _ = pipeBuf.ReadFrom(r)
+		pipeBuf.ReadFrom(r)
+		close(drained)
 	}()
 
 	rootCmd.SetOut(w)

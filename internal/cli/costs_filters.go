@@ -18,7 +18,12 @@ var (
 	flagFiltersEnd      string
 )
 
-const dimRegion = "region"
+const (
+	dimRegion     = "region"
+	dimVirtualTag = "virtual_tag"
+)
+
+const columnVirtualTag = "Virtual Tag"
 
 var supportedFilterDimensions = []string{"service", dimRegion, "account", "tag-key", "tag-value"}
 
