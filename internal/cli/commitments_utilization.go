@@ -42,7 +42,7 @@ averaged across them would describe none of them.`,
 		if flagWeb {
 			return openWeb(commitmentsWebPath(provider, flagUtilInstrument, ""))
 		}
-		if flagUtilInstrument != instrumentRI && flagUtilInstrument != instrumentSP {
+		if !isInstrument(flagUtilInstrument) {
 			return fmt.Errorf("--instrument must be ri or sp (got %q)", flagUtilInstrument)
 		}
 		return runCommitmentUtilization(client, provider)

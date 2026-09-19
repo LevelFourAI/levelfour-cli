@@ -102,6 +102,7 @@ Read the Reserved Instance, Savings Plan and Committed Use Discount position, an
 
 ```bash
 l4 commitments summary                  # coverage, utilization, effective savings rate
+l4 commitments coverage                 # eligible spend covered, weighted, per service
 l4 commitments list --expiring-within 90d
 l4 commitments renewal ri-0a1b2c3d      # what to rebuy, and the instant to buy after
 l4 commitments plan                     # the uncovered base, sized against its hourly floor
@@ -192,6 +193,7 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 commitments expiring` | What lapses soon, with an exit code for CI. Covered below |
 | `l4 commitments view` / `renewal <id>` | One commitment in full, and what to repurchase when it ends |
 | `l4 commitments utilization` | How much of what was bought is being used, per service |
+| `l4 commitments coverage` | How much of the eligible bill a commitment covers, per service |
 | `l4 commitments plan` | The uncovered on-demand base and what buying would cover it |
 | `l4 commitments contracts` | Marketplace and private-pricing floors that bill like a commitment |
 | `l4 estimate [path ...]` | Estimate Terraform costs locally |

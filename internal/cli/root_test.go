@@ -130,6 +130,7 @@ func resetFlags() {
 	flagUtilEnd = ""
 	flagUtilGranularity = "daily"
 	flagUtilService = ""
+	flagCoverageInstrument = ""
 	flagPlanFormat = ""
 	flagRenewalFormat = ""
 

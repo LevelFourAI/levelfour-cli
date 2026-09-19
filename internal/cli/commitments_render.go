@@ -92,6 +92,10 @@ func unavailableForProvider(provider, message string) bool {
 	return true
 }
 
+func isInstrument(value string) bool {
+	return value == instrumentRI || value == instrumentSP
+}
+
 func pctValue(v float64) string {
 	return fmt.Sprintf("%.1f%%", v)
 }
@@ -105,6 +109,15 @@ func pctOrNotMeasured(v *float64) string {
 
 func moneyValue(v float64) string {
 	return fmt.Sprintf("$%.2f", v)
+}
+
+// The suffix goes inside, so an unmeasured amount reads "not measured" rather
+// than "not measured/mo".
+func monthlyOrNotMeasured(v *float64) string {
+	if v == nil {
+		return notMeasured
+	}
+	return moneyValue(*v) + "/mo"
 }
 
 func moneyOrNotMeasured(v *float64) string {

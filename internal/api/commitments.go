@@ -311,6 +311,44 @@ type CommitmentContract struct {
 	Months              []ContractMonth `json:"months"`
 }
 
+// Dimension is a service on a reservation and a plan type on a plan.
+type CoverageRateService struct {
+	Instrument     string  `json:"instrument"`
+	Dimension      string  `json:"dimension"`
+	DimensionLabel string  `json:"dimension_label"`
+	CoveragePct    float64 `json:"coverage_pct"`
+	MeasuredOn     *string `json:"measured_on"`
+}
+
+type CoverageRateAccount struct {
+	AccountID      string  `json:"account_id"`
+	AccountName    string  `json:"account_name"`
+	CoveredMonthly float64 `json:"covered_monthly"`
+}
+
+type CoverageRateUncovered struct {
+	Service         string  `json:"service"`
+	OnDemandMonthly float64 `json:"on_demand_monthly"`
+}
+
+// CoveredMonthly is nil on Google Cloud, which stores only the commitment fee.
+// Reporting that as covered spend would exceed the bill it claims to cover.
+type CoverageRateTotals struct {
+	CoveredMonthly   *float64 `json:"covered_monthly"`
+	UncoveredMonthly float64  `json:"uncovered_monthly"`
+	CoveragePct      *float64 `json:"coverage_pct"`
+}
+
+// Measured separates a sweep that has not run from a provider covering nothing.
+type CommitmentCoverage struct {
+	Provider           string                  `json:"provider"`
+	Measured           bool                    `json:"measured"`
+	Services           []CoverageRateService   `json:"services"`
+	Accounts           []CoverageRateAccount   `json:"accounts"`
+	UncoveredByService []CoverageRateUncovered `json:"uncovered_by_service"`
+	Totals             *CoverageRateTotals     `json:"totals"`
+}
+
 type commitmentsEnvelope[T any] struct {
 	Data T `json:"data"`
 }

@@ -78,9 +78,10 @@ func useCommitmentsServer(t *testing.T, srv *httptest.Server) {
 
 func awsSummaryServer(t *testing.T) *httptest.Server {
 	return commitmentsServer(t, []string{providerAWS}, map[string]string{
-		"/overview":   overviewBody,
-		"/by-service": byServiceBody,
-		"/esr":        esrBody,
+		"/overview":       overviewBody,
+		"/by-service":     byServiceBody,
+		"/esr":            esrBody,
+		"/coverage-rates": coverageBody,
 	})
 }
 
@@ -102,10 +103,15 @@ func TestCommitmentsSummaryReportsTheRateAndTheSplit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary error: %v", err)
 	}
-	for _, want := range []string{"31.2%", "18.9%", "12.3%", "45.7%", "EC2", "RI Util", "SP Util"} {
+	for _, want := range []string{"31.2%", "18.9%", "12.3%", "EC2", "RI Util", "SP Util"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
+	}
+	// The spend-weighted figure, not the overview's own 45.7%, which averages
+	// percentages across commitments and would disagree with `commitments coverage`.
+	if !strings.Contains(out.String(), "80.8%") || strings.Contains(out.String(), "45.7%") {
+		t.Errorf("coverage should be the weighted figure:\n%s", out.String())
 	}
 }
 
@@ -125,8 +131,9 @@ func TestCommitmentsSummaryNamesAPartialMeasurement(t *testing.T) {
 // so the rate and the expiring count must read as unmeasured rather than as zero.
 func TestCommitmentsSummaryRefusesToInventAGoogleCloudRate(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{
-		"/overview":   overviewBody,
-		"/by-service": gcpByServiceBody,
+		"/overview":       overviewBody,
+		"/by-service":     gcpByServiceBody,
+		"/coverage-rates": gcpCoverageBody,
 	}))
 
 	out, _, err := executeCommand(t, "commitments", "summary")
@@ -141,6 +148,48 @@ func TestCommitmentsSummaryRefusesToInventAGoogleCloudRate(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "Spend Util") {
 		t.Errorf("an instrument holding nothing should not get columns:\n%s", out.String())
+	}
+}
+
+// The coverage read is newer than the rest of summary, so an API serving the
+// others without it still produces a summary rather than nothing.
+func TestCommitmentsSummarySurvivesAMissingCoverageRoute(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAWS}, map[string]string{
+		"/overview":   overviewBody,
+		"/by-service": byServiceBody,
+		"/esr":        esrBody,
+	}))
+
+	out, _, err := executeCommand(t, "commitments", "summary")
+	if err != nil {
+		t.Fatalf("summary error: %v", err)
+	}
+	if !strings.Contains(out.String(), "EC2") {
+		t.Errorf("the rest of the summary should still render:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), notMeasured) {
+		t.Errorf("coverage should read as unmeasured:\n%s", out.String())
+	}
+}
+
+// Any failure that is not a missing route is a real one.
+func TestCommitmentsSummarySurfacesACoverageFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/providers" {
+			writeProviderList(w, []string{providerAWS})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/coverage-rates") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(w, overviewBody)
+	}))
+	defer srv.Close()
+	useCommitmentsServer(t, srv)
+
+	if _, _, err := executeCommand(t, "commitments", "summary"); err == nil {
+		t.Error("a 500 on the coverage read should surface, not degrade silently")
 	}
 }
 
@@ -177,9 +226,10 @@ func TestCommitmentsSummaryReportsAMissingSurface(t *testing.T) {
 
 func TestCommitmentsSummaryWithNoCommitments(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerAWS}, map[string]string{
-		"/overview":   overviewBody,
-		"/by-service": `{"data":{"provider":"aws","services":[]}}`,
-		"/esr":        `{"data":{"scope":"eligible","measured_share_pct":100,"totals":null,"accounts":[]}}`,
+		"/overview":       overviewBody,
+		"/by-service":     `{"data":{"provider":"aws","services":[]}}`,
+		"/esr":            `{"data":{"scope":"eligible","measured_share_pct":100,"totals":null,"accounts":[]}}`,
+		"/coverage-rates": unmeasuredCoverageBody,
 	}))
 
 	out, _, err := executeCommand(t, "commitments", "summary")
