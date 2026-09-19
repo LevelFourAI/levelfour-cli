@@ -313,10 +313,11 @@ type CommitmentContract struct {
 
 // Dimension is a service on a reservation and a plan type on a plan.
 type CoverageRateService struct {
-	Instrument  string  `json:"instrument"`
-	Dimension   string  `json:"dimension"`
-	CoveragePct float64 `json:"coverage_pct"`
-	MeasuredOn  *string `json:"measured_on"`
+	Instrument     string  `json:"instrument"`
+	Dimension      string  `json:"dimension"`
+	DimensionLabel string  `json:"dimension_label"`
+	CoveragePct    float64 `json:"coverage_pct"`
+	MeasuredOn     *string `json:"measured_on"`
 }
 
 type CoverageRateAccount struct {

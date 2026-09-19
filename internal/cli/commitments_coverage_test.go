@@ -3,12 +3,15 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/LevelFourAI/levelfour-cli/internal/api"
 )
 
 const (
 	coverageBody = `{"data":{"provider":"aws","measured":true,` +
 		`"services":[` +
-		`{"instrument":"ri","dimension":"redshift","coverage_pct":95,"measured_on":"2026-09-18"},` +
+		`{"instrument":"ri","dimension":"redshift","dimension_label":"Amazon Redshift",` +
+		`"coverage_pct":95,"measured_on":"2026-09-18"},` +
 		`{"instrument":"ri","dimension":"rds","coverage_pct":66.6,"measured_on":"2026-09-18"},` +
 		`{"instrument":"sp","dimension":"compute","coverage_pct":54.9,"measured_on":null}],` +
 		`"accounts":[{"account_id":"111122223333","account_name":"prod","covered_monthly":31400}],` +
@@ -40,7 +43,7 @@ func TestCommitmentsCoverageLeadsWithTheWeightedRate(t *testing.T) {
 		t.Fatalf("coverage error: %v", err)
 	}
 	for _, want := range []string{"80.8%", "$41200.00/mo", "$24800.00/mo",
-		"redshift", "95.0%", "rds", "66.6%", "2026-09-18"} {
+		"Amazon Redshift", "95.0%", "rds", "66.6%", "2026-09-18"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
@@ -182,6 +185,18 @@ func TestCommitmentsCoverageUnauthenticated(t *testing.T) {
 
 	if _, _, err := executeCommand(t, "commitments", "coverage"); err == nil {
 		t.Error("expected an error when not authenticated")
+	}
+}
+
+// An API that predates the label answers with the key, and the key still names
+// the service.
+func TestCoverageFallsBackToTheDimensionKey(t *testing.T) {
+	if got := dimensionName(api.CoverageRateService{Dimension: "rds"}); got != "rds" {
+		t.Errorf("dimensionName() = %q, want the key", got)
+	}
+	labelled := api.CoverageRateService{Dimension: "rds", DimensionLabel: "Amazon Relational Database Service"}
+	if got := dimensionName(labelled); got != "Amazon Relational Database Service" {
+		t.Errorf("dimensionName() = %q, want the label", got)
 	}
 }
 

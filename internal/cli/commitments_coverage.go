@@ -94,12 +94,21 @@ func renderCoverageServices(services []api.CoverageRateService, instrument strin
 	for _, service := range shown {
 		rows = append(rows, []string{
 			strings.ToUpper(service.Instrument),
-			service.Dimension,
+			dimensionName(service),
 			pctValue(service.CoveragePct),
 			textOrNotMeasured(service.MeasuredOn),
 		})
 	}
 	output.Table([]string{"Kind", columnService, "Covered", "Measured on"}, rows)
+}
+
+// An API that predates the label still answers with the key, which names the
+// same thing less kindly.
+func dimensionName(service api.CoverageRateService) string {
+	if service.DimensionLabel == "" {
+		return service.Dimension
+	}
+	return service.DimensionLabel
 }
 
 func filterCoverageServices(services []api.CoverageRateService, instrument string) []api.CoverageRateService {
