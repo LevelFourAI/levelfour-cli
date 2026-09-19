@@ -103,6 +103,30 @@ func resetFlags() {
 	flagMCPClients = nil
 	flagMCPName = mcp.ServerName
 	flagMCPEndpoint = ""
+
+	flagCommitmentsProvider = ""
+	flagSummaryPeriod = ""
+	flagSummaryScope = "eligible"
+	flagListBasis = "net"
+	flagListKind = ""
+	flagListStatus = ""
+	flagListExpiringWithin = ""
+	flagExpiringWithin = defaultExpiryWindow
+	flagExpiringFailWithin = ""
+	flagUtilInstrument = instrumentRI
+	flagUtilStart = ""
+	flagUtilEnd = ""
+	flagUtilGranularity = "daily"
+	flagUtilService = ""
+	flagPlanFormat = ""
+	flagRenewalFormat = ""
+
+	// pflag never clears Changed once a flag has been set, and every test in
+	// this package drives the one shared rootCmd, so a window set by one test
+	// would otherwise still read as explicitly set in the next.
+	if f := commitmentsExpiringCmd.Flags().Lookup("within"); f != nil {
+		f.Changed = false
+	}
 }
 
 func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
@@ -126,14 +150,24 @@ func executeCommand(t *testing.T, args ...string) (*bytes.Buffer, *bytes.Buffer,
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
+	// Drained while the command runs rather than after it. A pipe holds 64KiB,
+	// and the generated bash completion script is larger than that, so a reader
+	// that waits for the close blocks the writer for ever.
+	var pipeBuf bytes.Buffer
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		_, _ = pipeBuf.ReadFrom(r)
+	}()
+
 	rootCmd.SetOut(w)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs(args)
 	err := rootCmd.Execute()
 
 	w.Close()
-	var pipeBuf bytes.Buffer
-	pipeBuf.ReadFrom(r)
+	<-drained
+	r.Close()
 	os.Stdout = origStdout
 
 	combined := outBuf.String() + pipeBuf.String()
