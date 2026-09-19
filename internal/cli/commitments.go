@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -49,6 +50,7 @@ var commitmentsSummaryCmd = &cobra.Command{
 type commitmentSummary struct {
 	overview  api.CommitmentsOverview
 	byService api.CommitmentsByService
+	coverage  api.CommitmentCoverage
 	esr       *api.CommitmentEsr
 	bodies    map[string]json.RawMessage
 }
@@ -74,8 +76,8 @@ func fetchCommitmentSummary(client *api.SDKClient, provider string) (*commitment
 	params := map[string]string{"provider": provider}
 	wantRate := provider == providerAWS
 
-	var overviewBody, byServiceBody, esrBody json.RawMessage
-	var overviewErr, byServiceErr, esrErr error
+	var overviewBody, byServiceBody, esrBody, coverageBody json.RawMessage
+	var overviewErr, byServiceErr, esrErr, coverageErr error
 	var esr api.CommitmentEsr
 
 	err := tuicommon.RunWithSpinner("Loading commitments...", output.L4SpinnerTheme(), func(_ context.Context) error {
@@ -99,8 +101,14 @@ func fetchCommitmentSummary(client *api.SDKClient, provider string) (*commitment
 					map[string]string{"scope": flagSummaryScope, "period": flagSummaryPeriod})
 			}()
 		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			summary.coverage, coverageBody, coverageErr = api.GetCommitments[api.CommitmentCoverage](
+				client.Raw(), "/coverage-rates", params)
+		}()
 		wg.Wait()
-		return firstError(overviewErr, byServiceErr, esrErr)
+		return firstError(overviewErr, byServiceErr, esrErr, ignoreMissingRoute(coverageErr))
 	})
 	if err != nil {
 		return nil, err
@@ -108,11 +116,22 @@ func fetchCommitmentSummary(client *api.SDKClient, provider string) (*commitment
 
 	summary.bodies["overview"] = overviewBody
 	summary.bodies["by_service"] = byServiceBody
+	summary.bodies["coverage"] = coverageBody
 	if wantRate {
 		summary.esr = &esr
 		summary.bodies["esr"] = esrBody
 	}
 	return summary, nil
+}
+
+// Summary predates the coverage read, so a deployment that serves the rest but
+// not that route still gets a summary, with the Coverage figure unmeasured. Any
+// other failure is a real one and propagates.
+func ignoreMissingRoute(err error) error {
+	if errors.Is(err, api.ErrCommitmentsUnavailable) {
+		return nil
+	}
+	return err
 }
 
 func firstError(errs ...error) error {
@@ -124,11 +143,22 @@ func firstError(errs ...error) error {
 	return nil
 }
 
+// The overview's own coverage averages percentages across commitments, so a
+// hundred dollar reservation moves it as far as a fifty thousand dollar one.
+// This is the spend-weighted figure `l4 commitments coverage` prints, so the two
+// commands cannot disagree about the same estate.
+func weightedCoverage(coverage api.CommitmentCoverage) string {
+	if !coverage.Measured || coverage.Totals == nil {
+		return notMeasured
+	}
+	return pctOrNotMeasured(coverage.Totals.CoveragePct)
+}
+
 func renderSummaryKPIs(summary *commitmentSummary, provider string) {
 	overview := summary.overview
 	cards := []output.KPICard{
 		{Label: "Effective Rate", Value: effectiveRate(summary.esr)},
-		{Label: "Coverage", Value: pctValue(overview.CoveragePct)},
+		{Label: "Coverage", Value: weightedCoverage(summary.coverage)},
 		{Label: "Committed", Value: moneyValue(overview.TotalCommittedMonthly) + "/mo"},
 		{Label: "Unused", Value: moneyValue(overview.EstimatedWasteMonthly) + "/mo"},
 		{Label: "Commitments", Value: fmt.Sprintf("%d", overview.CommitmentCount)},
