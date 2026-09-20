@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -76,6 +77,8 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+var errNotAuthenticated = errors.New("not authenticated: run 'l4 auth login' or set LEVELFOUR_TOKEN")
+
 func resolveToken() (string, string) {
 	if flagToken != "" {
 		return flagToken, "--token flag"
@@ -93,7 +96,7 @@ func resolveToken() (string, string) {
 func newAPIClient() (*api.Client, error) {
 	key, _ := resolveToken()
 	if key == "" {
-		return nil, fmt.Errorf("not authenticated: run 'l4 auth login' or set LEVELFOUR_TOKEN")
+		return nil, errNotAuthenticated
 	}
 	baseURL := config.ResolveAPI(flagAPI)
 	return api.NewClient(baseURL, key, Version)
@@ -108,7 +111,7 @@ var newSDKClientFn = newSDKClient
 func newSDKClient() (*api.SDKClient, error) {
 	key, _ := resolveToken()
 	if key == "" {
-		return nil, fmt.Errorf("not authenticated: run 'l4 auth login' or set LEVELFOUR_TOKEN")
+		return nil, errNotAuthenticated
 	}
 	baseURL := config.ResolveAPI(flagAPI)
 	return api.NewSDKClient(baseURL, key, Version)

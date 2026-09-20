@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,11 +23,13 @@ func stubMCP(t *testing.T) {
 	t.Helper()
 	origInstall, origStatus, origClassify, origServe, origExec :=
 		mcpInstall, mcpStatus, mcpClassify, mcpServe, osExecutable
-	origUninstall := mcpUninstall
+	origUninstall, origProbe := mcpUninstall, mcpProbe
+	origStdout := output.Stdout
 	t.Cleanup(func() {
-		mcpUninstall = origUninstall
+		mcpUninstall, mcpProbe = origUninstall, origProbe
 		mcpInstall, mcpStatus, mcpClassify, mcpServe, osExecutable =
 			origInstall, origStatus, origClassify, origServe, origExec
+		output.Stdout = origStdout
 	})
 	osExecutable = func() (string, error) { return "/opt/homebrew/bin/l4", nil }
 	// Without this the real machine decides the result: whatever leftover client
@@ -38,6 +42,9 @@ func stubMCP(t *testing.T) {
 		return mcpinstall.Result{Client: c.ID, Label: c.Label, Target: "/tmp/" + c.ID, Action: "added", Note: c.Note}, nil
 	}
 	mcpServe = func(context.Context, mcp.Session) error { return nil }
+	mcpProbe = func(context.Context, mcp.Upstream) (mcp.Surface, error) {
+		return mcp.Surface{Tools: 36, Prompts: 5, Resources: 4}, nil
+	}
 	mcpUninstall = func(_ context.Context, c mcpinstall.Client, o mcpinstall.Options) (mcpinstall.Result, error) {
 		return mcpinstall.Result{Client: c.ID, Label: c.Label, Action: "removed"}, nil
 	}
@@ -430,11 +437,10 @@ func TestMCPServeNeedsACredential(t *testing.T) {
 	}
 }
 
-func TestMCPServeRunsTheLocalServer(t *testing.T) {
+func TestMCPServeRelaysTheHostedServerWithTheStoredKey(t *testing.T) {
 	kr.MockInit()
 	stubMCP(t)
 	flagToken = "l4_test_testkey123456789a"
-	flagAPI = "https://api.levelfour.ai"
 	defer resetFlags()
 
 	var session mcp.Session
@@ -446,11 +452,101 @@ func TestMCPServeRunsTheLocalServer(t *testing.T) {
 	if _, _, err := executeCommand(t, "mcp", "serve"); err != nil {
 		t.Fatalf("serve: %v", err)
 	}
-	if session.Fetcher == nil {
-		t.Error("serve was handed no REST fetcher")
+	want := mcp.Upstream{Endpoint: mcp.Endpoint, Key: "l4_test_testkey123456789a", Version: Version}
+	if session.Upstream != want {
+		t.Errorf("upstream = %+v, want %+v", session.Upstream, want)
 	}
-	if session.Version != Version {
-		t.Errorf("version = %q, want %q", session.Version, Version)
+}
+
+func TestMCPServeRelaysTheEndpointItIsGiven(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+
+	var endpoint string
+	mcpServe = func(_ context.Context, s mcp.Session) error {
+		endpoint = s.Upstream.Endpoint
+		return nil
+	}
+
+	if _, _, err := executeCommand(t, "mcp", "serve", "--endpoint", "http://localhost:8080/mcp"); err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+	if endpoint != "http://localhost:8080/mcp" {
+		t.Errorf("endpoint = %q, want the flag's value", endpoint)
+	}
+}
+
+// restAnswering stands in for the REST API behind the probe that tells a
+// revoked key from an organization without MCP access.
+func restAnswering(t *testing.T, status int) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != whoamiPath {
+			t.Errorf("probed %s, want %s", r.URL.Path, whoamiPath)
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"data": {}}`))
+	}))
+	t.Cleanup(srv.Close)
+	flagAPI = srv.URL
+}
+
+func TestMCPServeSaysWhenTheOrganizationHasNoMCPAccess(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+	restAnswering(t, http.StatusOK)
+	mcpServe = func(context.Context, mcp.Session) error { return mcp.ErrCredentialRefused }
+
+	_, _, err := executeCommand(t, "mcp", "serve")
+	if !errors.Is(err, mcp.ErrCredentialRefused) || !strings.Contains(err.Error(), "not enabled for your organization") {
+		t.Errorf("err = %v, want the MCP access explanation", err)
+	}
+}
+
+func TestMCPServeSaysToLogInWhenTheAPIRefusesTheKeyToo(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+	restAnswering(t, http.StatusUnauthorized)
+	mcpServe = func(context.Context, mcp.Session) error { return mcp.ErrCredentialRefused }
+
+	// errNotAuthenticated is what the process maps to the auth exit code, so a
+	// wrapper script re-authenticates here as it does for a missing key.
+	_, _, err := executeCommand(t, "mcp", "serve")
+	if !errors.Is(err, mcp.ErrCredentialRefused) || !errors.Is(err, errNotAuthenticated) {
+		t.Errorf("err = %v, want the refusal carrying the not-authenticated error", err)
+	}
+}
+
+func TestMCPServeKeepsARefusalWhenTheAPICannotBeAsked(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	flagAPI = "http://api.example.test"
+	defer resetFlags()
+	mcpServe = func(context.Context, mcp.Session) error { return mcp.ErrCredentialRefused }
+
+	_, _, err := executeCommand(t, "mcp", "serve")
+	if !errors.Is(err, mcp.ErrCredentialRefused) || !strings.Contains(err.Error(), "insecure HTTP") {
+		t.Errorf("err = %v, want the refusal and the reason the API was not asked", err)
+	}
+}
+
+func TestMCPServePassesOtherFailuresThrough(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+	unreachable := errors.New("connecting to the LevelFour MCP server: connection refused")
+	mcpServe = func(context.Context, mcp.Session) error { return unreachable }
+
+	if _, _, err := executeCommand(t, "mcp", "serve"); !errors.Is(err, unreachable) {
+		t.Errorf("err = %v, want it unchanged", err)
 	}
 }
 
@@ -479,7 +575,7 @@ func TestMCPStatus(t *testing.T) {
 		t.Fatalf("status: %v", err)
 	}
 	text := out.String()
-	for _, want := range []string{"Cursor", mcpinstall.StatusInstalled, mcpinstall.StatusNotInstalled, mcp.Endpoint, mcp.Summary()} {
+	for _, want := range []string{"Cursor", mcpinstall.StatusInstalled, mcpinstall.StatusNotInstalled, mcp.Endpoint, "36 tools, 5 prompts, 4 resources"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("output missing %q:\n%s", want, text)
 		}
@@ -493,12 +589,41 @@ func TestMCPStatusWithoutACredential(t *testing.T) {
 	t.Setenv("LEVELFOUR_TOKEN", "")
 	defer resetFlags()
 
+	mcpProbe = func(context.Context, mcp.Upstream) (mcp.Surface, error) {
+		t.Error("probed the hosted server with no credential to send")
+		return mcp.Surface{}, nil
+	}
+
 	out, _, err := executeCommand(t, "mcp", "status")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
 	if !strings.Contains(out.String(), "l4 auth login") {
 		t.Errorf("output does not say how to fix it:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "unknown until you authenticate") {
+		t.Errorf("output reports a surface it could not have read:\n%s", out.String())
+	}
+}
+
+// Status is where a user lands when an agent sees no tools, so a refused key
+// has to be named there with its cause, not reported as an empty surface.
+func TestMCPStatusExplainsWhyTheSurfaceIsUnavailable(t *testing.T) {
+	kr.MockInit()
+	stubMCP(t)
+	flagToken = "l4_test_testkey123456789a"
+	defer resetFlags()
+	restAnswering(t, http.StatusOK)
+	mcpProbe = func(context.Context, mcp.Upstream) (mcp.Surface, error) {
+		return mcp.Surface{}, mcp.ErrCredentialRefused
+	}
+
+	out, _, err := executeCommand(t, "mcp", "status")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(out.String(), "unavailable") || !strings.Contains(out.String(), "not enabled for your organization") {
+		t.Errorf("output does not explain the refusal:\n%s", out.String())
 	}
 }
 
@@ -557,13 +682,10 @@ func TestMCPInstallDoesNotLogInWhenThereIsNoTerminal(t *testing.T) {
 	}
 }
 
-// --endpoint writes a URL into a client's entry. Claude Desktop has no URL in
-// its entry: it is given a command, and the server that command starts resolves
-// its own backend. Installing both together pointed the remote clients at the
-// given server and left Claude Desktop on the default, saying nothing, so the
-// person testing against a preview server had one client still answering from
-// production.
-func TestInstallRefusesAnEndpointItCannotAimAtEveryClient(t *testing.T) {
+// Every client takes --endpoint: the remote ones as a URL, Claude Desktop as a
+// flag on the `l4 mcp serve` command it runs. So one install moves them all
+// together, and none is left answering from the default.
+func TestInstallAimsEveryClientAtTheEndpoint(t *testing.T) {
 	stubMCP(t)
 	flagToken = "l4_test_testkey123456789a"
 	defer resetFlags()
@@ -574,91 +696,19 @@ func TestInstallRefusesAnEndpointItCannotAimAtEveryClient(t *testing.T) {
 		return []mcpinstall.Client{cursor, desktop}, nil
 	}
 
-	var installed []string
-	mcpInstall = func(_ context.Context, c mcpinstall.Client, _ mcpinstall.Options) (mcpinstall.Result, error) {
-		installed = append(installed, c.ID)
-		return mcpinstall.Result{Client: c.ID}, nil
-	}
-
-	_, _, err := executeCommand(t, "mcp", "install", "--endpoint", "https://mcp.example.test/mcp")
-	if err == nil {
-		t.Fatal("the install went ahead and split the clients across two servers")
-	}
-	if !strings.Contains(err.Error(), desktop.Label) {
-		t.Errorf("error does not name the client that cannot be aimed: %v", err)
-	}
-	if !strings.Contains(err.Error(), "--client "+mcpinstall.Cursor) {
-		t.Errorf("error does not name the clients the flag does apply to: %v", err)
-	}
-	if len(installed) != 0 {
-		t.Errorf("configured %v before refusing, leaving a half-applied endpoint", installed)
-	}
-}
-
-// Narrowing to the clients a URL reaches is the way through, and it must work.
-func TestInstallAcceptsAnEndpointForRemoteClientsAlone(t *testing.T) {
-	stubMCP(t)
-	flagToken = "l4_test_testkey123456789a"
-	defer resetFlags()
-
-	var got string
+	aimed := map[string]string{}
 	mcpInstall = func(_ context.Context, c mcpinstall.Client, o mcpinstall.Options) (mcpinstall.Result, error) {
-		got = o.Endpoint
+		aimed[c.ID] = o.Endpoint
 		return mcpinstall.Result{Client: c.ID}, nil
 	}
 
-	_, _, err := executeCommand(t, "mcp", "install",
-		"--client", mcpinstall.Cursor, "--endpoint", "https://mcp.example.test/mcp")
-	if err != nil {
+	if _, _, err := executeCommand(t, "mcp", "install", "--endpoint", "https://mcp.example.test/mcp"); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if got != "https://mcp.example.test/mcp" {
-		t.Errorf("endpoint written = %q, want the one given", got)
-	}
-}
-
-// Without the flag, a set containing the stdio client is the ordinary install.
-func TestInstallWithoutAnEndpointStillConfiguresTheStdioClient(t *testing.T) {
-	stubMCP(t)
-	flagToken = "l4_test_testkey123456789a"
-	defer resetFlags()
-
-	desktop, _ := mcpinstall.Find(mcpinstall.ClaudeDesktop)
-	mcpClassify = func() (present, hinted []mcpinstall.Client) {
-		return []mcpinstall.Client{desktop}, nil
-	}
-
-	var installed []string
-	mcpInstall = func(_ context.Context, c mcpinstall.Client, _ mcpinstall.Options) (mcpinstall.Result, error) {
-		installed = append(installed, c.ID)
-		return mcpinstall.Result{Client: c.ID}, nil
-	}
-
-	if _, _, err := executeCommand(t, "mcp", "install"); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	if len(installed) != 1 || installed[0] != mcpinstall.ClaudeDesktop {
-		t.Errorf("configured %v, want Claude Desktop", installed)
-	}
-}
-
-// Naming only the client that cannot be aimed leaves nothing for the flag to
-// apply to, so the error says that rather than suggesting an empty --client.
-func TestInstallEndpointWithOnlyTheStdioClientNamed(t *testing.T) {
-	stubMCP(t)
-	flagToken = "l4_test_testkey123456789a"
-	defer resetFlags()
-
-	_, _, err := executeCommand(t, "mcp", "install",
-		"--client", mcpinstall.ClaudeDesktop, "--endpoint", "https://mcp.example.test/mcp")
-	if err == nil {
-		t.Fatal("expected a refusal")
-	}
-	if !strings.Contains(err.Error(), "no other client in this set") {
-		t.Errorf("error = %v, want the no-other-client wording", err)
-	}
-	if strings.Contains(err.Error(), "--client ") {
-		t.Errorf("error suggests naming clients when there are none to name: %v", err)
+	for _, id := range []string{mcpinstall.Cursor, mcpinstall.ClaudeDesktop} {
+		if aimed[id] != "https://mcp.example.test/mcp" {
+			t.Errorf("%s endpoint = %q, want the one given", id, aimed[id])
+		}
 	}
 }
 
