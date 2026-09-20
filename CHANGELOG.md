@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/LevelFourAI/levelfour-cli/compare/v0.1.6...v0.2.0) (2026-09-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mcp:** `l4 mcp serve` needs network access to the MCP endpoint and MCP access enabled for the organization. An organization without it gets a refusal where the local tools used to answer.
+
+### Features
+
+* **mcp:** serve the hosted catalog through a bridge instead of a local copy ([#43](https://github.com/LevelFourAI/levelfour-cli/issues/43)) ([8f0166f](https://github.com/LevelFourAI/levelfour-cli/commit/8f0166f1ccd42b44118a48c4dab9c31ea4dea27d))
+
 ## [0.1.6](https://github.com/LevelFourAI/levelfour-cli/compare/v0.1.5...v0.1.6) (2026-09-19)
 
 
