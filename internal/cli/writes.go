@@ -26,7 +26,8 @@ func requireApproval(yes bool, prompt, unattended string) (bool, error) {
 	if yes {
 		return true, nil
 	}
-	if !canPrompt() {
+	// confirmAction answers yes unasked on a piped stdout, so stdout must be a terminal too.
+	if !canPrompt() || !isTerminal() {
 		return false, fmt.Errorf("%s outside a terminal needs --yes", unattended)
 	}
 	return confirmAction(prompt), nil

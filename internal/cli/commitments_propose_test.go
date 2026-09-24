@@ -50,8 +50,9 @@ func TestCommitmentsProposeRaisesTheProposal(t *testing.T) {
 				`"capped_by":[],"monthly_savings":1650,"created":true`),
 			wantBody: map[string]interface{}{"plan_type": "compute"},
 			want: []string{"Raised BUY-12", "111122223333", "Compute Savings Plan, 12 months, No Upfront",
-				"$4.100/hr", "Balanced", "none", "$1650.00/mo", "Raising it bought nothing", "you buy the plan yourself",
-				"l4 rec accept BUY-12", "l4 rec request BUY-12 --method manual"},
+				"$4.100/hr", "Balanced", "none", "$1650.00/mo", "Raising it bought nothing",
+				"nothing is bought until an organization admin releases it",
+				"l4 rec accept BUY-12", "l4 rec request BUY-12 --method manual, to buy the plan yourself"},
 		},
 		{
 			name: "a profile on a named payer",

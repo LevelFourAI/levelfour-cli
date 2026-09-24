@@ -90,9 +90,10 @@ var recommendationsRequestCmd = &cobra.Command{
 	Long: `Ask an organization admin to release a savings recommendation.
 
 The request lands in Needs Approval in the dashboard, where an admin releases
-it. A commitment renewal takes only 'one-click' or 'manual', and a new Savings
-Plan purchase only 'manual'. Nobody can request either again once an admin
-releases it.`,
+it. A commitment renewal takes only 'one-click' or 'manual'. A new Savings Plan
+purchase takes 'manual', or 'one-click' when it carries an access policy that
+lets LevelFour buy it. Nobody can request either again once an admin releases
+it.`,
 	Args: cobra.ExactArgs(1),
 	Example: `  l4 rec request RENEW-12 --method one-click
   l4 rec request RENEW-12 --method manual --yes

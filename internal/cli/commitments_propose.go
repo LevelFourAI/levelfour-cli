@@ -29,7 +29,9 @@ payer.
 
 Accept the recommendation with 'l4 rec accept', then file it for release with
 'l4 rec request --method manual'. Once an organization admin releases it, you
-buy the plan yourself, following the steps the dashboard shows.
+buy the plan yourself, following the steps the dashboard shows. A purchase that
+carries an access policy may take '--method one-click' instead, and LevelFour
+buys it.
 
 Running it again on the same pick returns the purchase already raised. The API
 refuses another pick while that one is undecided: reject it with 'l4 rec
@@ -106,9 +108,10 @@ func renderPurchase(purchase api.CommitmentPurchase) {
 	output.KeyValue("Profile", pickLabel(purchase.Profile))
 	output.KeyValue("Capped by", cappedByCell(purchase.CappedBy))
 	output.KeyValue("Savings", moneyValue(purchase.MonthlySavings)+"/mo")
-	output.Info("Raising it bought nothing. Once an organization admin releases it, you buy the plan yourself in AWS.")
+	output.Info("Raising it bought nothing, and nothing is bought until an organization admin releases it.")
 	output.Info("Accept it with: l4 rec accept " + purchase.RecommendationID)
-	output.Info("Then file it for release with: l4 rec request " + purchase.RecommendationID + " --method manual")
+	output.Info("Then file it for release with: l4 rec request " + purchase.RecommendationID +
+		" --method manual, to buy the plan yourself in AWS")
 }
 
 func purchaseOutcome(purchase api.CommitmentPurchase) string {

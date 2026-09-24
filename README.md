@@ -93,7 +93,7 @@ l4 rec request RENEW-12 --method manual  # ask an organization admin to release 
 
 `--reason` takes `operational`, `strategy`, `not_applicable` or `other`. Pass `--explanation` alongside `--reason other` to say why in free text.
 
-`--method` takes `one-click`, `iac`, `one-click-plus-iac` or `manual`. `execute` defaults to `one-click` and starts a recommendation somebody other than you accepted. `request` has no default: it files the recommendation in Needs Approval, where an organization admin releases it. A commitment renewal is only ever released that way, and only as `one-click` or `manual`. An admin releases a new Savings Plan purchase the same way, as `manual` only.
+`--method` takes `one-click`, `iac`, `one-click-plus-iac` or `manual`. `execute` defaults to `one-click` and starts a recommendation somebody other than you accepted. `request` has no default: it files the recommendation in Needs Approval, where an organization admin releases it. A commitment renewal is only ever released that way, and only as `one-click` or `manual`. An admin releases a new Savings Plan purchase the same way, as `manual`, or as `one-click` when it carries an access policy that lets LevelFour buy it.
 
 Every one of these prompts for confirmation. Pass `-y`/`--yes` to skip the prompt in a script.
 
@@ -116,7 +116,7 @@ l4 commitments propose --type compute   # raise the balanced proposal as a recom
 
 `plan` sizes each uncovered slice against its daily floor, in commitment dollars an hour, and names each row's source and grain. Below the base, each payer and plan type gets a 12-month, No Upfront proposal in three profiles: `conservative`, `balanced` and `max_savings`. `simulate` replays any Savings Plan size over the last 30 or 60 days of the daily bill, beside those profiles. A day averages its hours, so every figure in both is an upper bound.
 
-`propose` raises one proposal as a `BUY-` recommendation, at a `--profile` or at a `--commitment` of your own. Accept it with `l4 rec accept`, then file it with `l4 rec request --method manual`. `propose` buys nothing: once an organization admin releases the recommendation, you buy the plan yourself in AWS. It needs a `read-write` key, and outside a terminal it needs `--yes`.
+`propose` raises one proposal as a `BUY-` recommendation, at a `--profile` or at a `--commitment` of your own. Accept it with `l4 rec accept`, then file it with `l4 rec request --method manual`: once an organization admin releases it, you buy the plan yourself in AWS. A purchase that carries an access policy can take `--method one-click` instead, and LevelFour buys it. `propose` itself buys nothing. It needs a `read-write` key, and outside a terminal it needs `--yes`.
 
 `l4 commitments expiring --fail-within 30d` exits `2` when a commitment lapses inside the window, so a pipeline fails instead of a term quietly ending:
 

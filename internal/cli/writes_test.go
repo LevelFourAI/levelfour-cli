@@ -67,6 +67,42 @@ func TestConfirmActionPrintsPrompt(t *testing.T) {
 	}
 }
 
+func TestRequireApproval(t *testing.T) {
+	tests := []struct {
+		name        string
+		yes         bool
+		stdinTTY    bool
+		stdoutTTY   bool
+		input       string
+		want        bool
+		wantErr     bool
+		wantPrompts bool
+	}{
+		{name: "--yes skips every check", yes: true, want: true},
+		{name: "a terminal at both ends asks", stdinTTY: true, stdoutTTY: true, input: "y\n", want: true, wantPrompts: true},
+		{name: "a terminal at both ends can decline", stdinTTY: true, stdoutTTY: true, input: "n\n", wantPrompts: true},
+		{name: "a piped stdin needs --yes", stdoutTTY: true, wantErr: true},
+		{name: "a piped stdout needs --yes", stdinTTY: true, input: "y\n", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			outBuf, _ := captureOutput(t)
+			withTerminal(t, tt.stdoutTTY)
+			canPrompt = func() bool { return tt.stdinTTY }
+			withStdin(t, tt.input)
+
+			got, err := requireApproval(tt.yes, "Delete virtual tag Teams?", "deleting Teams")
+			if (err != nil) != tt.wantErr || got != tt.want {
+				t.Fatalf("requireApproval() = %v, %v; want %v, error %v", got, err, tt.want, tt.wantErr)
+			}
+			if prompted := strings.Contains(outBuf.String(), "[y/N]"); prompted != tt.wantPrompts {
+				t.Errorf("prompted = %v, want %v", prompted, tt.wantPrompts)
+			}
+		})
+	}
+}
+
 func TestPostWriteSendsIdempotencyKey(t *testing.T) {
 	var gotKey, gotMethod, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
