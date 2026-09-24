@@ -14,7 +14,7 @@ import (
 
 const purchasePath = api.CommitmentsPath + "/purchase"
 
-func proposeServer(t *testing.T, reply renewalReply) *capturedWrite {
+func proposeServer(t *testing.T, reply apiReply) *capturedWrite {
 	t.Helper()
 	got := &capturedWrite{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -29,8 +29,8 @@ func proposeServer(t *testing.T, reply renewalReply) *capturedWrite {
 	return got
 }
 
-func purchased(fields string) renewalReply {
-	return renewalReply{status: http.StatusCreated, body: `{"success":true,"data":{"recommendation_id":"BUY-12",` +
+func purchased(fields string) apiReply {
+	return apiReply{status: http.StatusCreated, body: `{"success":true,"data":{"recommendation_id":"BUY-12",` +
 		`"payer_account_id":"111122223333","term_months":12,"payment_option":"no_upfront",` +
 		`"grain":"daily","source":"cur",` + fields + `}}`}
 }
@@ -39,7 +39,7 @@ func TestCommitmentsProposeRaisesTheProposal(t *testing.T) {
 	tests := []struct {
 		name     string
 		args     []string
-		reply    renewalReply
+		reply    apiReply
 		wantBody map[string]interface{}
 		want     []string
 	}{
@@ -60,7 +60,7 @@ func TestCommitmentsProposeRaisesTheProposal(t *testing.T) {
 				`"capped_by":["aws_cap"],"monthly_savings":1900,"created":true`),
 			wantBody: map[string]interface{}{"plan_type": "compute", "profile": "max_savings",
 				"payer_account_id": "111122223333"},
-			want: []string{"Max savings", "aws_cap", "$5.000/hr"},
+			want: []string{"Max savings", "AWS recommendation", "$5.000/hr"},
 		},
 		{
 			name: "a size of your own",
@@ -179,30 +179,30 @@ func TestCommitmentsProposeConfirmation(t *testing.T) {
 func TestCommitmentsProposeReportsRefusals(t *testing.T) {
 	tests := []struct {
 		name  string
-		reply renewalReply
+		reply apiReply
 		want  []string
 	}{
 		{
 			name: "another pick is still undecided",
-			reply: renewalReply{http.StatusConflict, `{"success":false,"error":{"code":"CONFLICT",` +
+			reply: apiReply{http.StatusConflict, `{"success":false,"error":{"code":"CONFLICT",` +
 				`"message":"BUY-12 is already raised for this payer and plan type at $4.100 an hour"}}`},
 			want: []string{"BUY-12 is already raised for this payer and plan type"},
 		},
 		{
 			name: "several payers",
-			reply: renewalReply{http.StatusUnprocessableEntity, `{"success":false,"error":{"code":"VALIDATION_ERROR",` +
+			reply: apiReply{http.StatusUnprocessableEntity, `{"success":false,"error":{"code":"VALIDATION_ERROR",` +
 				`"message":"This organization has 2 payers. Name one of: 111122223333, 444455556666."}}`},
 			want: []string{"Name one of: 111122223333, 444455556666"},
 		},
 		{
 			name: "read-only key",
-			reply: renewalReply{http.StatusForbidden,
+			reply: apiReply{http.StatusForbidden,
 				`{"success":false,"error":{"code":"AUTHORIZATION_ERROR","message":"API key scope insufficient"}}`},
 			want: []string{"permission denied", "read-write key"},
 		},
 		{
 			name:  "a reply that is not JSON",
-			reply: renewalReply{http.StatusCreated, `not json`},
+			reply: apiReply{http.StatusCreated, `not json`},
 			want:  []string{"invalid JSON response"},
 		},
 	}

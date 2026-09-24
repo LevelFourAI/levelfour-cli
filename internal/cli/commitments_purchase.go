@@ -55,13 +55,22 @@ var unsizedReasons = map[string]string{
 	"no_on_demand_equivalent": "no eligible on-demand spend to size",
 }
 
+var cappedByLabels = map[string]string{
+	"floor_margin":       "Safety margin",
+	"aws_hourly_minimum": "AWS hourly minimum",
+	"aws_cap":            "AWS recommendation",
+	"aws_utilization":    "AWS utilization",
+}
+
 var profileHeaders = []string{"Profile", "Commitment/hr", "Utilization", "Coverage", "Savings/mo", "Capped by"}
 
 func checkPlanType() error {
-	if flagPurchaseType == "" {
-		return fmt.Errorf("--type is required: choose one of %s", strings.Join(planTypes, ", "))
-	}
-	return validateChoice("type", flagPurchaseType, planTypes)
+	return requireChoice("type", flagPurchaseType, planTypes)
+}
+
+func addPurchaseTargetFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&flagPurchaseType, "type", "", "Plan type, required: "+strings.Join(planTypes, ", "))
+	cmd.Flags().StringVar(&flagPurchasePayer, "payer", "", "Payer account ID; may be omitted when the organization has one")
 }
 
 func optionalCommitment(cmd *cobra.Command) (*float64, error) {
@@ -95,18 +104,22 @@ func commitmentValue(v float64) string {
 	return fmt.Sprintf("$%.3f", v)
 }
 
-func unsizedReason(reason *string) string {
+func unsizedSentence(lead string, reason *string) string {
 	if reason == nil {
-		return notMeasured
+		return lead + "."
 	}
-	return labelOf(unsizedReasons, *reason)
+	return lead + ": " + labelOf(unsizedReasons, *reason) + "."
 }
 
 func cappedByCell(guards []string) string {
 	if len(guards) == 0 {
 		return "none"
 	}
-	return strings.Join(guards, ", ")
+	labels := make([]string, len(guards))
+	for i, guard := range guards {
+		labels[i] = labelOf(cappedByLabels, guard)
+	}
+	return strings.Join(labels, ", ")
 }
 
 func pickLabel(profile *string) string {
@@ -144,32 +157,40 @@ func profileRows(profiles map[string]api.PurchaseProfile, recommended *string) [
 func renderProposals(proposals []api.PurchaseProposal) {
 	renderProposalTable(proposals)
 	for _, proposal := range proposals {
-		payer := textOrNotMeasured(proposal.PayerAccountID)
+		plan := planName(proposal.PlanType)
 		if proposal.Profiles == nil {
-			output.Info(fmt.Sprintf("No %s proposal for %s: %s.",
-				planName(proposal.PlanType), payer, unsizedReason(proposal.UnavailableReason)))
+			lead := "No " + plan + " proposal" + payerSuffix("for", proposal.PayerAccountID)
+			output.Info(unsizedSentence(lead, proposal.UnavailableReason))
 		}
 		if raised := proposal.Raised; raised != nil {
-			output.Info(fmt.Sprintf("%s is raised for the %s on %s at %s/hr (%s), and nobody has decided it yet.",
-				raised.RecommendationID, planName(proposal.PlanType), payer,
+			output.Info(fmt.Sprintf("%s is raised for the %s%s at %s/hr (%s), and nobody has decided it yet.",
+				raised.RecommendationID, plan, payerSuffix("on", proposal.PayerAccountID),
 				commitmentValue(raised.CommitmentHourly), pickLabel(raised.Profile)))
 		}
 	}
+}
+
+func payerSuffix(preposition string, payer *string) string {
+	if payer == nil || *payer == "" {
+		return ""
+	}
+	return " " + preposition + " " + *payer
 }
 
 func renderProposalTable(proposals []api.PurchaseProposal) {
 	var rows [][]string
 	for _, proposal := range proposals {
 		payer, plan := textOrNotMeasured(proposal.PayerAccountID), labelOf(planTypeLabels, proposal.PlanType)
+		term := purchaseTerm(proposal.TermMonths, proposal.PaymentOption)
 		for _, cells := range profileRows(proposal.Profiles, proposal.RecommendedProfile) {
-			rows = append(rows, append([]string{payer, plan}, cells...))
+			rows = append(rows, append([]string{payer, plan, term}, cells...))
 		}
 	}
 	if len(rows) == 0 {
 		return
 	}
 	output.Header("Savings Plan proposals")
-	output.Table(append([]string{"Payer", "Plan"}, profileHeaders...), rows)
-	output.Info("Each proposal is a 12-month, No Upfront plan sized on the daily floor. Savings are monthly, at your own rates.")
+	output.Table(append([]string{"Payer", "Plan", "Term"}, profileHeaders...), rows)
+	output.Info("Sized on the daily floor. Savings are monthly, at your own rates.")
 	output.Info("Replay another size with 'l4 commitments simulate', or raise one with 'l4 commitments propose'.")
 }

@@ -23,6 +23,7 @@ const (
 	decisionRejected = "rejected"
 
 	defaultImplementationMethod = "one-click"
+	flagNameMethod              = "method"
 )
 
 // rejectionReasons mirrors the pattern the API enforces on
@@ -76,7 +77,7 @@ file it for release with 'l4 rec request' instead.`,
   l4 rec execute REC-1234 --method iac
   l4 rec execute REC-1234 --method manual --yes`,
 	RunE: func(_ *cobra.Command, args []string) error {
-		if err := checkImplementationMethod(flagRecMethod); err != nil {
+		if err := requireChoice(flagNameMethod, flagRecMethod, implementationMethods); err != nil {
 			return err
 		}
 		return runExecute(args[0])
@@ -97,22 +98,11 @@ releases it.`,
   l4 rec request RENEW-12 --method manual --yes
   l4 rec request BUY-3 --method manual`,
 	RunE: func(_ *cobra.Command, args []string) error {
-		if err := checkImplementationMethod(flagRecRequestMethod); err != nil {
+		if err := requireChoice(flagNameMethod, flagRecRequestMethod, implementationMethods); err != nil {
 			return err
 		}
 		return runRequest(args[0])
 	},
-}
-
-func checkImplementationMethod(method string) error {
-	choices := strings.Join(implementationMethods, ", ")
-	if method == "" {
-		return fmt.Errorf("--method is required: choose one of %s", choices)
-	}
-	if !slices.Contains(implementationMethods, method) {
-		return fmt.Errorf("invalid --method %q: choose one of %s", method, choices)
-	}
-	return nil
 }
 
 func runDecision(id, decision string) error {
@@ -227,8 +217,8 @@ func init() {
 	recommendationsRejectCmd.Flags().StringVar(&flagRecReason, "reason", "", "Rejection reason: "+strings.Join(rejectionReasons, ", "))
 	recommendationsRejectCmd.Flags().StringVar(&flagRecExplanation, "explanation", "", "Free text explanation, used when --reason is 'other'")
 
-	recommendationsExecuteCmd.Flags().StringVar(&flagRecMethod, "method", defaultImplementationMethod, "Implementation method: "+strings.Join(implementationMethods, ", "))
-	recommendationsRequestCmd.Flags().StringVar(&flagRecRequestMethod, "method", "", "Implementation method, required: "+strings.Join(implementationMethods, ", "))
+	recommendationsExecuteCmd.Flags().StringVar(&flagRecMethod, flagNameMethod, defaultImplementationMethod, "Implementation method: "+strings.Join(implementationMethods, ", "))
+	recommendationsRequestCmd.Flags().StringVar(&flagRecRequestMethod, flagNameMethod, "", "Implementation method, required: "+strings.Join(implementationMethods, ", "))
 
 	recommendationsCmd.AddCommand(recommendationsAcceptCmd)
 	recommendationsCmd.AddCommand(recommendationsRejectCmd)

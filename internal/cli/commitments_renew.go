@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const flagNameQuantity = "quantity"
+const (
+	flagNameQuantity = "quantity"
+	nothingPicked    = "none"
+)
 
 var (
 	flagRenewOffering string
@@ -46,7 +49,7 @@ Outside a terminal it needs --yes.`,
 		if err != nil {
 			return err
 		}
-		return runCommitmentRenew(cmd, args[0], pick)
+		return runCommitmentRenew(args[0], pick)
 	},
 }
 
@@ -72,8 +75,8 @@ func renewalPickFromFlags(cmd *cobra.Command) (renewalPick, error) {
 	return pick, nil
 }
 
-func runCommitmentRenew(cmd *cobra.Command, id string, pick renewalPick) error {
-	approved, err := requireApproval(cmd,
+func runCommitmentRenew(id string, pick renewalPick) error {
+	approved, err := requireApproval(flagRenewYes,
 		fmt.Sprintf("Raise a renewal for %s? Nothing is bought until an organization admin releases it.", id),
 		"raising a renewal for "+id)
 	if err != nil {
@@ -83,22 +86,27 @@ func runCommitmentRenew(cmd *cobra.Command, id string, pick renewalPick) error {
 		output.Info("Aborted.")
 		return nil
 	}
+	if output.HasFormattingFlags() {
+		return raiseAndPrintRenewal(id, pick)
+	}
 	return raiseAndRenderRenewal(id, pick)
 }
 
+func raiseAndPrintRenewal(id string, pick renewalPick) error {
+	_, body, err := raiseRenewal(id, pick)
+	if err != nil {
+		return err
+	}
+	return output.PrintResult(body)
+}
+
 func raiseAndRenderRenewal(id string, pick renewalPick) error {
-	prior, err := renewalRaisedBefore(id)
+	replaced := rejectedRenewalID(id)
+	renewal, _, err := raiseRenewal(id, pick)
 	if err != nil {
 		return err
 	}
-	renewal, body, err := raiseRenewal(id, pick)
-	if err != nil {
-		return err
-	}
-	if output.HasFormattingFlags() {
-		return output.PrintResult(body)
-	}
-	renderRenewal(renewal, prior)
+	renderRenewal(renewal, replaced)
 	return nil
 }
 
@@ -106,32 +114,29 @@ func renewalRoute(id string) string {
 	return "/renewal/" + url.PathEscape(id)
 }
 
-// The raise answers a replaced rejection and a first raise alike, so only the
-// renewal read beforehand tells them apart. Nil means none was raised.
-func renewalRaisedBefore(id string) (*api.CommitmentRenewal, error) {
+// The raise answers a replaced rejection and a first raise alike, so only a read beforehand
+// tells them apart. That read only words the outcome, so its failure never blocks the raise.
+func rejectedRenewalID(id string) string {
 	client, err := newSDKClientFn()
 	if err != nil {
-		return nil, err
+		return ""
 	}
 	renewal, _, err := api.GetCommitments[api.CommitmentRenewal](client.Raw(), renewalRoute(id), nil)
-	if errors.Is(err, api.ErrCommitmentsUnavailable) {
-		return nil, nil
+	if err != nil || !renewal.Closed {
+		return ""
 	}
-	if err != nil {
-		return nil, err
-	}
-	return &renewal, nil
+	return renewal.RecommendationID
 }
 
 func raiseRenewal(id string, pick renewalPick) (api.CommitmentRenewal, json.RawMessage, error) {
 	return postData[api.CommitmentRenewal](api.CommitmentsPath+renewalRoute(id), pick)
 }
 
-func renderRenewal(renewal api.CommitmentRenewal, prior *api.CommitmentRenewal) {
-	output.Success(renewalOutcome(renewal, prior))
+func renderRenewal(renewal api.CommitmentRenewal, replaced string) {
+	output.Success(renewalOutcome(renewal, replaced))
 	output.KeyValue("Recommendation", renewal.RecommendationID)
-	output.KeyValue("Offering", textOrNotMeasured(renewal.OfferingID))
-	output.KeyValue("Quantity", quantityOrNotMeasured(renewal.Quantity))
+	output.KeyValue("Offering", offeringCell(renewal.OfferingID))
+	output.KeyValue("Quantity", pickedQuantityCell(renewal.Quantity))
 	output.KeyValue("Can change", canChangeCell(renewal.Rebindable))
 	output.Info("Nothing is bought until an organization admin releases it.")
 	renderBlockingChanges(renewal.BlockingChanges)
@@ -140,17 +145,31 @@ func renderRenewal(renewal api.CommitmentRenewal, prior *api.CommitmentRenewal) 
 	}
 }
 
-func renewalOutcome(renewal api.CommitmentRenewal, prior *api.CommitmentRenewal) string {
+func renewalOutcome(renewal api.CommitmentRenewal, replaced string) string {
 	switch {
-	case renewal.Created && prior != nil && prior.Closed:
+	case renewal.Created && replaced != "":
 		return fmt.Sprintf("Raised %s for %s, replacing %s, which was rejected",
-			renewal.RecommendationID, renewal.CommitmentID, prior.RecommendationID)
+			renewal.RecommendationID, renewal.CommitmentID, replaced)
 	case renewal.Created:
 		return fmt.Sprintf("Raised %s for %s", renewal.RecommendationID, renewal.CommitmentID)
 	case renewal.Rebound:
 		return fmt.Sprintf("%s now buys the option you picked", renewal.RecommendationID)
 	}
 	return fmt.Sprintf("%s was already raised for %s. Nothing changed", renewal.RecommendationID, renewal.CommitmentID)
+}
+
+func offeringCell(offeringID *string) string {
+	if offeringID == nil || *offeringID == "" {
+		return nothingPicked
+	}
+	return *offeringID
+}
+
+func pickedQuantityCell(quantity *float64) string {
+	if quantity == nil {
+		return nothingPicked
+	}
+	return quantityValue(*quantity)
 }
 
 func canChangeCell(rebindable bool) string {

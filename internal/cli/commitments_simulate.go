@@ -18,6 +18,7 @@ var (
 )
 
 var (
+	termChoices      = []string{"1y", "3y"}
 	termMonthsByFlag = map[string]string{"1y": "12", "3y": "36"}
 	paymentOptions   = []string{"no_upfront", "partial_upfront", "all_upfront"}
 	lookbackChoices  = []string{"30", "60"}
@@ -50,9 +51,6 @@ Raise a size with 'l4 commitments propose'.`,
 }
 
 func simulatedCommitment(cmd *cobra.Command) (float64, error) {
-	if err := checkPlanType(); err != nil {
-		return 0, err
-	}
 	commitment, err := optionalCommitment(cmd)
 	if err != nil {
 		return 0, err
@@ -63,29 +61,27 @@ func simulatedCommitment(cmd *cobra.Command) (float64, error) {
 	return *commitment, nil
 }
 
-func validatePaymentAndLookback() error {
-	if err := validateChoice("payment", flagSimulatePayment, paymentOptions); err != nil {
-		return err
-	}
-	return validateChoice("lookback", flagSimulateLookback, lookbackChoices)
-}
-
 func simulationParams(cmd *cobra.Command) (map[string]string, error) {
+	if err := checkPlanType(); err != nil {
+		return nil, err
+	}
 	commitment, err := simulatedCommitment(cmd)
 	if err != nil {
 		return nil, err
 	}
-	months, ok := termMonthsByFlag[flagSimulateTerm]
-	if !ok {
-		return nil, fmt.Errorf("invalid --term %q: choose one of 1y, 3y", flagSimulateTerm)
+	if err := requireChoice("term", flagSimulateTerm, termChoices); err != nil {
+		return nil, err
 	}
-	if err := validatePaymentAndLookback(); err != nil {
+	if err := validateChoice("payment", flagSimulatePayment, paymentOptions); err != nil {
+		return nil, err
+	}
+	if err := validateChoice("lookback", flagSimulateLookback, lookbackChoices); err != nil {
 		return nil, err
 	}
 	return map[string]string{
 		"plan_type":         flagPurchaseType,
 		"commitment_hourly": quantityValue(commitment),
-		"term_months":       months,
+		"term_months":       termMonthsByFlag[flagSimulateTerm],
 		"payment_option":    flagSimulatePayment,
 		"payer_account_id":  flagPurchasePayer,
 		"lookback_days":     flagSimulateLookback,
@@ -112,7 +108,7 @@ func renderSimulation(simulation api.PurchaseSimulation) {
 	output.KeyValue("Payer", textOrNotMeasured(simulation.PayerAccountID))
 	output.KeyValue("Window", windowCell(simulation.Window))
 	if simulation.Totals == nil {
-		output.Info("Nothing to replay: " + unsizedReason(simulation.UnavailableReason) + ".")
+		output.Info(unsizedSentence("Nothing to replay", simulation.UnavailableReason))
 		return
 	}
 	renderSimulationTotals(*simulation.Totals)
@@ -152,7 +148,7 @@ func renderSimulationTotals(totals api.PurchaseTotals) {
 	)
 }
 
-func renderAWSRecommendation(aws *api.PurchaseAwsBenchmark) {
+func renderAWSRecommendation(aws *api.PurchaseAWSBenchmark) {
 	if aws == nil {
 		return
 	}
@@ -161,15 +157,12 @@ func renderAWSRecommendation(aws *api.PurchaseAwsBenchmark) {
 }
 
 func init() {
-	commitmentsSimulateCmd.Flags().StringVar(&flagPurchaseType, "type", "",
-		"Plan type, required: "+strings.Join(planTypes, ", "))
+	addPurchaseTargetFlags(commitmentsSimulateCmd)
 	commitmentsSimulateCmd.Flags().Float64Var(&flagPurchaseCommitment, flagNameCommitment, 0,
 		"Dollars an hour to commit, required")
-	commitmentsSimulateCmd.Flags().StringVar(&flagSimulateTerm, "term", "1y", "Term: 1y or 3y")
+	commitmentsSimulateCmd.Flags().StringVar(&flagSimulateTerm, "term", "1y", "Term: "+strings.Join(termChoices, ", "))
 	commitmentsSimulateCmd.Flags().StringVar(&flagSimulatePayment, "payment", "no_upfront",
 		"Payment option: "+strings.Join(paymentOptions, ", "))
-	commitmentsSimulateCmd.Flags().StringVar(&flagPurchasePayer, "payer", "",
-		"Payer account ID; may be omitted when the organization has one")
 	commitmentsSimulateCmd.Flags().StringVar(&flagSimulateLookback, "lookback", "60",
 		"Days of the daily bill to replay: 30 or 60")
 	commitmentsCmd.AddCommand(commitmentsSimulateCmd)

@@ -39,8 +39,8 @@ A file with one config:
 	Example: `  l4 tags apply -f teams.yaml
   l4 tags apply -f teams.yaml --dry-run
   l4 tags apply -f teams.yaml --yes`,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		return runTagsApply(cmd)
+	RunE: func(_ *cobra.Command, _ []string) error {
+		return runTagsApply()
 	},
 }
 
@@ -85,7 +85,7 @@ func (d tagDiff) changed() bool {
 	return len(d.settings) > 0 || d.rulesChanged()
 }
 
-func runTagsApply(cmd *cobra.Command) error {
+func runTagsApply() error {
 	desired, err := loadTagDefinition(flagTagsFile)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func runTagsApply(cmd *cobra.Command) error {
 		return ErrIssuesFound
 	}
 	approved, err := requireApproval(
-		cmd,
+		flagTagsYes,
 		fmt.Sprintf("Apply these changes to virtual tag %s?", desired.Name),
 		"applying "+desired.Name,
 	)

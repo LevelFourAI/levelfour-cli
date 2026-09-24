@@ -140,8 +140,8 @@ func TestCommitmentsPlanPrintsEachProposal(t *testing.T) {
 		t.Fatalf("plan error: %v", err)
 	}
 	for _, want := range []string{"Savings Plan proposals", "Conservative", "Balanced (recommended)", "Max savings",
-		"$3.200", "$4.100", "$5.000", "99.9%", "60.1%", "$1700.00/mo", "aws_hourly_minimum", "none",
-		"aws_cap, aws_utilization", notMeasured, "12-month, No Upfront", "at your own rates",
+		"$3.200", "$4.100", "$5.000", "99.9%", "60.1%", "$1700.00/mo", "AWS hourly minimum", "none",
+		"AWS recommendation, AWS utilization", notMeasured, "12 months, No Upfront", "at your own rates",
 		"l4 commitments simulate", "l4 commitments propose",
 		"No Database Savings Plan proposal for 111122223333: no daily billing data is loaded for this payer.",
 		"BUY-7 is raised for the Compute Savings Plan on 111122223333 at $4.100/hr (Balanced)"} {
@@ -164,7 +164,7 @@ func TestCommitmentsPlanNotesWhatItCannotName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan error: %v", err)
 	}
-	for _, want := range []string{"No Compute Savings Plan proposal for not measured: something_new.",
+	for _, want := range []string{"No Compute Savings Plan proposal: something_new.",
 		"BUY-8 is raised for the Compute Savings Plan on 111122223333 at $2.500/hr (your own size)"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())

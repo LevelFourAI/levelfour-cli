@@ -12,7 +12,6 @@ import (
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
-	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
@@ -22,10 +21,9 @@ var stdinReader io.Reader = os.Stdin
 // The answer arrives on stdin. isTerminal reads stdout, a different question.
 var canPrompt = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
 
-// For the writes a stray unattended run must not send: a tags write reaches months of
-// already-evaluated spend, and `renew` sits one edit away from the read `renewal`.
-func requireApproval(cmd *cobra.Command, prompt, unattended string) (bool, error) {
-	if yes, _ := cmd.Flags().GetBool(wordYes); yes {
+// For writes an unattended run must not send without an explicit --yes.
+func requireApproval(yes bool, prompt, unattended string) (bool, error) {
+	if yes {
 		return true, nil
 	}
 	if !canPrompt() {

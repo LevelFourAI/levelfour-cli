@@ -44,7 +44,7 @@ It needs a read-write key, and outside a terminal it needs --yes.`,
 		if err != nil {
 			return err
 		}
-		return runCommitmentsPropose(cmd, pick)
+		return runCommitmentsPropose(pick)
 	},
 }
 
@@ -75,9 +75,9 @@ func purchasePickFromFlags(cmd *cobra.Command) (purchasePick, error) {
 	return pick, nil
 }
 
-func runCommitmentsPropose(cmd *cobra.Command, pick purchasePick) error {
+func runCommitmentsPropose(pick purchasePick) error {
 	plan := planName(pick.PlanType)
-	approved, err := requireApproval(cmd,
+	approved, err := requireApproval(flagProposeYes,
 		fmt.Sprintf("Raise a %s purchase? Nothing is bought until an organization admin releases it.", plan),
 		"raising a "+plan+" purchase")
 	if err != nil {
@@ -119,14 +119,11 @@ func purchaseOutcome(purchase api.CommitmentPurchase) string {
 }
 
 func init() {
-	commitmentsProposeCmd.Flags().StringVar(&flagPurchaseType, "type", "",
-		"Plan type, required: "+strings.Join(planTypes, ", "))
+	addPurchaseTargetFlags(commitmentsProposeCmd)
 	commitmentsProposeCmd.Flags().StringVar(&flagProposeProfile, "profile", "",
 		"Sized profile: "+strings.Join(purchaseProfiles, ", ")+"; balanced if neither this nor --commitment is given")
 	commitmentsProposeCmd.Flags().Float64Var(&flagPurchaseCommitment, flagNameCommitment, 0,
 		"Dollars an hour of your own, instead of a profile")
-	commitmentsProposeCmd.Flags().StringVar(&flagPurchasePayer, "payer", "",
-		"Payer account ID; may be omitted when the organization has one")
 	commitmentsProposeCmd.Flags().BoolVarP(&flagProposeYes, wordYes, "y", false, "Skip the confirmation prompt")
 	commitmentsCmd.AddCommand(commitmentsProposeCmd)
 }

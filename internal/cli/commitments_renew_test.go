@@ -14,17 +14,12 @@ import (
 
 const renewalRoutePrefix = api.CommitmentsPath + "/renewal/"
 
-type renewalReply struct {
-	status int
-	body   string
-}
-
 type renewCalls struct {
 	reads int
 	write capturedWrite
 }
 
-func renewServer(t *testing.T, priorBody string, reply renewalReply) *renewCalls {
+func renewServer(t *testing.T, priorBody string, reply apiReply) *renewCalls {
 	t.Helper()
 	calls := &renewCalls{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,8 +58,8 @@ func renewalEnvelope(fields string) string {
 	return `{"success":true,"data":{"commitment_id":"ri-0a1b2c3d","recommendation_id":"RENEW-12",` + fields + `}}`
 }
 
-func raised(fields string) renewalReply {
-	return renewalReply{status: http.StatusCreated, body: renewalEnvelope(fields)}
+func raised(fields string) apiReply {
+	return apiReply{status: http.StatusCreated, body: renewalEnvelope(fields)}
 }
 
 func TestCommitmentsRenewReportsWhatTheRaiseDid(t *testing.T) {
@@ -73,7 +68,7 @@ func TestCommitmentsRenewReportsWhatTheRaiseDid(t *testing.T) {
 	tests := []struct {
 		name     string
 		prior    string
-		reply    renewalReply
+		reply    apiReply
 		args     []string
 		wantBody map[string]interface{}
 		want     []string
@@ -110,7 +105,7 @@ func TestCommitmentsRenewReportsWhatTheRaiseDid(t *testing.T) {
 			prior:    openPrior,
 			reply:    raised(`"rebindable":false,"offering_id":null,"quantity":null`),
 			wantBody: map[string]interface{}{},
-			want:     []string{"RENEW-12 was already raised for ri-0a1b2c3d. Nothing changed", "no, it has been decided", notMeasured},
+			want:     []string{"RENEW-12 was already raised for ri-0a1b2c3d. Nothing changed", "no, it has been decided", "Offering: none"},
 			unwanted: []string{"l4 rec accept RENEW-12"},
 		},
 		{
@@ -254,7 +249,7 @@ func TestCommitmentsRenewConfirmation(t *testing.T) {
 }
 
 func TestCommitmentsRenewPrintsTheEnvelopeAsJSON(t *testing.T) {
-	renewServer(t, "", raised(`"created":true,"rebindable":true,"closed":false`))
+	calls := renewServer(t, "", raised(`"created":true,"rebindable":true,"closed":false`))
 
 	out, _, err := executeCommand(t, "commitments", "renew", "ri-0a1b2c3d", "--yes", "--json")
 	if err != nil {
@@ -267,31 +262,47 @@ func TestCommitmentsRenewPrintsTheEnvelopeAsJSON(t *testing.T) {
 	if envelopeData(envelope)["rebindable"] != true {
 		t.Errorf("JSON output lost a field: %s", out.String())
 	}
+	if calls.reads != 0 {
+		t.Errorf("JSON output read the earlier renewal %d times, want none", calls.reads)
+	}
+}
+
+func TestCommitmentsRenewAsJSONReportsARefusal(t *testing.T) {
+	renewServer(t, "", apiReply{http.StatusConflict,
+		`{"success":false,"error":{"code":"CONFLICT","message":"This renewal has already been decided"}}`})
+
+	out, _, err := executeCommand(t, "commitments", "renew", "ri-0a1b2c3d", "--yes", "--json")
+	if err == nil || !strings.Contains(err.Error(), "already been decided") {
+		t.Fatalf("error = %v, want the refusal", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("a refusal printed a result: %s", out.String())
+	}
 }
 
 func TestCommitmentsRenewReportsRefusals(t *testing.T) {
 	tests := []struct {
 		name     string
-		reply    renewalReply
+		reply    apiReply
 		want     []string
 		unwanted string
 	}{
 		{
 			name: "decided on another pick",
-			reply: renewalReply{http.StatusConflict, `{"success":false,"error":{"code":"CONFLICT",` +
+			reply: apiReply{http.StatusConflict, `{"success":false,"error":{"code":"CONFLICT",` +
 				`"message":"This renewal has already been decided, so what it buys can no longer change"}}`},
 			want: []string{"already been decided, so what it buys can no longer change"},
 		},
 		{
 			name: "read-only key",
-			reply: renewalReply{http.StatusForbidden,
+			reply: apiReply{http.StatusForbidden,
 				`{"success":false,"error":{"code":"AUTHORIZATION_ERROR","message":"API key scope insufficient"}}`},
 			want:     []string{"permission denied", "read-write key", credentialEnvVar},
 			unwanted: "l4 auth login",
 		},
 		{
 			name:  "a reply that is not JSON",
-			reply: renewalReply{http.StatusCreated, `not json`},
+			reply: apiReply{http.StatusCreated, `not json`},
 			want:  []string{"invalid JSON response"},
 		},
 	}
@@ -316,20 +327,27 @@ func TestCommitmentsRenewReportsRefusals(t *testing.T) {
 	}
 }
 
-func TestCommitmentsRenewStopsWhenTheEarlierRenewalCannotBeRead(t *testing.T) {
+func TestCommitmentsRenewStillRaisesWhenTheEarlierRenewalCannotBeRead(t *testing.T) {
+	raisedIt := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("unexpected %s: nothing may be raised after a failed read", r.Method)
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"error":{"message":"database unavailable"}}`)
+			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = io.WriteString(w, `{"error":{"message":"database unavailable"}}`)
+		raisedIt = true
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, renewalEnvelope(`"created":true,"rebindable":true`))
 	}))
 	t.Cleanup(srv.Close)
 	useCommitmentsServer(t, srv)
 
-	_, _, err := executeCommand(t, "commitments", "renew", "ri-0a1b2c3d", "--yes")
-	if err == nil || !strings.Contains(err.Error(), "database unavailable") {
-		t.Fatalf("error = %v, want the failed read", err)
+	out, _, err := executeCommand(t, "commitments", "renew", "ri-0a1b2c3d", "--yes")
+	if err != nil {
+		t.Fatalf("renew error: %v", err)
+	}
+	if !raisedIt || !strings.Contains(out.String(), "Raised RENEW-12 for ri-0a1b2c3d") {
+		t.Errorf("expected the raise despite the failed read:\n%s", out.String())
 	}
 }
 

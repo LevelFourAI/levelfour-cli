@@ -21,7 +21,7 @@ type simulateRequest struct {
 	query  url.Values
 }
 
-func simulateServer(t *testing.T, reply renewalReply) *simulateRequest {
+func simulateServer(t *testing.T, reply apiReply) *simulateRequest {
 	t.Helper()
 	got := &simulateRequest{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -34,8 +34,8 @@ func simulateServer(t *testing.T, reply renewalReply) *simulateRequest {
 	return got
 }
 
-func simulation(fields string) renewalReply {
-	return renewalReply{status: http.StatusOK, body: `{"success":true,"data":{"payer_account_id":"111122223333",` +
+func simulation(fields string) apiReply {
+	return apiReply{status: http.StatusOK, body: `{"success":true,"data":{"payer_account_id":"111122223333",` +
 		`"plan_type":"compute","term_months":12,"payment_option":"no_upfront",` +
 		`"candidate":{"commitment_hourly":12.5},` + fields + `}}`}
 }
@@ -51,7 +51,7 @@ const (
 		`and savings here are upper bounds."]`
 )
 
-func replayed() renewalReply {
+func replayed() apiReply {
 	return simulation(replayedWindow + "," + replayedTotals + "," + dailyCaveat + `,"profiles":` + sizedProfiles +
 		`,"aws":{"hourly_commitment_to_purchase":14.2,"cap":13.9},"series":[{"day":"2026-07-22"}]`)
 }
@@ -131,7 +131,7 @@ func TestCommitmentsSimulateSaysWhyNothingWasReplayed(t *testing.T) {
 		{
 			name:   "no reason given",
 			fields: `"payer_account_id":null,"unavailable_reason":null,"totals":null`,
-			want:   []string{"Payer: " + notMeasured, "Nothing to replay: " + notMeasured + "."},
+			want:   []string{"Payer: " + notMeasured, "Nothing to replay."},
 		},
 	}
 
@@ -189,24 +189,24 @@ func TestCommitmentsSimulateRefusesFlagsTheAPIWouldRefuse(t *testing.T) {
 func TestCommitmentsSimulateReportsRefusals(t *testing.T) {
 	tests := []struct {
 		name  string
-		reply renewalReply
+		reply apiReply
 		want  string
 	}{
 		{
 			name: "unknown payer",
-			reply: renewalReply{http.StatusNotFound, `{"success":false,"error":{"code":"NOT_FOUND",` +
+			reply: apiReply{http.StatusNotFound, `{"success":false,"error":{"code":"NOT_FOUND",` +
 				`"message":"No payer 999999999999 bills this organization. Its payers: 111122223333."}}`},
 			want: "No payer 999999999999 bills this organization",
 		},
 		{
 			name: "a term a Database plan is not sold for",
-			reply: renewalReply{http.StatusUnprocessableEntity, `{"success":false,"error":{"code":"VALIDATION_ERROR",` +
+			reply: apiReply{http.StatusUnprocessableEntity, `{"success":false,"error":{"code":"VALIDATION_ERROR",` +
 				`"message":"A Database Savings Plan is sold for 12 months, No Upfront, only."}}`},
 			want: "sold for 12 months, No Upfront, only",
 		},
 		{
 			name:  "a reply that is not JSON",
-			reply: renewalReply{http.StatusOK, `not json`},
+			reply: apiReply{http.StatusOK, `not json`},
 			want:  "invalid JSON response",
 		},
 	}

@@ -232,15 +232,13 @@ type CommitmentRenewalPlan struct {
 	Cancellable        *bool                  `json:"cancellable"`
 }
 
-// CommitmentRenewal is the renewal raised for one commitment. Closed means it
-// was rejected before anybody released it, so the next raise creates a new one.
 type CommitmentRenewal struct {
 	CommitmentID     string                 `json:"commitment_id"`
 	RecommendationID string                 `json:"recommendation_id"`
 	Created          bool                   `json:"created"`
 	Rebound          bool                   `json:"rebound"`
 	Rebindable       bool                   `json:"rebindable"`
-	Closed           bool                   `json:"closed"`
+	Closed           bool                   `json:"closed"` // rejected before release; the next raise creates a new one
 	OfferingID       *string                `json:"offering_id"`
 	Quantity         *float64               `json:"quantity"`
 	BlockingChanges  []RenewalPendingChange `json:"blocking_changes"`
@@ -318,13 +316,11 @@ type PurchaseProfile struct {
 	NetSavingsMonthlyAtYourRates float64  `json:"net_savings_monthly_at_your_rates"`
 }
 
-type PurchaseAwsBenchmark struct {
+type PurchaseAWSBenchmark struct {
 	HourlyCommitmentToPurchase float64 `json:"hourly_commitment_to_purchase"`
 	Cap                        float64 `json:"cap"`
 }
 
-// PurchaseSizing is what a proposal and a simulation share. UnavailableReason
-// names why nothing was sized, and Profiles is nil then.
 type PurchaseSizing struct {
 	PayerAccountID    *string                    `json:"payer_account_id"`
 	PlanType          string                     `json:"plan_type"`
@@ -333,22 +329,20 @@ type PurchaseSizing struct {
 	UnavailableReason *string                    `json:"unavailable_reason"`
 	Window            *PurchaseWindow            `json:"window"`
 	Caveats           []string                   `json:"caveats"`
-	Profiles          map[string]PurchaseProfile `json:"profiles"`
-	AWS               *PurchaseAwsBenchmark      `json:"aws"`
+	Profiles          map[string]PurchaseProfile `json:"profiles"` // nil when UnavailableReason is set
+	AWS               *PurchaseAWSBenchmark      `json:"aws"`
 }
 
-// PurchaseRaised is the purchase already raised on a proposal that nobody has
-// decided yet. Profile is nil when it was raised at a size of the caller's own.
 type PurchaseRaised struct {
 	RecommendationID string  `json:"recommendation_id"`
 	CommitmentHourly float64 `json:"commitment_hourly"`
-	Profile          *string `json:"profile"`
+	Profile          *string `json:"profile"` // nil for a size of the caller's own
 }
 
 type PurchaseProposal struct {
 	PurchaseSizing
 	RecommendedProfile *string         `json:"recommended_profile"`
-	Raised             *PurchaseRaised `json:"raised"`
+	Raised             *PurchaseRaised `json:"raised"` // set only while nobody has decided it
 }
 
 type PurchasePlan struct {
@@ -379,8 +373,6 @@ type PurchaseSimulation struct {
 	Totals    *PurchaseTotals   `json:"totals"`
 }
 
-// CommitmentPurchase is a Savings Plan purchase raised as a recommendation.
-// Raising it buys nothing. Profile is nil for a size of the caller's own.
 type CommitmentPurchase struct {
 	RecommendationID string   `json:"recommendation_id"`
 	PayerAccountID   string   `json:"payer_account_id"`
@@ -388,7 +380,7 @@ type CommitmentPurchase struct {
 	TermMonths       int      `json:"term_months"`
 	PaymentOption    string   `json:"payment_option"`
 	CommitmentHourly float64  `json:"commitment_hourly"`
-	Profile          *string  `json:"profile"`
+	Profile          *string  `json:"profile"` // nil for a size of the caller's own
 	CappedBy         []string `json:"capped_by"`
 	MonthlySavings   float64  `json:"monthly_savings"`
 	Created          bool     `json:"created"`
