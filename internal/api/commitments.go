@@ -299,6 +299,99 @@ type UncoveredSlice struct {
 	VolatilityRatio           float64 `json:"volatility_ratio"`
 	RecommendedKind           *string `json:"recommended_kind"`
 	SuggestedCommitmentHourly float64 `json:"suggested_commitment_hourly"`
+	Grain                     string  `json:"grain"`
+	Source                    string  `json:"source"`
+}
+
+type PurchaseWindow struct {
+	FirstDay    string `json:"first_day"`
+	LastDay     string `json:"last_day"`
+	Days        int    `json:"days"`
+	MissingDays int    `json:"missing_days"`
+}
+
+type PurchaseProfile struct {
+	CommitmentHourly             float64  `json:"commitment_hourly"`
+	CappedBy                     []string `json:"capped_by"`
+	UtilizationPct               *float64 `json:"utilization_pct"`
+	CoveragePct                  *float64 `json:"coverage_pct"`
+	NetSavingsMonthlyAtYourRates float64  `json:"net_savings_monthly_at_your_rates"`
+}
+
+type PurchaseAwsBenchmark struct {
+	HourlyCommitmentToPurchase float64 `json:"hourly_commitment_to_purchase"`
+	Cap                        float64 `json:"cap"`
+}
+
+// PurchaseSizing is what a proposal and a simulation share. UnavailableReason
+// names why nothing was sized, and Profiles is nil then.
+type PurchaseSizing struct {
+	PayerAccountID    *string                    `json:"payer_account_id"`
+	PlanType          string                     `json:"plan_type"`
+	TermMonths        int                        `json:"term_months"`
+	PaymentOption     string                     `json:"payment_option"`
+	UnavailableReason *string                    `json:"unavailable_reason"`
+	Window            *PurchaseWindow            `json:"window"`
+	Caveats           []string                   `json:"caveats"`
+	Profiles          map[string]PurchaseProfile `json:"profiles"`
+	AWS               *PurchaseAwsBenchmark      `json:"aws"`
+}
+
+// PurchaseRaised is the purchase already raised on a proposal that nobody has
+// decided yet. Profile is nil when it was raised at a size of the caller's own.
+type PurchaseRaised struct {
+	RecommendationID string  `json:"recommendation_id"`
+	CommitmentHourly float64 `json:"commitment_hourly"`
+	Profile          *string `json:"profile"`
+}
+
+type PurchaseProposal struct {
+	PurchaseSizing
+	RecommendedProfile *string         `json:"recommended_profile"`
+	Raised             *PurchaseRaised `json:"raised"`
+}
+
+type PurchasePlan struct {
+	Uncovered []UncoveredSlice   `json:"uncovered"`
+	Proposals []PurchaseProposal `json:"proposals"`
+}
+
+type PurchaseCandidate struct {
+	CommitmentHourly float64 `json:"commitment_hourly"`
+}
+
+type PurchaseTotals struct {
+	EligibleOnDemand             float64  `json:"eligible_on_demand"`
+	CoveredOnDemand              float64  `json:"covered_on_demand"`
+	UncoveredOnDemand            float64  `json:"uncovered_on_demand"`
+	CommitmentCost               float64  `json:"commitment_cost"`
+	UsedCommitment               float64  `json:"used_commitment"`
+	WastedCommitment             float64  `json:"wasted_commitment"`
+	UtilizationPct               *float64 `json:"utilization_pct"`
+	CoveragePct                  *float64 `json:"coverage_pct"`
+	NetSavingsMonthly            float64  `json:"net_savings_monthly"`
+	NetSavingsMonthlyAtYourRates float64  `json:"net_savings_monthly_at_your_rates"`
+}
+
+type PurchaseSimulation struct {
+	PurchaseSizing
+	Candidate PurchaseCandidate `json:"candidate"`
+	Totals    *PurchaseTotals   `json:"totals"`
+}
+
+// CommitmentPurchase is a Savings Plan purchase raised as a recommendation.
+// Raising it buys nothing. Profile is nil for a size of the caller's own.
+type CommitmentPurchase struct {
+	RecommendationID string   `json:"recommendation_id"`
+	PayerAccountID   string   `json:"payer_account_id"`
+	PlanType         string   `json:"plan_type"`
+	TermMonths       int      `json:"term_months"`
+	PaymentOption    string   `json:"payment_option"`
+	CommitmentHourly float64  `json:"commitment_hourly"`
+	Profile          *string  `json:"profile"`
+	CappedBy         []string `json:"capped_by"`
+	MonthlySavings   float64  `json:"monthly_savings"`
+	Created          bool     `json:"created"`
 }
 
 type CommitmentRecommendation struct {

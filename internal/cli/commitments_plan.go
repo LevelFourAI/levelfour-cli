@@ -21,11 +21,21 @@ var (
 var commitmentsPlanCmd = &cobra.Command{
 	Use:   "plan",
 	Short: "The uncovered base, and what buying would cover it",
-	Long: `On-demand spend no commitment covers, split by platform and volatility.
+	Long: `On-demand spend a Savings Plan could cover and no commitment does, split by
+service, platform and volatility, read off the daily billing data.
 
-Each slice is sized against its hourly floor rather than its average. Sizing
+Floor/hr is a daily figure per hour: the quietest day's spend over its 24 hours.
+Suggested/hr sizes each slice against that daily floor rather than its average,
+in commitment dollars an hour, the unit AWS sells a Savings Plan in. Sizing
 against the average of a volatile base commits to more than the base can
-sustain, which strands part of the commitment for its whole term.`,
+sustain, which strands part of the commitment for its whole term.
+
+Source and Grain name where each row comes from. A payer without daily billing
+data gets Cost Explorer's hourly figures, shown with no suggested size.
+
+Below the base, each payer and plan type gets a proposal: three profiles sized
+on the daily floor and capped by AWS's own recommendation. Replay any size with
+'l4 commitments simulate', and raise one with 'l4 commitments propose'.`,
 	Example: `  l4 commitments plan
   l4 commitments plan --format csv > purchase-plan.csv
   l4 commitments plan --json`,
@@ -70,43 +80,43 @@ metered leg that bills on top of it.`,
 }
 
 func runCommitmentsPlan(client *api.SDKClient, provider string) error {
-	slices, recommendations, bodies, err := fetchPlan(client, provider)
+	plan, recommendations, bodies, err := fetchPlan(client, provider)
 	if err != nil {
 		return handleCommitmentsError(err)
 	}
 
 	if flagPlanFormat == formatCSV {
-		printUncoveredCSV(slices)
+		printUncoveredCSV(plan.Uncovered)
 		return nil
 	}
 	if output.HasFormattingFlags() {
 		return output.PrintResult(bodies)
 	}
 
-	if len(slices) == 0 {
+	if len(plan.Uncovered) == 0 {
 		output.Info("No uncovered on-demand base measured.")
 	} else {
-		renderUncovered(slices)
+		renderUncovered(plan.Uncovered)
 	}
+	renderProposals(plan.Proposals)
 	renderBuyRecommendations(recommendations)
 	return nil
 }
 
 func fetchPlan(client *api.SDKClient, provider string) (
-	[]api.UncoveredSlice, []api.CommitmentRecommendation, map[string]json.RawMessage, error,
+	api.PurchasePlan, []api.CommitmentRecommendation, map[string]json.RawMessage, error,
 ) {
-	var slices []api.UncoveredSlice
+	var plan api.PurchasePlan
 	var recommendations []api.CommitmentRecommendation
-	var uncoveredBody, recommendationsBody json.RawMessage
-	var uncoveredErr, recommendationsErr error
+	var planBody, recommendationsBody json.RawMessage
+	var planErr, recommendationsErr error
 
 	err := tuicommon.RunWithSpinner("Loading purchase plan...", output.L4SpinnerTheme(), func(_ context.Context) error {
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			slices, uncoveredBody, uncoveredErr = api.GetCommitments[[]api.UncoveredSlice](
-				client.Raw(), "/uncovered", nil)
+			plan, planBody, planErr = api.GetCommitments[api.PurchasePlan](client.Raw(), "/purchase-plan", nil)
 		}()
 		go func() {
 			defer wg.Done()
@@ -114,19 +124,19 @@ func fetchPlan(client *api.SDKClient, provider string) (
 				client.Raw(), "/recommendations", map[string]string{"provider": provider})
 		}()
 		wg.Wait()
-		return firstError(uncoveredErr, recommendationsErr)
+		return firstError(planErr, recommendationsErr)
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return plan, nil, nil, err
 	}
-	return slices, recommendations, map[string]json.RawMessage{
-		"uncovered":       uncoveredBody,
+	return plan, recommendations, map[string]json.RawMessage{
+		"purchase_plan":   planBody,
 		"recommendations": recommendationsBody,
 	}, nil
 }
 
 var uncoveredHeaders = []string{
-	columnService, "Platform", "On demand/hr", "Floor/hr", "Volatility", "Buy", "Suggested/hr",
+	columnService, "Platform", "On demand/hr", "Floor/hr", "Volatility", "Buy", "Suggested/hr", "Source", "Grain",
 }
 
 func renderUncovered(slices []api.UncoveredSlice) {
@@ -136,7 +146,8 @@ func renderUncovered(slices []api.UncoveredSlice) {
 		rows = append(rows, uncoveredCells(slice))
 	}
 	output.Table(uncoveredHeaders, rows)
-	output.Info("Suggested amounts are sized against the floor, not the average, so a volatile hour cannot strand the commitment.")
+	output.Info("Suggested/hr sizes each slice against the daily floor rather than the average, in commitment dollars an hour.")
+	output.Info("Floor/hr is the quietest day's spend spread over its 24 hours. A day's average hides its quietest hours, so the hourly floor can sit lower.")
 }
 
 func uncoveredCells(slice api.UncoveredSlice) []string {
@@ -147,8 +158,18 @@ func uncoveredCells(slice api.UncoveredSlice) []string {
 		moneyValue(slice.OnDemandHourlyMin),
 		fmt.Sprintf("%.2fx", slice.VolatilityRatio),
 		kindLabel(textOrNotMeasured(slice.RecommendedKind)),
-		moneyValue(slice.SuggestedCommitmentHourly),
+		suggestedCell(slice),
+		labelOf(sourceLabels, slice.Source),
+		slice.Grain,
 	}
+}
+
+// A Cost Explorer row sizes nothing, so its zero is not a suggestion to buy nothing.
+func suggestedCell(slice api.UncoveredSlice) string {
+	if slice.Source == sourceCostExplorer {
+		return notMeasured
+	}
+	return commitmentValue(slice.SuggestedCommitmentHourly)
 }
 
 func printUncoveredCSV(slices []api.UncoveredSlice) {

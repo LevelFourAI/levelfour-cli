@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
@@ -126,19 +124,7 @@ func renewalRaisedBefore(id string) (*api.CommitmentRenewal, error) {
 }
 
 func raiseRenewal(id string, pick renewalPick) (api.CommitmentRenewal, json.RawMessage, error) {
-	var envelope struct {
-		Data api.CommitmentRenewal `json:"data"`
-	}
-	payload, _ := json.Marshal(pick)
-	path := api.CommitmentsPath + renewalRoute(id)
-	raw, err := sendRequest(http.MethodPost, path, bytes.NewReader(payload), idempotencyHeader())
-	if err != nil {
-		return envelope.Data, nil, err
-	}
-	if err := json.Unmarshal(raw.Body, &envelope); err != nil {
-		return envelope.Data, nil, fmt.Errorf("invalid JSON response: %w", err)
-	}
-	return envelope.Data, raw.Body, nil
+	return postData[api.CommitmentRenewal](api.CommitmentsPath+renewalRoute(id), pick)
 }
 
 func renderRenewal(renewal api.CommitmentRenewal, prior *api.CommitmentRenewal) {

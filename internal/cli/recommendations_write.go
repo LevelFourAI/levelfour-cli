@@ -89,11 +89,13 @@ var recommendationsRequestCmd = &cobra.Command{
 	Long: `Ask an organization admin to release a savings recommendation.
 
 The request lands in Needs Approval in the dashboard, where an admin releases
-it. A commitment renewal takes only 'one-click' or 'manual', and cannot be
-requested again once it is released.`,
+it. A commitment renewal takes only 'one-click' or 'manual', and a new Savings
+Plan purchase only 'manual'. Nobody can request either again once an admin
+releases it.`,
 	Args: cobra.ExactArgs(1),
 	Example: `  l4 rec request RENEW-12 --method one-click
-  l4 rec request RENEW-12 --method manual --yes`,
+  l4 rec request RENEW-12 --method manual --yes
+  l4 rec request BUY-3 --method manual`,
 	RunE: func(_ *cobra.Command, args []string) error {
 		if err := checkImplementationMethod(flagRecRequestMethod); err != nil {
 			return err

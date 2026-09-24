@@ -93,7 +93,7 @@ l4 rec request RENEW-12 --method manual  # ask an organization admin to release 
 
 `--reason` takes `operational`, `strategy`, `not_applicable` or `other`. Pass `--explanation` alongside `--reason other` to say why in free text.
 
-`--method` takes `one-click`, `iac`, `one-click-plus-iac` or `manual`. `execute` defaults to `one-click` and starts a recommendation somebody other than you accepted. `request` has no default: it files the recommendation in Needs Approval, where an organization admin releases it. A commitment renewal is only ever released that way, and only as `one-click` or `manual`.
+`--method` takes `one-click`, `iac`, `one-click-plus-iac` or `manual`. `execute` defaults to `one-click` and starts a recommendation somebody other than you accepted. `request` has no default: it files the recommendation in Needs Approval, where an organization admin releases it. A commitment renewal is only ever released that way, and only as `one-click` or `manual`. An admin releases a new Savings Plan purchase the same way, as `manual` only.
 
 Every one of these prompts for confirmation. Pass `-y`/`--yes` to skip the prompt in a script.
 
@@ -107,10 +107,16 @@ l4 commitments coverage                 # eligible spend covered, weighted, per 
 l4 commitments list --expiring-within 90d
 l4 commitments renewal ri-0a1b2c3d      # what to rebuy, and the instant to buy after
 l4 commitments renew ri-0a1b2c3d        # raise that renewal as a recommendation; buys nothing
-l4 commitments plan                     # the uncovered base, sized against its hourly floor
+l4 commitments plan                     # the uncovered base and Savings Plan proposals, sized on the daily floor
+l4 commitments simulate --type compute --commitment 12.5  # replay one size over the recent daily bill
+l4 commitments propose --type compute   # raise the balanced proposal as a recommendation; buys nothing
 ```
 
 `renew` raises a `RENEW-` recommendation for the recommended option, or for the one `--offering` and `--quantity` pick. Accept it with `l4 rec accept`, then file it with `l4 rec request --method one-click` or `--method manual`. Nothing is bought until an organization admin releases it. It needs a `read-write` key, and outside a terminal it needs `--yes`.
+
+`plan` sizes each uncovered slice against its daily floor, in commitment dollars an hour, and names each row's source and grain. Below the base, each payer and plan type gets a 12-month, No Upfront proposal in three profiles: `conservative`, `balanced` and `max_savings`. `simulate` replays any Savings Plan size over the last 30 or 60 days of the daily bill, beside those profiles. A day averages its hours, so every figure in both is an upper bound.
+
+`propose` raises one proposal as a `BUY-` recommendation, at a `--profile` or at a `--commitment` of your own. Accept it with `l4 rec accept`, then file it with `l4 rec request --method manual`. `propose` buys nothing: once an organization admin releases the recommendation, you buy the plan yourself in AWS. It needs a `read-write` key, and outside a terminal it needs `--yes`.
 
 `l4 commitments expiring --fail-within 30d` exits `2` when a commitment lapses inside the window, so a pipeline fails instead of a term quietly ending:
 
@@ -199,7 +205,9 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 commitments renew <id>` | Raise the renewal as a recommendation to accept and file for release. Buys nothing |
 | `l4 commitments utilization` | How much of what was bought is being used, per service |
 | `l4 commitments coverage` | How much of the eligible bill a commitment covers, per service |
-| `l4 commitments plan` | The uncovered on-demand base and what buying would cover it |
+| `l4 commitments plan` | The uncovered on-demand base, and a Savings Plan proposal per payer and plan type |
+| `l4 commitments simulate` | Replay one Savings Plan size over the recent daily bill, beside the sized profiles |
+| `l4 commitments propose` | Raise a proposal as a recommendation to accept and file for release. Buys nothing |
 | `l4 commitments contracts` | Marketplace and private-pricing floors that bill like a commitment |
 | `l4 estimate [path ...]` | Estimate Terraform costs locally |
 | `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |

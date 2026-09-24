@@ -89,6 +89,26 @@ func sendJSON(method, path string, payload interface{}, headers map[string]strin
 	return decodeEnvelope(raw.Body)
 }
 
+// The typed data renders the screen, and the untouched body serves --json, --jq and --template.
+func requestData[T any](method, path string, body io.Reader, headers map[string]string) (T, json.RawMessage, error) {
+	var envelope struct {
+		Data T `json:"data"`
+	}
+	raw, err := sendRequest(method, path, body, headers)
+	if err != nil {
+		return envelope.Data, nil, err
+	}
+	if err := json.Unmarshal(raw.Body, &envelope); err != nil {
+		return envelope.Data, nil, fmt.Errorf("invalid JSON response: %w", err)
+	}
+	return envelope.Data, raw.Body, nil
+}
+
+func postData[T any](path string, payload interface{}) (T, json.RawMessage, error) {
+	body, _ := json.Marshal(payload)
+	return requestData[T](http.MethodPost, path, bytes.NewReader(body), idempotencyHeader())
+}
+
 func sendRequest(method, path string, body io.Reader, headers map[string]string) (*api.RawResponse, error) {
 	client, err := newSDKClientFn()
 	if err != nil {
