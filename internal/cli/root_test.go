@@ -37,6 +37,7 @@ func resetFlags() {
 	flagRecReason = ""
 	flagRecExplanation = ""
 	flagRecMethod = defaultImplementationMethod
+	flagRecRequestMethod = ""
 
 	flagExportFormat = ""
 	flagExportPeriod = ""
@@ -133,11 +134,17 @@ func resetFlags() {
 	flagCoverageInstrument = ""
 	flagPlanFormat = ""
 	flagRenewalFormat = ""
+	flagRenewOffering = ""
+	flagRenewQuantity = 0
+	flagRenewYes = false
 
 	// pflag never clears Changed once a flag has been set, and every test in
 	// this package drives the one shared rootCmd, so a window set by one test
 	// would otherwise still read as explicitly set in the next.
 	if f := commitmentsExpiringCmd.Flags().Lookup("within"); f != nil {
+		f.Changed = false
+	}
+	if f := commitmentsRenewCmd.Flags().Lookup(flagNameQuantity); f != nil {
 		f.Changed = false
 	}
 }

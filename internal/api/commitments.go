@@ -222,14 +222,28 @@ type CommitmentRenewalPlan struct {
 	EndAt              *string                `json:"end_at"`
 	BuyAfterUTC        *string                `json:"buy_after_utc"`
 	ExpiresInSeconds   *int64                 `json:"expires_in_seconds"`
-	UnitsHeld          int                    `json:"units_held"`
-	UnitsConsumed      int                    `json:"units_consumed"`
-	UnitsRecommended   int                    `json:"units_recommended"`
+	UnitsHeld          float64                `json:"units_held"`
+	UnitsConsumed      *float64               `json:"units_consumed"`
+	UnitsRecommended   float64                `json:"units_recommended"`
 	ProtectsMonthly    float64                `json:"protects_monthly"`
 	RightsizingMonthly float64                `json:"rightsizing_monthly"`
 	PendingChanges     []RenewalPendingChange `json:"pending_changes"`
 	Exchangeable       *bool                  `json:"exchangeable"`
 	Cancellable        *bool                  `json:"cancellable"`
+}
+
+// CommitmentRenewal is the renewal raised for one commitment. Closed means it
+// was rejected before anybody released it, so the next raise creates a new one.
+type CommitmentRenewal struct {
+	CommitmentID     string                 `json:"commitment_id"`
+	RecommendationID string                 `json:"recommendation_id"`
+	Created          bool                   `json:"created"`
+	Rebound          bool                   `json:"rebound"`
+	Rebindable       bool                   `json:"rebindable"`
+	Closed           bool                   `json:"closed"`
+	OfferingID       *string                `json:"offering_id"`
+	Quantity         *float64               `json:"quantity"`
+	BlockingChanges  []RenewalPendingChange `json:"blocking_changes"`
 }
 
 type UtilizationDimension struct {

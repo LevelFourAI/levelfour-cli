@@ -164,7 +164,7 @@ func postAnalysis(client *api.SDKClient, snapshots []api.ResourceSnapshot, chang
 // to log in again would send them down the wrong path.
 const (
 	authFailedHint = "authentication failed: verify your API key with 'l4 auth status --verify' or re-authenticate with 'l4 auth login'"
-	forbiddenHint  = "permission denied: this API key lacks permission for this operation. Mint a read-write key in the dashboard under Settings, API Keys"
+	forbiddenHint  = "permission denied: this API key lacks permission for this operation. Mint a read-write key in the dashboard under Settings, API Keys, and pass it with --token or " + credentialEnvVar
 )
 
 // classifyStatusError wraps an API error with the hint that matches its HTTP

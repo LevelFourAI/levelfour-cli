@@ -233,12 +233,19 @@ func printRenewalPlanCSV(plan api.CommitmentRenewalPlan) {
 		plan.Service,
 		plan.HolderAccountID,
 		buyAfter,
-		strconv.Itoa(plan.UnitsHeld),
-		strconv.Itoa(plan.UnitsConsumed),
-		strconv.Itoa(plan.UnitsRecommended),
+		quantityValue(plan.UnitsHeld),
+		quantityOrBlank(plan.UnitsConsumed),
+		quantityValue(plan.UnitsRecommended),
 		strconv.FormatFloat(plan.ProtectsMonthly, 'f', -1, 64),
 		strconv.FormatFloat(plan.RightsizingMonthly, 'f', -1, 64),
 	}})
+}
+
+func quantityOrBlank(v *float64) string {
+	if v == nil {
+		return ""
+	}
+	return quantityValue(*v)
 }
 
 func init() {

@@ -19,17 +19,17 @@ read it.`,
 	Args: cobra.ExactArgs(1),
 	Example: `  l4 tags delete Teams
   l4 tags delete vtk_0123abcd --yes`,
-	RunE: func(_ *cobra.Command, args []string) error {
-		return runTagsDelete(args[0])
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runTagsDelete(cmd, args[0])
 	},
 }
 
-func runTagsDelete(ref string) error {
+func runTagsDelete(cmd *cobra.Command, ref string) error {
 	if strings.HasPrefix(ref, providerKeyPrefix) {
 		return fmt.Errorf("%s is a provider tag key: provider tags come from the bill and cannot be deleted", ref)
 	}
 	// Before the lookup, so an unattended run does not spend a request to fail on a flag.
-	approved, err := requireApproval(fmt.Sprintf("Delete virtual tag %s?", ref), "deleting "+ref)
+	approved, err := requireApproval(cmd, fmt.Sprintf("Delete virtual tag %s?", ref), "deleting "+ref)
 	if err != nil {
 		return err
 	}

@@ -88,11 +88,12 @@ Accept, reject or request execution without leaving the terminal. `rec` and `rec
 l4 rec accept REC-1234                  # confirms first; -y to skip
 l4 rec reject REC-1234 --reason operational
 l4 rec execute REC-1234 --method iac
+l4 rec request RENEW-12 --method manual  # ask an organization admin to release it
 ```
 
 `--reason` takes `operational`, `strategy`, `not_applicable` or `other`. Pass `--explanation` alongside `--reason other` to say why in free text.
 
-`--method` takes `one-click` (the default), `iac`, `one-click-plus-iac` or `manual`, and applies only to `execute`, which requires a recommendation you have already accepted.
+`--method` takes `one-click`, `iac`, `one-click-plus-iac` or `manual`. `execute` defaults to `one-click` and starts a recommendation somebody other than you accepted. `request` has no default: it files the recommendation in Needs Approval, where an organization admin releases it. A commitment renewal is only ever released that way, and only as `one-click` or `manual`.
 
 Every one of these prompts for confirmation. Pass `-y`/`--yes` to skip the prompt in a script.
 
@@ -105,8 +106,11 @@ l4 commitments summary                  # coverage, utilization, effective savin
 l4 commitments coverage                 # eligible spend covered, weighted, per service
 l4 commitments list --expiring-within 90d
 l4 commitments renewal ri-0a1b2c3d      # what to rebuy, and the instant to buy after
+l4 commitments renew ri-0a1b2c3d        # raise that renewal as a recommendation; buys nothing
 l4 commitments plan                     # the uncovered base, sized against its hourly floor
 ```
+
+`renew` raises a `RENEW-` recommendation for the recommended option, or for the one `--offering` and `--quantity` pick. Accept it with `l4 rec accept`, then file it with `l4 rec request --method one-click` or `--method manual`. Nothing is bought until an organization admin releases it. It needs a `read-write` key, and outside a terminal it needs `--yes`.
 
 `l4 commitments expiring --fail-within 30d` exits `2` when a commitment lapses inside the window, so a pipeline fails instead of a term quietly ending:
 
@@ -187,11 +191,12 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 costs daily` / `monthly` | Spending aggregated per day or per month |
 | `l4 costs filters [dimension]` | Discover the filter dimensions and values `breakdown` accepts |
 | `l4 recommendations list` / `view <id>` | Browse savings opportunities. Both take `--tui` |
-| `l4 rec accept` / `reject` / `execute <id>` | Act on one, covered above |
+| `l4 rec accept` / `reject` / `execute` / `request <id>` | Act on one, covered above |
 | `l4 commitments summary` | Coverage, utilization and what the commitments are earning |
 | `l4 commitments list` | Every commitment held, soonest to expire first |
 | `l4 commitments expiring` | What lapses soon, with an exit code for CI. Covered below |
 | `l4 commitments view` / `renewal <id>` | One commitment in full, and what to repurchase when it ends |
+| `l4 commitments renew <id>` | Raise the renewal as a recommendation to accept and file for release. Buys nothing |
 | `l4 commitments utilization` | How much of what was bought is being used, per service |
 | `l4 commitments coverage` | How much of the eligible bill a commitment covers, per service |
 | `l4 commitments plan` | The uncovered on-demand base and what buying would cover it |
