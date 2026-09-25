@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"net/url"
-	"strconv"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
@@ -39,7 +38,10 @@ var commitmentsViewCmd = &cobra.Command{
 var commitmentsRenewalCmd = &cobra.Command{
 	Use:   "renewal <id>",
 	Short: "What to repurchase when a commitment expires, and when to buy",
-	Args:  cobra.ExactArgs(1),
+	Long: `What to repurchase when a commitment expires, and the instant after which buying is safe.
+
+Reading the plan changes nothing. To raise the renewal, run 'l4 commitments renew <id>'.`,
+	Args: cobra.ExactArgs(1),
 	Example: `  l4 commitments renewal ri-0a1b2c3d
   l4 commitments renewal ri-0a1b2c3d --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -158,9 +160,9 @@ func runCommitmentRenewal(client *api.SDKClient, id string) error {
 	output.Table(
 		[]string{"Units held", "Units consumed", "Units recommended"},
 		[][]string{{
-			strconv.Itoa(plan.UnitsHeld),
-			strconv.Itoa(plan.UnitsConsumed),
-			strconv.Itoa(plan.UnitsRecommended),
+			quantityValue(plan.UnitsHeld),
+			quantityOrNotMeasured(plan.UnitsConsumed),
+			quantityValue(plan.UnitsRecommended),
 		}},
 	)
 	// Two different amounts, never added: one is what lapsing would cost, the
@@ -182,6 +184,11 @@ func renderPendingChanges(changes []api.RenewalPendingChange) {
 		return
 	}
 	output.Header("Land these before renewing")
+	renderChangesTable(changes)
+	output.Info("Accept one with: l4 rec accept <id>")
+}
+
+func renderChangesTable(changes []api.RenewalPendingChange) {
 	rows := make([][]string, 0, len(changes))
 	for _, change := range changes {
 		rows = append(rows, []string{
@@ -193,7 +200,6 @@ func renderPendingChanges(changes []api.RenewalPendingChange) {
 		})
 	}
 	output.Table([]string{"ID", columnService, columnAccount, "Savings", "Status"}, rows)
-	output.Info("Accept one with: l4 rec accept <id>")
 }
 
 func init() {

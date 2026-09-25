@@ -28,14 +28,14 @@ const (
 	renewalBody = `{"data":{"commitment_id":"ri-a1b2","service":"ec2",` +
 		`"holder_account_id":"111122223333","end_at":"2026-10-07T00:00:00Z",` +
 		`"buy_after_utc":"2026-10-07T00:00:00Z","expires_in_seconds":1555200,` +
-		`"units_held":40,"units_consumed":34,"units_recommended":36,` +
+		`"units_held":40.0,"units_consumed":33.5,"units_recommended":36.0,` +
 		`"protects_monthly":12400,"rightsizing_monthly":620,` +
 		`"pending_changes":[{"recommendation_id":"REC-1234","service":"ec2","account":"prod",` +
 		`"monthly_savings":210,"status":"available"}],"exchangeable":true,"cancellable":false}}`
 
 	renewalUndatedBody = `{"data":{"commitment_id":"cud-1","service":"compute",` +
 		`"holder_account_id":"proj-1","end_at":null,"buy_after_utc":null,` +
-		`"expires_in_seconds":null,"units_held":1,"units_consumed":1,"units_recommended":1,` +
+		`"expires_in_seconds":null,"units_held":1.0,"units_consumed":null,"units_recommended":1.0,` +
 		`"protects_monthly":0,"rightsizing_monthly":0,"pending_changes":[],` +
 		`"exchangeable":null,"cancellable":null}}`
 )
@@ -138,7 +138,7 @@ func TestCommitmentsRenewalSizesTheRepurchase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renewal error: %v", err)
 	}
-	for _, want := range []string{"40", "34", "36", "2026-10-07T00:00:00Z", "18d",
+	for _, want := range []string{"40", "33.5", "36", "2026-10-07T00:00:00Z", "18d",
 		"$12400.00/mo", "$620.00/mo", "REC-1234", "l4 rec accept"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
@@ -177,7 +177,7 @@ func TestCommitmentsRenewalCSVMatchesTheDashboard(t *testing.T) {
 	if strings.TrimSpace(lines[0]) != wantHeader {
 		t.Errorf("header = %q, want %q", lines[0], wantHeader)
 	}
-	if !strings.Contains(lines[1], "ri-a1b2,ec2,111122223333,2026-10-07T00:00:00Z,40,34,36,12400,620") {
+	if !strings.Contains(lines[1], "ri-a1b2,ec2,111122223333,2026-10-07T00:00:00Z,40,33.5,36,12400,620") {
 		t.Errorf("row = %q", lines[1])
 	}
 }
@@ -191,8 +191,8 @@ func TestCommitmentsRenewalCSVLeavesAnAbsentInstantEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renewal --format csv error: %v", err)
 	}
-	if !strings.Contains(out.String(), "cud-1,compute,proj-1,,1,1,1,0,0") {
-		t.Errorf("an absent instant should be an empty cell:\n%s", out.String())
+	if !strings.Contains(out.String(), "cud-1,compute,proj-1,,1,,1,0,0") {
+		t.Errorf("an absent instant and an unmeasured consumption should be empty cells:\n%s", out.String())
 	}
 }
 

@@ -119,6 +119,7 @@ func runTagsApply() error {
 		return ErrIssuesFound
 	}
 	approved, err := requireApproval(
+		flagTagsYes,
 		fmt.Sprintf("Apply these changes to virtual tag %s?", desired.Name),
 		"applying "+desired.Name,
 	)

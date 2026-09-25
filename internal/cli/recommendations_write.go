@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	flagRecYes         bool
-	flagRecReason      string
-	flagRecExplanation string
-	flagRecMethod      string
+	flagRecYes           bool
+	flagRecReason        string
+	flagRecExplanation   string
+	flagRecMethod        string
+	flagRecRequestMethod string
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 	decisionRejected = "rejected"
 
 	defaultImplementationMethod = "one-click"
+	flagNameMethod              = "method"
 )
 
 // rejectionReasons mirrors the pattern the API enforces on
@@ -64,15 +66,43 @@ The reason is optional. You can add or change it later from the dashboard.`,
 var recommendationsExecuteCmd = &cobra.Command{
 	Use:   "execute <id>",
 	Short: "Request execution of an accepted savings recommendation",
-	Args:  cobra.ExactArgs(1),
+	Long: `Request execution of an accepted savings recommendation.
+
+Somebody other than the credential that executes it must have accepted it.
+A recommendation that buys a commitment, such as a renewal, starts only when an
+organization admin releases it in the dashboard, so the API refuses it here:
+file it for release with 'l4 rec request' instead.`,
+	Args: cobra.ExactArgs(1),
 	Example: `  l4 rec execute REC-1234
   l4 rec execute REC-1234 --method iac
   l4 rec execute REC-1234 --method manual --yes`,
 	RunE: func(_ *cobra.Command, args []string) error {
-		if !slices.Contains(implementationMethods, flagRecMethod) {
-			return fmt.Errorf("invalid --method %q: choose one of %s", flagRecMethod, strings.Join(implementationMethods, ", "))
+		if err := requireChoice(flagNameMethod, flagRecMethod, implementationMethods); err != nil {
+			return err
 		}
 		return runExecute(args[0])
+	},
+}
+
+var recommendationsRequestCmd = &cobra.Command{
+	Use:   "request <id>",
+	Short: "Ask an organization admin to release a savings recommendation",
+	Long: `Ask an organization admin to release a savings recommendation.
+
+The request lands in Needs Approval in the dashboard, where an admin releases
+it. A commitment renewal takes only 'one-click' or 'manual'. A new Savings Plan
+purchase takes 'manual', or 'one-click' when it carries an access policy that
+lets LevelFour buy it. Nobody can request either again once an admin releases
+it.`,
+	Args: cobra.ExactArgs(1),
+	Example: `  l4 rec request RENEW-12 --method one-click
+  l4 rec request RENEW-12 --method manual --yes
+  l4 rec request BUY-3 --method manual`,
+	RunE: func(_ *cobra.Command, args []string) error {
+		if err := requireChoice(flagNameMethod, flagRecRequestMethod, implementationMethods); err != nil {
+			return err
+		}
+		return runRequest(args[0])
 	},
 }
 
@@ -151,17 +181,48 @@ func runExecute(id string) error {
 	return nil
 }
 
+func runRequest(id string) error {
+	if !flagRecYes && !confirmAction(fmt.Sprintf("Ask an organization admin to release %s using %s?", id, flagRecRequestMethod)) {
+		output.Info("Aborted.")
+		return nil
+	}
+
+	envelope, err := postWrite("/api/v1/recommendations/"+url.PathEscape(id)+"/execution/request", map[string]string{
+		"implementation_method": flagRecRequestMethod,
+	})
+	if err != nil {
+		return err
+	}
+
+	if output.HasFormattingFlags() {
+		return output.PrintResult(envelope)
+	}
+
+	data := envelopeData(envelope)
+	output.Success(fmt.Sprintf("Release requested for recommendation %s", id))
+	if v := dataString(data, "execution_request_status"); v != "" {
+		output.KeyValue("Status", output.StatusBadge(v))
+	}
+	output.KeyValue("Method", flagRecRequestMethod)
+	output.Info("An organization admin releases it from Needs Approval in the dashboard.")
+	return nil
+}
+
 func init() {
-	for _, c := range []*cobra.Command{recommendationsAcceptCmd, recommendationsRejectCmd, recommendationsExecuteCmd} {
+	for _, c := range []*cobra.Command{
+		recommendationsAcceptCmd, recommendationsRejectCmd, recommendationsExecuteCmd, recommendationsRequestCmd,
+	} {
 		c.Flags().BoolVarP(&flagRecYes, wordYes, "y", false, "Skip the confirmation prompt")
 	}
 
 	recommendationsRejectCmd.Flags().StringVar(&flagRecReason, "reason", "", "Rejection reason: "+strings.Join(rejectionReasons, ", "))
 	recommendationsRejectCmd.Flags().StringVar(&flagRecExplanation, "explanation", "", "Free text explanation, used when --reason is 'other'")
 
-	recommendationsExecuteCmd.Flags().StringVar(&flagRecMethod, "method", defaultImplementationMethod, "Implementation method: "+strings.Join(implementationMethods, ", "))
+	recommendationsExecuteCmd.Flags().StringVar(&flagRecMethod, flagNameMethod, defaultImplementationMethod, "Implementation method: "+strings.Join(implementationMethods, ", "))
+	recommendationsRequestCmd.Flags().StringVar(&flagRecRequestMethod, flagNameMethod, "", "Implementation method, required: "+strings.Join(implementationMethods, ", "))
 
 	recommendationsCmd.AddCommand(recommendationsAcceptCmd)
 	recommendationsCmd.AddCommand(recommendationsRejectCmd)
 	recommendationsCmd.AddCommand(recommendationsExecuteCmd)
+	recommendationsCmd.AddCommand(recommendationsRequestCmd)
 }

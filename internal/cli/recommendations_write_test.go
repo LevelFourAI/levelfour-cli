@@ -187,6 +187,65 @@ func TestRecommendationExecuteCommand(t *testing.T) {
 	}
 }
 
+func TestRecommendationRequestCommand(t *testing.T) {
+	srv, got := writeServer(t, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"recommendation_id":        "RENEW-12",
+			"execution_request_status": "pending_approval",
+			"execution_request_by":     "api-key:abc",
+		},
+	})
+
+	flagAPI = srv.URL
+	flagToken = "l4_test_testkey123456789a"
+
+	out, _, err := executeCommand(t, "rec", "request", "RENEW-12", "--method", "manual", "--yes")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.method != http.MethodPost || got.path != "/api/v1/recommendations/RENEW-12/execution/request" {
+		t.Errorf("request = %s %s", got.method, got.path)
+	}
+	if got.key == "" {
+		t.Error("expected an Idempotency-Key header")
+	}
+	if len(got.body) != 1 || got.body["implementation_method"] != "manual" {
+		t.Errorf("body = %v, want only implementation_method manual", got.body)
+	}
+	for _, want := range []string{"Release requested for recommendation RENEW-12", "pending_approval", "manual", "Needs Approval"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRecommendationWriteShowsTheAdminOnlyRefusalAsSent(t *testing.T) {
+	const reason = "RENEW-12 buys a commitment, so only an organization admin signed in to the dashboard can start it."
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   map[string]interface{}{"code": codeReleaseNeedsAdmin, "message": reason},
+		})
+	}))
+	defer srv.Close()
+
+	flagAPI = srv.URL
+	flagToken = "l4_test_testkey123456789a"
+
+	_, _, err := executeCommand(t, "rec", "execute", "RENEW-12", "--yes")
+	if err == nil {
+		t.Fatal("expected the refusal as an error")
+	}
+	if !strings.Contains(err.Error(), reason) {
+		t.Errorf("error = %q, want the API's reason verbatim", err.Error())
+	}
+	if strings.Contains(err.Error(), "read-write key") {
+		t.Errorf("error = %q, must not ask for a read-write key", err.Error())
+	}
+}
+
 func TestRecommendationWriteFlagValidation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -195,6 +254,8 @@ func TestRecommendationWriteFlagValidation(t *testing.T) {
 	}{
 		{"bad reason", []string{"rec", "reject", "REC-1234", "--yes", "--reason", "because"}, `invalid --reason "because"`},
 		{"bad method", []string{"rec", "execute", "REC-1234", "--yes", "--method", "magic"}, `invalid --method "magic"`},
+		{"request without a method", []string{"rec", "request", "RENEW-12", "--yes"}, "--method is required"},
+		{"request with a bad method", []string{"rec", "request", "RENEW-12", "--yes", "--method", "magic"}, `invalid --method "magic"`},
 	}
 
 	for _, tt := range tests {
@@ -233,6 +294,7 @@ func TestRecommendationWriteForbidden(t *testing.T) {
 		{"accept", []string{"rec", "accept", "REC-1234", "--yes"}},
 		{"reject", []string{"rec", "reject", "REC-1234", "--yes"}},
 		{"execute", []string{"rec", "execute", "REC-1234", "--yes"}},
+		{"request", []string{"rec", "request", "REC-1234", "--method", "manual", "--yes"}},
 	}
 
 	for _, tt := range tests {
@@ -300,6 +362,8 @@ func TestRecommendationWriteConfirmation(t *testing.T) {
 		{"execute confirmed", []string{"rec", "execute", "REC-1234"}, "y\n", true, "Execution requested"},
 		{"accept with --yes never prompts", []string{"rec", "accept", "REC-1234", "--yes"}, "n\n", true, "accepted"},
 		{"execute with --yes never prompts", []string{"rec", "execute", "REC-1234", "--yes"}, "n\n", true, "Execution requested"},
+		{"request declined", []string{"rec", "request", "RENEW-12", "--method", "manual"}, "n\n", false, "Aborted."},
+		{"request confirmed", []string{"rec", "request", "RENEW-12", "--method", "manual"}, "y\n", true, "Release requested"},
 	}
 
 	for _, tt := range tests {
@@ -335,6 +399,7 @@ func TestRecommendationWriteJSONOutput(t *testing.T) {
 	}{
 		{"accept", []string{"rec", "accept", "REC-1234", "--yes", "--json"}, "saving_acceptance"},
 		{"execute", []string{"rec", "execute", "REC-1234", "--yes", "--json"}, "saving_acceptance"},
+		{"request", []string{"rec", "request", "REC-1234", "--method", "manual", "--yes", "--json"}, "saving_acceptance"},
 	}
 
 	for _, tt := range tests {
@@ -363,6 +428,7 @@ func TestRecommendationWriteEmptyData(t *testing.T) {
 	}{
 		{"accept", []string{"rec", "accept", "REC-1234", "--yes"}, "REC-1234 accepted"},
 		{"execute", []string{"rec", "execute", "REC-1234", "--yes"}, "Execution requested"},
+		{"request", []string{"rec", "request", "REC-1234", "--method", "one-click", "--yes"}, "Release requested"},
 	}
 
 	for _, tt := range tests {

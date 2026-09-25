@@ -222,14 +222,26 @@ type CommitmentRenewalPlan struct {
 	EndAt              *string                `json:"end_at"`
 	BuyAfterUTC        *string                `json:"buy_after_utc"`
 	ExpiresInSeconds   *int64                 `json:"expires_in_seconds"`
-	UnitsHeld          int                    `json:"units_held"`
-	UnitsConsumed      int                    `json:"units_consumed"`
-	UnitsRecommended   int                    `json:"units_recommended"`
+	UnitsHeld          float64                `json:"units_held"`
+	UnitsConsumed      *float64               `json:"units_consumed"`
+	UnitsRecommended   float64                `json:"units_recommended"`
 	ProtectsMonthly    float64                `json:"protects_monthly"`
 	RightsizingMonthly float64                `json:"rightsizing_monthly"`
 	PendingChanges     []RenewalPendingChange `json:"pending_changes"`
 	Exchangeable       *bool                  `json:"exchangeable"`
 	Cancellable        *bool                  `json:"cancellable"`
+}
+
+type CommitmentRenewal struct {
+	CommitmentID     string                 `json:"commitment_id"`
+	RecommendationID string                 `json:"recommendation_id"`
+	Created          bool                   `json:"created"`
+	Rebound          bool                   `json:"rebound"`
+	Rebindable       bool                   `json:"rebindable"`
+	Closed           bool                   `json:"closed"` // rejected before release; the next raise creates a new one
+	OfferingID       *string                `json:"offering_id"`
+	Quantity         *float64               `json:"quantity"`
+	BlockingChanges  []RenewalPendingChange `json:"blocking_changes"`
 }
 
 type UtilizationDimension struct {
@@ -285,6 +297,93 @@ type UncoveredSlice struct {
 	VolatilityRatio           float64 `json:"volatility_ratio"`
 	RecommendedKind           *string `json:"recommended_kind"`
 	SuggestedCommitmentHourly float64 `json:"suggested_commitment_hourly"`
+	Grain                     string  `json:"grain"`
+	Source                    string  `json:"source"`
+}
+
+type PurchaseWindow struct {
+	FirstDay    string `json:"first_day"`
+	LastDay     string `json:"last_day"`
+	Days        int    `json:"days"`
+	MissingDays int    `json:"missing_days"`
+}
+
+type PurchaseProfile struct {
+	CommitmentHourly             float64  `json:"commitment_hourly"`
+	CappedBy                     []string `json:"capped_by"`
+	UtilizationPct               *float64 `json:"utilization_pct"`
+	CoveragePct                  *float64 `json:"coverage_pct"`
+	NetSavingsMonthlyAtYourRates float64  `json:"net_savings_monthly_at_your_rates"`
+}
+
+type PurchaseAWSBenchmark struct {
+	HourlyCommitmentToPurchase float64 `json:"hourly_commitment_to_purchase"`
+	Cap                        float64 `json:"cap"`
+}
+
+type PurchaseSizing struct {
+	PayerAccountID    *string                    `json:"payer_account_id"`
+	PlanType          string                     `json:"plan_type"`
+	TermMonths        int                        `json:"term_months"`
+	PaymentOption     string                     `json:"payment_option"`
+	UnavailableReason *string                    `json:"unavailable_reason"`
+	Window            *PurchaseWindow            `json:"window"`
+	Caveats           []string                   `json:"caveats"`
+	Profiles          map[string]PurchaseProfile `json:"profiles"` // nil when UnavailableReason is set
+	AWS               *PurchaseAWSBenchmark      `json:"aws"`
+}
+
+type PurchaseRaised struct {
+	RecommendationID string  `json:"recommendation_id"`
+	CommitmentHourly float64 `json:"commitment_hourly"`
+	Profile          *string `json:"profile"` // nil for a size of the caller's own
+}
+
+type PurchaseProposal struct {
+	PurchaseSizing
+	RecommendedProfile *string         `json:"recommended_profile"`
+	Raised             *PurchaseRaised `json:"raised"` // set only while nobody has decided it
+}
+
+type PurchasePlan struct {
+	Uncovered []UncoveredSlice   `json:"uncovered"`
+	Proposals []PurchaseProposal `json:"proposals"`
+}
+
+type PurchaseCandidate struct {
+	CommitmentHourly float64 `json:"commitment_hourly"`
+}
+
+type PurchaseTotals struct {
+	EligibleOnDemand             float64  `json:"eligible_on_demand"`
+	CoveredOnDemand              float64  `json:"covered_on_demand"`
+	UncoveredOnDemand            float64  `json:"uncovered_on_demand"`
+	CommitmentCost               float64  `json:"commitment_cost"`
+	UsedCommitment               float64  `json:"used_commitment"`
+	WastedCommitment             float64  `json:"wasted_commitment"`
+	UtilizationPct               *float64 `json:"utilization_pct"`
+	CoveragePct                  *float64 `json:"coverage_pct"`
+	NetSavingsMonthly            float64  `json:"net_savings_monthly"`
+	NetSavingsMonthlyAtYourRates float64  `json:"net_savings_monthly_at_your_rates"`
+}
+
+type PurchaseSimulation struct {
+	PurchaseSizing
+	Candidate PurchaseCandidate `json:"candidate"`
+	Totals    *PurchaseTotals   `json:"totals"`
+}
+
+type CommitmentPurchase struct {
+	RecommendationID string   `json:"recommendation_id"`
+	PayerAccountID   string   `json:"payer_account_id"`
+	PlanType         string   `json:"plan_type"`
+	TermMonths       int      `json:"term_months"`
+	PaymentOption    string   `json:"payment_option"`
+	CommitmentHourly float64  `json:"commitment_hourly"`
+	Profile          *string  `json:"profile"` // nil for a size of the caller's own
+	CappedBy         []string `json:"capped_by"`
+	MonthlySavings   float64  `json:"monthly_savings"`
+	Created          bool     `json:"created"`
 }
 
 type CommitmentRecommendation struct {
