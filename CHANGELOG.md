@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.0...v0.2.1) (2026-09-29)
+
+
+### Build
+
+* **deps:** bump github.com/hashicorp/hcl/v2 in the go-modules group ([#46](https://github.com/LevelFourAI/levelfour-cli/issues/46)) ([9ee8a50](https://github.com/LevelFourAI/levelfour-cli/commit/9ee8a502d8aa9d5ae7003a569f05c67bf2d462b6))
+* **deps:** bump google/osv-scanner-action/osv-scanner-action ([#47](https://github.com/LevelFourAI/levelfour-cli/issues/47)) ([805f061](https://github.com/LevelFourAI/levelfour-cli/commit/805f061e6c4d3ecfb61c8125fb04a98bb9fac2ef))
+
 ## [0.2.0](https://github.com/LevelFourAI/levelfour-cli/compare/v0.1.6...v0.2.0) (2026-09-20)
 
 
