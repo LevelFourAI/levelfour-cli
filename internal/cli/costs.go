@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	"github.com/LevelFourAI/levelfour-cli/internal/cli/tuicommon"
@@ -38,6 +37,9 @@ var (
 	flagBreakdownProvider    string
 	flagBreakdownFormat      string
 	flagBreakdownTUI         bool
+	flagBreakdownMeasure     string
+	flagBreakdownUnit        string
+	flagBreakdownForecast    string
 )
 
 var costsBreakdownCmd = &cobra.Command{
@@ -51,6 +53,8 @@ var costsBreakdownCmd = &cobra.Command{
   l4 costs breakdown --group-by tag --tag-key Environment --tag-value production
   l4 costs breakdown --granularity monthly --preset 6M
   l4 costs breakdown --sort-by-date 2026-01-15 --sort-order desc
+  l4 costs breakdown --measure usage --unit hours --group-by usage_type
+  l4 costs breakdown --forecast 1m
   l4 costs breakdown --format csv > costs.csv`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagWeb {
@@ -94,6 +98,11 @@ var costsBreakdownCmd = &cobra.Command{
 			pageSize:   pageSize,
 			providerID: providerID,
 			format:     flagBreakdownFormat,
+
+			measure:  flagBreakdownMeasure,
+			unit:     flagBreakdownUnit,
+			forecast: flagBreakdownForecast,
+			tui:      flagBreakdownTUI,
 		}
 
 		if err := state.validate(); err != nil {
@@ -103,8 +112,8 @@ var costsBreakdownCmd = &cobra.Command{
 		if flagBreakdownFormat == formatCSV || flagBreakdownFormat == "raw" {
 			return runCostsBreakdownRaw(client, providerID, state, flagBreakdownFormat)
 		}
-		if state.virtualTagKey != "" {
-			return runCostsBreakdownVirtualTag(client, providerID, state)
+		if read := breakdownReader(state); read != nil {
+			return read(client, providerID, state)
 		}
 
 		req := buildCostsListRequest(state)
@@ -162,25 +171,37 @@ var costsBreakdownCmd = &cobra.Command{
 }
 
 func runCostsBreakdownRaw(client *api.SDKClient, providerID string, state costsFilterState, format string) error {
-	params := buildCostsRawParams(providerID, state, format)
-	path := fmt.Sprintf("/api/v1/providers/%s/costs/breakdown%s", providerID, api.BuildQueryStringMulti(params))
-	raw, rawErr := client.Raw().DoRaw("GET", path, nil)
-	if rawErr != nil {
-		return rawErr
+	body, err := getBreakdown(client, providerID, buildCostsRawParams(providerID, state, format))
+	if err != nil {
+		return err
 	}
-	if raw.StatusCode >= 400 {
-		return fmt.Errorf("API error (%d): %s", raw.StatusCode, strings.TrimSpace(string(raw.Body)))
+	output.PrintRaw(string(body))
+	return nil
+}
+
+// The forms of the breakdown the typed table request has no fields for. Nil means that request.
+func breakdownReader(state costsFilterState) func(*api.SDKClient, string, costsFilterState) error {
+	switch {
+	case state.forecast != "":
+		return runCostsForecast
+	case state.measure == measureUsage:
+		return runCostsUsage
+	case state.virtualTagKey != "":
+		return runCostsBreakdownVirtualTag
 	}
-	output.PrintRaw(string(raw.Body))
 	return nil
 }
 
 func renderCostsBreakdownKPIs(data *levelfourgo.ProviderServiceBreakdownData) {
+	renderBreakdownKPIs(data, measured{})
+}
+
+func renderBreakdownKPIs(data *levelfourgo.ProviderServiceBreakdownData, figures measured) {
 	if data == nil {
 		return
 	}
 	cards := []output.KPICard{
-		{Label: "Period Total", Value: fmt.Sprintf("$%.2f", data.GetTotalPeriodCost())},
+		{Label: "Period Total", Value: figures.total(data.GetTotalPeriodCost())},
 	}
 	if rng := formatRangeLabel(data.GetStartDate(), data.GetEndDate()); rng != "" {
 		cards = append(cards, output.KPICard{Label: "Range", Value: rng})
@@ -209,7 +230,7 @@ func init() {
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownEnd, "end", "", "End date (ISO 8601, e.g. 2026-01-31)")
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownPreset, "preset", "", "Date preset: 30D, 6M, 12M (overrides --start/--end)")
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownGranularity, "granularity", "", "Granularity: daily, monthly")
-	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownGroupBy, "group-by", nil, "Group by: service, account_id, region, tag, virtual_tag (repeatable)")
+	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownGroupBy, "group-by", nil, "Group by: service, account_id, region, usage_type, tag, virtual_tag (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownService, "service", nil, "Filter by service (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownEnvironment, "environment", nil, "Filter by environment (repeatable)")
 	costsBreakdownCmd.Flags().StringArrayVar(&flagBreakdownAccount, "account", nil, "Filter by account ID (repeatable)")
@@ -223,25 +244,22 @@ func init() {
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownSortOrder, "sort-order", "", "Sort order: asc, desc")
 	costsBreakdownCmd.Flags().StringVar(&flagBreakdownFormat, "format", "table", "Output format: table, csv, raw")
 	costsBreakdownCmd.Flags().BoolVar(&flagBreakdownTUI, "tui", false, "Use interactive split-pane TUI")
+	costsBreakdownCmd.Flags().StringVar(&flagBreakdownMeasure, "measure", "", "What to measure: cost (the default) or usage, which needs --unit")
+	costsBreakdownCmd.Flags().StringVar(&flagBreakdownUnit, "unit", "", "Unit for --measure usage, for example hours, gb or requests. Usage billed in another unit is left out, never converted")
+	costsBreakdownCmd.Flags().StringVar(&flagBreakdownForecast, "forecast", "", "Project spend past the last complete day: 1m or 3m. Monthly unless --granularity daily")
 
 	costsCmd.AddCommand(costsBreakdownCmd)
 }
 
 func runCostsBreakdownVirtualTag(client *api.SDKClient, providerID string, state costsFilterState) error {
-	params := buildCostsRawParams(providerID, state, "table")
-	path := fmt.Sprintf("/api/v1/providers/%s/costs/breakdown%s", providerID, api.BuildQueryStringMulti(params))
-	raw, err := client.Raw().DoRaw("GET", path, nil)
+	body, err := getBreakdown(client, providerID, buildCostsRawParams(providerID, state, "table"))
 	if err != nil {
 		return err
 	}
-	if raw.StatusCode >= 400 {
-		return fmt.Errorf("API error (%d): %s", raw.StatusCode, strings.TrimSpace(string(raw.Body)))
-	}
 	if output.HasFormattingFlags() {
-		output.PrintRaw(string(raw.Body))
-		return nil
+		return printAnswer(body)
 	}
-	return renderVirtualTagBreakdown(raw.Body, state.groupBy)
+	return renderVirtualTagBreakdown(body, state.groupBy)
 }
 
 // Read alongside the typed items rather than inside them: the generated item type carries its own
@@ -251,7 +269,7 @@ func decodeVirtualTagBreakdown(body []byte) (*levelfourgo.ProviderServiceBreakdo
 		Data *levelfourgo.ProviderServiceBreakdownData `json:"data"`
 	}
 	if err := json.Unmarshal(body, &typed); err != nil || typed.Data == nil {
-		return nil, nil, fmt.Errorf("unexpected response from the API: %s", strings.TrimSpace(string(body)))
+		return nil, nil, errUnexpectedBody(body)
 	}
 	var values struct {
 		Data struct {

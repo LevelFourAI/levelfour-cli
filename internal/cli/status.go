@@ -27,7 +27,7 @@ var statusCmd = &cobra.Command{
 		}
 
 		output.Header("API Status")
-		output.KeyValue("Status", output.StatusBadge(resp.Status))
+		output.KeyStatus("Status", resp.Status)
 		output.KeyValue("Base URL", client.BaseURL)
 		return nil
 	},

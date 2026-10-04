@@ -313,14 +313,14 @@ func TestKeyValue(t *testing.T) {
 }
 
 func TestStatusBadge(t *testing.T) {
-	got := StatusBadge("active")
+	got := statusBadge("active")
 	if !strings.Contains(got, "active") {
 		t.Errorf("StatusBadge output = %q, want 'active'", got)
 	}
 }
 
 func TestStatusBadgeUnknown(t *testing.T) {
-	got := StatusBadge("unknown_status")
+	got := statusBadge("unknown_status")
 	if got != "unknown_status" {
 		t.Errorf("StatusBadge unknown = %q, want plain 'unknown_status'", got)
 	}
@@ -854,5 +854,70 @@ func TestNoticeStreamMovesOffStdoutUnderFormattingFlags(t *testing.T) {
 		if noticeStream() != Stderr {
 			t.Error("a notice would have corrupted the payload on stdout")
 		}
+	}
+}
+
+// A name an API answers with is someone else's text: an escape sequence in it must not reach
+// the terminal of whoever prints it.
+func TestTextFromOutsideLosesItsControlCharacters(t *testing.T) {
+	const hostile = "Payments\x1b[2J\x1b]0;owned\x07\u009b31m"
+
+	if got := Printable(hostile); got != "Payments[2J]0;owned31m" {
+		t.Errorf("Printable(%q) = %q", hostile, got)
+	}
+	if got := Printable("two\nlines\tand a tab"); got != "two\nlines\tand a tab" {
+		t.Errorf("line breaks and tabs are text and stay, got %q", got)
+	}
+}
+
+func TestEveryPrinterDropsControlCharacters(t *testing.T) {
+	const hostile = "Board\x1b[2J"
+	printers := map[string]func(){
+		"a table cell":       func() { Table([]string{"Name"}, [][]string{{hostile}}) },
+		"a table header":     func() { Table([]string{hostile}, [][]string{{"x"}}) },
+		"a card":             func() { KPICards([]KPICard{{Label: hostile, Value: hostile}}) },
+		"a header":           func() { Header(hostile) },
+		"a key and value":    func() { KeyValue("Name", hostile) },
+		"a status":           func() { KeyStatus("Status", hostile) },
+		"a notice":           func() { Info(hostile) },
+		"a success":          func() { Success(hostile) },
+		"a warning":          func() { Warning(hostile) },
+		"an error":           func() { Error(hostile) },
+		"a labelled notice":  func() { InfoLabel(hostile) },
+		"a labelled warning": func() { WarnLabel(hostile) },
+		"a labelled error":   func() { ErrorLabel(hostile) },
+	}
+	for name, print := range printers {
+		t.Run(name, func(t *testing.T) {
+			outBuf, errBuf := setupOutput(t)
+
+			print()
+
+			printed := outBuf.String() + errBuf.String()
+			if strings.Contains(printed, "\x1b[2J") {
+				t.Errorf("the escape sequence reached the terminal: %q", printed)
+			}
+			if !strings.Contains(printed, "Board") {
+				t.Errorf("the text itself is missing: %q", printed)
+			}
+		})
+	}
+}
+
+func TestAKnownStatusKeepsItsColourThroughKeyStatus(t *testing.T) {
+	outBuf, _ := setupOutput(t)
+
+	KeyStatus("Status", "active")
+
+	if got := outBuf.String(); !strings.Contains(got, "Status:") || !strings.Contains(got, "active") {
+		t.Errorf("KeyStatus output = %q, want 'Status:' and 'active'", got)
+	}
+}
+
+func TestKeyStatusQuiet(t *testing.T) {
+	outBuf, _ := setupQuiet(t)
+	KeyStatus("Status", "active")
+	if outBuf.String() != "" {
+		t.Errorf("expected no output in quiet mode, got %q", outBuf.String())
 	}
 }

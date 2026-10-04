@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
+	"net/http"
 	"strings"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
+	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	levelfourgo "github.com/LevelFourAI/levelfour-go"
 )
 
@@ -33,6 +37,11 @@ type costsFilterState struct {
 	pageSize   int
 	providerID string
 	format     string
+
+	measure  string
+	unit     string
+	forecast string
+	tui      bool
 }
 
 var validPresets = map[string]struct{}{
@@ -48,7 +57,11 @@ var validSortOrders = map[string]struct{}{
 }
 
 var validGroupByValues = map[string]struct{}{
-	"service": {}, "account_id": {}, "region": {}, "tag": {}, dimVirtualTag: {},
+	"service": {}, "account_id": {}, "region": {}, dimUsageType: {}, "tag": {}, dimVirtualTag: {},
+}
+
+var validForecastHorizons = map[string]struct{}{
+	"1m": {}, "3m": {},
 }
 
 // A virtual tag's rows carry only these dimensions, so the same grouping the API allows beside one
@@ -75,13 +88,66 @@ func (s *costsFilterState) validate() error {
 	}
 	for _, g := range s.groupBy {
 		if _, ok := validGroupByValues[g]; !ok {
-			return fmt.Errorf("--group-by must be one of service, account_id, region, tag, virtual_tag (got %q)", g)
+			return fmt.Errorf("--group-by must be one of service, account_id, region, usage_type, tag, virtual_tag (got %q)", g)
 		}
 	}
 	if containsString(s.groupBy, "tag") && len(s.tagKey) == 0 {
 		return fmt.Errorf("--tag-key is required when --group-by includes tag")
 	}
-	return s.validateVirtualTag()
+	if err := s.validateVirtualTag(); err != nil {
+		return err
+	}
+	if err := s.validateMeasure(); err != nil {
+		return err
+	}
+	return s.validateForecast()
+}
+
+func (s *costsFilterState) printsRows() bool {
+	return s.format == formatCSV || s.format == "raw"
+}
+
+// The API refuses each of these itself. They are checked here because a flag name says what to
+// change better than the parameter name in its answer does.
+func (s *costsFilterState) validateMeasure() error {
+	if s.measure != "" && s.measure != measureCost && s.measure != measureUsage {
+		return fmt.Errorf("--measure must be cost or usage (got %q)", s.measure)
+	}
+	if s.measure != measureUsage {
+		if s.unit != "" {
+			return fmt.Errorf("--unit needs --measure usage")
+		}
+		return nil
+	}
+	if s.unit == "" {
+		return fmt.Errorf("--unit is required with --measure usage, for example --unit hours")
+	}
+	if s.printsRows() {
+		return fmt.Errorf("--measure usage cannot be combined with --format %s", s.format)
+	}
+	if s.virtualTagKey != "" {
+		return fmt.Errorf("--measure usage cannot be combined with --virtual-tag-key")
+	}
+	if s.tui {
+		return fmt.Errorf("--measure usage cannot be combined with --tui")
+	}
+	return nil
+}
+
+func (s *costsFilterState) validateForecast() error {
+	if s.forecast == "" {
+		return nil
+	}
+	if _, ok := validForecastHorizons[s.forecast]; !ok {
+		return fmt.Errorf("--forecast must be 1m or 3m (got %q)", s.forecast)
+	}
+	if s.printsRows() {
+		return fmt.Errorf("--forecast cannot be combined with --format %s", s.format)
+	}
+	if s.tui {
+		return fmt.Errorf("--forecast cannot be combined with --tui")
+	}
+	return nil
 }
 
 func containsString(xs []string, target string) bool {
@@ -181,6 +247,9 @@ func applyRawParamsScalars(params map[string][]string, s costsFilterState) {
 		{"sort_by_date", s.sortByDate},
 		{"sort_order", s.sortOrder},
 		{"virtual_tag_key", s.virtualTagKey},
+		{"measure", s.measure},
+		{"unit", s.unit},
+		{"forecast_horizon", s.forecast},
 	}
 	for _, kv := range scalars {
 		if kv.value != "" {
@@ -247,6 +316,40 @@ func (s *costsFilterState) validateVirtualTag() error {
 	return nil
 }
 
+// The breakdown in any of its forms, read without the typed request: the body as the API sent it.
+func getBreakdown(client *api.SDKClient, providerID string, params map[string][]string) ([]byte, error) {
+	path := fmt.Sprintf("/api/v1/providers/%s/costs/breakdown%s", providerID, api.BuildQueryStringMulti(params))
+	raw, err := client.Raw().DoRaw(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if raw.StatusCode >= 400 {
+		return nil, raw.DecodeError()
+	}
+	return raw.Body, nil
+}
+
+// printAnswer prints the API's answer as the formatting flags ask: whole under --json, and
+// through the expression under --jq or --template.
+func printAnswer(body []byte) error {
+	if !json.Valid(body) {
+		return errUnexpectedBody(body)
+	}
+	return output.PrintResult(json.RawMessage(body))
+}
+
+func errUnexpectedBody(body []byte) error {
+	return fmt.Errorf("unexpected response from the API: %s", strings.TrimSpace(string(body)))
+}
+
+const (
+	columnCost       = "Cost"
+	columnChange     = "Change"
+	columnPrevCost   = "Prev Cost"
+	columnVirtualTag = "Virtual Tag"
+	columnUsageType  = "Usage Type"
+)
+
 type costColumn struct {
 	header   string
 	minWidth int
@@ -257,13 +360,13 @@ var costColumns = []costColumn{
 	{columnService, 0, func(item costItem) string {
 		return derefOrDash(item.GetService())
 	}},
-	{"Cost", 0, func(item costItem) string {
+	{columnCost, 0, func(item costItem) string {
 		return fmt.Sprintf("$%.2f", item.GetCost())
 	}},
-	{"Change", 0, func(item costItem) string {
+	{columnChange, 0, func(item costItem) string {
 		return formatChangePercentage(item.GetChangePercentage())
 	}},
-	{"Prev Cost", 100, func(item costItem) string {
+	{columnPrevCost, 100, func(item costItem) string {
 		p := item.GetPreviousCost()
 		if p == nil {
 			return dashSymbol
@@ -288,10 +391,19 @@ var costColumns = []costColumn{
 	{columnVirtualTag, 160, func(item costItem) string {
 		return orDash(item.virtualTag)
 	}},
+	// The typed item has no field for it, and keeps what it has no field for. Only a breakdown
+	// grouped by usage type has a value to show, so no terminal is wide enough to add it otherwise.
+	{columnUsageType, math.MaxInt, func(item costItem) string {
+		return orDash(dataString(item.GetExtraProperties(), dimUsageType))
+	}},
 }
 
 func buildCostsBreakdownRows(items []costItem, width int, groupBy []string) ([]string, [][]string) {
-	active := activeCostColumns(width, groupBy)
+	return breakdownRows(costColumns, items, width, groupBy)
+}
+
+func breakdownRows(columns []costColumn, items []costItem, width int, groupBy []string) ([]string, [][]string) {
+	active := activeColumns(columns, width, groupBy)
 
 	headers := make([]string, len(active))
 	for i, c := range active {
@@ -310,9 +422,13 @@ func buildCostsBreakdownRows(items []costItem, width int, groupBy []string) ([]s
 }
 
 func activeCostColumns(width int, groupBy []string) []costColumn {
+	return activeColumns(costColumns, width, groupBy)
+}
+
+func activeColumns(columns []costColumn, width int, groupBy []string) []costColumn {
 	promoted := promotedByGroupBy(groupBy)
 	var active []costColumn
-	for _, c := range costColumns {
+	for _, c := range columns {
 		if _, force := promoted[c.header]; force {
 			active = append(active, c)
 			continue
@@ -337,6 +453,8 @@ func promotedByGroupBy(groupBy []string) map[string]struct{} {
 			out["Tag Value"] = struct{}{}
 		case dimVirtualTag:
 			out[columnVirtualTag] = struct{}{}
+		case dimUsageType:
+			out[columnUsageType] = struct{}{}
 		}
 	}
 	return out

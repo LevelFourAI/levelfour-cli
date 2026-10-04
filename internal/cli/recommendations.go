@@ -421,7 +421,7 @@ func renderRecommendationMetadata(data *levelfourgo.RecommendationDetail) {
 	}
 	output.KeyValue("Environment", env)
 	if s := data.GetStatus(); s != nil {
-		output.KeyValue("Status", output.StatusBadge(recommendationStatusFromItem(string(*s), data.GetExtraProperties())))
+		output.KeyStatus("Status", recommendationStatusFromItem(string(*s), data.GetExtraProperties()))
 	}
 	if ap := data.GetAnalysisPeriod(); ap != nil && *ap != "" {
 		output.KeyValue("Analysis Period", formatDate(*ap))

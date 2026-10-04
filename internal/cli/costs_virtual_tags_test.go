@@ -90,6 +90,28 @@ func TestCostsBreakdownVirtualTagJSONPassesTheBodyThrough(t *testing.T) {
 	assertContains(t, got, "virtual_tag", "__unallocated__")
 }
 
+// The whole answer under --jq is the expression ignored.
+func TestCostsBreakdownVirtualTagAnswersAJQExpression(t *testing.T) {
+	srv, _ := virtualTagBreakdownServer(t)
+
+	got, err := runBreakdown(t, srv, "--group-by", "virtual_tag", "--virtual-tag-key", "Teams", "--jq", ".data.total_period_cost")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(got) != "120" {
+		t.Errorf("output = %q, want the expression's answer alone", got)
+	}
+}
+
+func TestCostsBreakdownVirtualTagRefusesAnAnswerThatIsNotJSONUnderFormattingFlags(t *testing.T) {
+	serveBreakdown(t, http.StatusOK, `<html>`)
+
+	_, err := breakdown(t, "--group-by", "virtual_tag", "--virtual-tag-key", "Teams", "--json")
+	if err == nil || !strings.Contains(err.Error(), "unexpected response") {
+		t.Fatalf("error = %v, want the answer refused as not JSON", err)
+	}
+}
+
 func TestCostsBreakdownVirtualTagReportsAnAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/providers" {
@@ -167,7 +189,7 @@ func TestVirtualTagFlagsAreValidatedBeforeAnyRequest(t *testing.T) {
 		{
 			"an unknown grouping still names every dimension",
 			costsFilterState{groupBy: []string{"nonsense"}},
-			"service, account_id, region, tag, virtual_tag",
+			"service, account_id, region, usage_type, tag, virtual_tag",
 		},
 	}
 	for _, tt := range tests {

@@ -143,7 +143,7 @@ func runExecute(id string) error {
 	data := envelopeData(envelope)
 	output.Success(fmt.Sprintf("Execution requested for recommendation %s", id))
 	if v := dataString(data, "status"); v != "" {
-		output.KeyValue("Status", output.StatusBadge(v))
+		output.KeyStatus("Status", v)
 	}
 	if v := dataString(data, "implementation_method"); v != "" {
 		output.KeyValue("Method", v)

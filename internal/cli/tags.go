@@ -252,16 +252,20 @@ func validateChoice(flag, value string, choices []string) error {
 }
 
 func validateWindow() error {
-	start, err := parseDateFlag("start", flagTagsStart)
+	return validateDateRange(flagTagsStart, flagTagsEnd)
+}
+
+func validateDateRange(startFlag, endFlag string) error {
+	start, err := parseDateFlag("start", startFlag)
 	if err != nil {
 		return err
 	}
-	end, err := parseDateFlag("end", flagTagsEnd)
+	end, err := parseDateFlag("end", endFlag)
 	if err != nil {
 		return err
 	}
 	if !start.IsZero() && !end.IsZero() && end.Before(start) {
-		return fmt.Errorf("--end %s is before --start %s", flagTagsEnd, flagTagsStart)
+		return fmt.Errorf("--end %s is before --start %s", endFlag, startFlag)
 	}
 	return nil
 }
