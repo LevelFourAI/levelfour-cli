@@ -73,9 +73,21 @@ func resetFlags() {
 	flagBreakdownRegion = nil
 	flagBreakdownTagKey = nil
 	flagBreakdownTagValue = nil
+	flagBreakdownVTagKey = ""
+	flagBreakdownVTagValue = nil
 	flagBreakdownProvider = ""
 	flagBreakdownFormat = ""
 	flagBreakdownTUI = false
+	flagBreakdownMeasure = ""
+	flagBreakdownUnit = ""
+	flagBreakdownForecast = ""
+
+	flagReportsScope = ""
+	flagReportStart = ""
+	flagReportEnd = ""
+	flagReportPreset = ""
+	flagReportPage = defaultReportPage
+	flagReportPageSize = defaultReportPageSize
 	flagSummaryProvider = ""
 	flagDailyProvider = ""
 	flagDailyStart = ""

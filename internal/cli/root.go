@@ -186,6 +186,8 @@ func init() {
 	apiCmd.GroupID = groupCore
 	mcpCmd.GroupID = groupCore
 	tagsCmd.GroupID = groupCore
+	boardsCmd.GroupID = groupCore
+	reportsCmd.GroupID = groupCore
 
 	authCmd.GroupID = groupAuth
 	loginCmd.GroupID = groupAuth
@@ -205,6 +207,8 @@ func init() {
 	rootCmd.AddCommand(apiCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(tagsCmd)
+	rootCmd.AddCommand(boardsCmd)
+	rootCmd.AddCommand(reportsCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(configureCmd)
 	rootCmd.AddCommand(completionCmd)

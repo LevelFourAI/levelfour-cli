@@ -167,7 +167,7 @@ func TestVirtualTagFlagsAreValidatedBeforeAnyRequest(t *testing.T) {
 		{
 			"an unknown grouping still names every dimension",
 			costsFilterState{groupBy: []string{"nonsense"}},
-			"service, account_id, region, tag, virtual_tag",
+			"service, account_id, region, usage_type, tag, virtual_tag",
 		},
 	}
 	for _, tt := range tests {

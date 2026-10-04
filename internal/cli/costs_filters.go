@@ -21,9 +21,8 @@ var (
 const (
 	dimRegion     = "region"
 	dimVirtualTag = "virtual_tag"
+	dimUsageType  = "usage_type"
 )
-
-const columnVirtualTag = "Virtual Tag"
 
 var supportedFilterDimensions = []string{"service", dimRegion, "account", "tag-key", "tag-value"}
 

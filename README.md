@@ -183,7 +183,7 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 status` | API health and the base URL in use |
 | `l4 integrations list` | Connected cloud providers |
 | `l4 costs summary` | Spending and savings overview with KPIs and top services |
-| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination. Groups and filters by a virtual tag with `--virtual-tag-key` |
+| `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination. Groups and filters by a virtual tag with `--virtual-tag-key`, measures usage instead of cost with `--measure usage --unit hours`, and projects spend with `--forecast 1m` |
 | `l4 costs daily` / `monthly` | Spending aggregated per day or per month |
 | `l4 costs filters [dimension]` | Discover the filter dimensions and values `breakdown` accepts |
 | `l4 recommendations list` / `view <id>` | Browse savings opportunities. Both take `--tui` |
@@ -201,6 +201,9 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 tags list` / `show <key>` / `coverage` | Provider and virtual tag keys: spend, rules, and how much spend carries a tag |
 | `l4 tags resources <key>` / `costs <key>` | Resources a key covers, and spend per value |
 | `l4 tags preview` / `apply` / `delete` | Try a virtual tag from a YAML file, create or replace it, or delete it |
+| `l4 boards list` / `get <board>` | The boards your organization built in the dashboard, by id or by name |
+| `l4 reports list` / `get <report>` | Saved reports, and what each one asks: its grouping, filters and measure |
+| `l4 reports run <report>` | Run a saved report and print its numbers per provider, over the month so far or a window you set |
 | `l4 export costs` / `recommendations` / `commitments` | Bulk export as CSV or JSON via `--format` |
 | `l4 api <endpoint>` | Authenticated raw API request, for anything not yet wrapped |
 | `l4 mcp install` / `status` / `serve` / `uninstall` | Coding-agent integration, covered above |
