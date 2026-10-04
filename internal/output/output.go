@@ -104,6 +104,9 @@ func printTemplate(v interface{}) error {
 // Printable drops the control characters of text that came from outside the program, such as a
 // name an API answered with. Left in, an escape sequence in a board's name would drive the
 // terminal of whoever lists it. Line breaks and tabs are text and stay.
+//
+// Every printer below that writes for a person applies it. The data formats (JSON, CSV, raw,
+// templates) write what the API answered, since their reader is a program.
 func Printable(text string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {
@@ -313,14 +316,25 @@ func Header(title string) {
 }
 
 func KeyValue(key, value string) {
+	writeKeyValue(key, Printable(value))
+}
+
+// KeyStatus is KeyValue for a status, drawn in the status's colour. A value styled by the
+// caller cannot go through KeyValue, which would drop the escape characters of the styling.
+func KeyStatus(key, status string) {
+	writeKeyValue(key, statusBadge(status))
+}
+
+func writeKeyValue(key, shown string) {
 	if QuietMode {
 		return
 	}
 	label := lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Bold(true).Render(key + ":")
-	fmt.Fprintf(Stdout, "  %s %s\n", label, value)
+	fmt.Fprintf(Stdout, "  %s %s\n", label, shown)
 }
 
-func StatusBadge(status string) string {
+func statusBadge(status string) string {
+	status = Printable(status)
 	if c, ok := statusColors[strings.ToLower(status)]; ok {
 		return lipgloss.NewStyle().Foreground(c).Bold(true).Render(status)
 	}
@@ -331,7 +345,7 @@ func Error(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintf(Stderr, "%s %s\n", errorStyle.Render("Error:"), msg)
+	fmt.Fprintf(Stderr, "%s %s\n", errorStyle.Render("Error:"), Printable(msg))
 }
 
 // noticeStream is where prose meant for a person goes. Under --json, --jq or
@@ -349,14 +363,14 @@ func Success(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(noticeStream(), successStyle.Render("\u2713 "+msg))
+	fmt.Fprintln(noticeStream(), successStyle.Render("\u2713 "+Printable(msg)))
 }
 
 func Warning(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintf(Stderr, "%s %s\n", warnStyle.Render("Warning:"), msg)
+	fmt.Fprintf(Stderr, "%s %s\n", warnStyle.Render("Warning:"), Printable(msg))
 }
 
 func Info(msg string) {
@@ -371,7 +385,7 @@ func InfoLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("114")).Render("INFO")
-	fmt.Fprintf(noticeStream(), "%s %s\n", label, msg)
+	fmt.Fprintf(noticeStream(), "%s %s\n", label, Printable(msg))
 }
 
 func WarnLabel(msg string) {
@@ -379,7 +393,7 @@ func WarnLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("173")).Render("WARNING")
-	fmt.Fprintf(Stderr, "%s %s\n", label, msg)
+	fmt.Fprintf(Stderr, "%s %s\n", label, Printable(msg))
 }
 
 func ErrorLabel(msg string) {
@@ -387,7 +401,7 @@ func ErrorLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("167")).Render("ERROR")
-	fmt.Fprintf(Stderr, "%s %s\n", label, msg)
+	fmt.Fprintf(Stderr, "%s %s\n", label, Printable(msg))
 }
 
 func Bold(s string) string {

@@ -96,7 +96,7 @@ func renderTagKeyDetail(d tagKeyDetail, names keyNames) {
 	output.KeyValue("Origin", d.Origin)
 	output.KeyValue("Description", orDash(d.Description))
 	output.KeyValue("Providers", orDash(strings.Join(d.Providers, ", ")))
-	output.KeyValue("Status", output.StatusBadge(orDash(d.Status)))
+	output.KeyStatus("Status", orDash(d.Status))
 	if d.SharesProviderKey {
 		output.KeyValue("Shadows", "the provider key of the same name")
 	}
