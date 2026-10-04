@@ -143,7 +143,31 @@ func TestCostsBreakdownUsageHandsFormattingFlagsTheWholeAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	assertContains(t, out, `"unit":"hours"`)
+	assertContains(t, out, `"unit": "hours"`, `"success": true`)
+}
+
+// The whole answer under --jq is the expression ignored.
+func TestCostsBreakdownUsageAnswersAJQExpression(t *testing.T) {
+	serveBreakdown(t, http.StatusOK, usageBody)
+
+	out, err := breakdown(t, "--measure", "usage", "--unit", "hours", "--jq", ".data.unit")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertContains(t, out, `"hours"`)
+	assertNotContains(t, out, "success", "BoxUsage")
+}
+
+func TestCostsBreakdownUsageAnswersATemplate(t *testing.T) {
+	serveBreakdown(t, http.StatusOK, usageBody)
+
+	out, err := breakdown(t, "--measure", "usage", "--unit", "hours", "--template", "{{.data.unit}}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(out) != "hours" {
+		t.Errorf("output = %q, want the unit alone", out)
+	}
 }
 
 func TestCostsBreakdownUsageFailures(t *testing.T) {
@@ -309,7 +333,19 @@ func TestCostsBreakdownForecastHandsFormattingFlagsTheWholeAnswer(t *testing.T) 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	assertContains(t, out, `"data_complete_through":"2026-08"`)
+	assertContains(t, out, `"data_complete_through": "2026-08"`)
+}
+
+func TestCostsBreakdownForecastAnswersAJQExpression(t *testing.T) {
+	serveBreakdown(t, http.StatusOK, forecastBody)
+
+	out, err := breakdown(t, "--forecast", "1m", "--jq", ".data.forecast.data_points[0].value")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(out) != "300" {
+		t.Errorf("output = %q, want the first projected value alone", out)
+	}
 }
 
 func TestCostsBreakdownForecastFailures(t *testing.T) {

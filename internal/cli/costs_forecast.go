@@ -72,8 +72,7 @@ func runCostsForecast(client *api.SDKClient, providerID string, state costsFilte
 	}
 	// Checked first: a script reading the raw answer asked for a projection, and a quantity, too.
 	if output.HasFormattingFlags() {
-		output.PrintRaw(string(body))
-		return nil
+		return printAnswer(body)
 	}
 	renderForecast(chart, points, figures)
 	return nil

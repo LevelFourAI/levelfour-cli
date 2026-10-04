@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"strings"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
+	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	levelfourgo "github.com/LevelFourAI/levelfour-go"
 )
 
@@ -325,6 +327,15 @@ func getBreakdown(client *api.SDKClient, providerID string, params map[string][]
 		return nil, raw.DecodeError()
 	}
 	return raw.Body, nil
+}
+
+// printAnswer prints the API's answer as the formatting flags ask: whole under --json, and
+// through the expression under --jq or --template.
+func printAnswer(body []byte) error {
+	if !json.Valid(body) {
+		return errUnexpectedBody(body)
+	}
+	return output.PrintResult(json.RawMessage(body))
 }
 
 func errUnexpectedBody(body []byte) error {

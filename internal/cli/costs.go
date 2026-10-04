@@ -257,8 +257,7 @@ func runCostsBreakdownVirtualTag(client *api.SDKClient, providerID string, state
 		return err
 	}
 	if output.HasFormattingFlags() {
-		output.PrintRaw(string(body))
-		return nil
+		return printAnswer(body)
 	}
 	return renderVirtualTagBreakdown(body, state.groupBy)
 }

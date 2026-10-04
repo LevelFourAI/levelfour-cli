@@ -25,8 +25,7 @@ func runCostsUsage(client *api.SDKClient, providerID string, state costsFilterSt
 	}
 	// Checked first: a script reading the raw answer asked for a quantity too.
 	if output.HasFormattingFlags() {
-		output.PrintRaw(string(body))
-		return nil
+		return printAnswer(body)
 	}
 	renderBreakdownKPIs(data, figures)
 	items := data.GetItems()
