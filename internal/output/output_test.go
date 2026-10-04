@@ -856,3 +856,41 @@ func TestNoticeStreamMovesOffStdoutUnderFormattingFlags(t *testing.T) {
 		}
 	}
 }
+
+// A name an API answers with is someone else's text: an escape sequence in it must not reach
+// the terminal of whoever prints it.
+func TestTextFromOutsideLosesItsControlCharacters(t *testing.T) {
+	const hostile = "Payments\x1b[2J\x1b]0;owned\x07\u009b31m"
+
+	if got := Printable(hostile); got != "Payments[2J]0;owned31m" {
+		t.Errorf("Printable(%q) = %q", hostile, got)
+	}
+	if got := Printable("two\nlines\tand a tab"); got != "two\nlines\tand a tab" {
+		t.Errorf("line breaks and tabs are text and stay, got %q", got)
+	}
+}
+
+func TestEveryPrinterDropsControlCharacters(t *testing.T) {
+	const hostile = "Board\x1b[2J"
+	printers := map[string]func(){
+		"a table cell":   func() { Table([]string{"Name"}, [][]string{{hostile}}) },
+		"a table header": func() { Table([]string{hostile}, [][]string{{"x"}}) },
+		"a card":         func() { KPICards([]KPICard{{Label: hostile, Value: hostile}}) },
+		"a header":       func() { Header(hostile) },
+		"a notice":       func() { Info(hostile) },
+	}
+	for name, print := range printers {
+		t.Run(name, func(t *testing.T) {
+			outBuf, _ := setupOutput(t)
+
+			print()
+
+			if strings.Contains(outBuf.String(), "\x1b[2J") {
+				t.Errorf("the escape sequence reached the terminal: %q", outBuf.String())
+			}
+			if !strings.Contains(outBuf.String(), "Board") {
+				t.Errorf("the text itself is missing: %q", outBuf.String())
+			}
+		})
+	}
+}

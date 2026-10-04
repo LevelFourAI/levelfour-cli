@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"text/template"
+	"unicode"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -100,6 +101,34 @@ func printTemplate(v interface{}) error {
 	return tmpl.Execute(Stdout, input)
 }
 
+// Printable drops the control characters of text that came from outside the program, such as a
+// name an API answered with. Left in, an escape sequence in a board's name would drive the
+// terminal of whoever lists it. Line breaks and tabs are text and stay.
+func Printable(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, text)
+}
+
+func printableAll(texts []string) []string {
+	cleaned := make([]string, len(texts))
+	for i, text := range texts {
+		cleaned[i] = Printable(text)
+	}
+	return cleaned
+}
+
+func printableRows(rows [][]string) [][]string {
+	cleaned := make([][]string, len(rows))
+	for i, row := range rows {
+		cleaned[i] = printableAll(row)
+	}
+	return cleaned
+}
+
 type KPICard struct {
 	Label string
 	Value string
@@ -140,7 +169,7 @@ func KPICards(cards []KPICard) {
 
 	rendered := make([]string, len(cards))
 	for i, c := range cards {
-		content := labelStyle.Render(c.Label) + "\n" + valueStyle.Render(c.Value)
+		content := labelStyle.Render(Printable(c.Label)) + "\n" + valueStyle.Render(Printable(c.Value))
 		rendered[i] = cardStyle.Render(content)
 	}
 
@@ -226,6 +255,9 @@ func TableTo(w io.Writer, headers []string, rows [][]string) {
 		return
 	}
 
+	// Cells are plain text styled below, so anything that is not text in one came with the data.
+	headers, rows = printableAll(headers), printableRows(rows)
+
 	savingsColIdx := -1
 	for i, h := range headers {
 		if h == "Savings %" {
@@ -277,7 +309,7 @@ func Header(title string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(Stdout, boldStyle.Render(title))
+	fmt.Fprintln(Stdout, boldStyle.Render(Printable(title)))
 }
 
 func KeyValue(key, value string) {
@@ -331,7 +363,7 @@ func Info(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(noticeStream(), msg)
+	fmt.Fprintln(noticeStream(), Printable(msg))
 }
 
 func InfoLabel(msg string) {
