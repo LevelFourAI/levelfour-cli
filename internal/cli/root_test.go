@@ -11,6 +11,7 @@ import (
 
 	"github.com/LevelFourAI/levelfour-cli/internal/mcp"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
+	"github.com/spf13/cobra"
 	kr "github.com/zalando/go-keyring"
 )
 
@@ -37,6 +38,7 @@ func resetFlags() {
 	flagRecReason = ""
 	flagRecExplanation = ""
 	flagRecMethod = defaultImplementationMethod
+	flagRecRequestMethod = ""
 
 	flagExportFormat = ""
 	flagExportPeriod = ""
@@ -133,12 +135,29 @@ func resetFlags() {
 	flagCoverageInstrument = ""
 	flagPlanFormat = ""
 	flagRenewalFormat = ""
+	flagRenewOffering = ""
+	flagRenewQuantity = 0
+	flagRenewYes = false
+	flagPurchaseType = ""
+	flagPurchaseCommitment = 0
+	flagPurchasePayer = ""
+	flagSimulateTerm = "1y"
+	flagSimulatePayment = "no_upfront"
+	flagSimulateLookback = "60"
+	flagProposeProfile = ""
+	flagProposeYes = false
 
 	// pflag never clears Changed once a flag has been set, and every test in
 	// this package drives the one shared rootCmd, so a window set by one test
 	// would otherwise still read as explicitly set in the next.
 	if f := commitmentsExpiringCmd.Flags().Lookup("within"); f != nil {
 		f.Changed = false
+	}
+	if f := commitmentsRenewCmd.Flags().Lookup(flagNameQuantity); f != nil {
+		f.Changed = false
+	}
+	for _, cmd := range []*cobra.Command{commitmentsSimulateCmd, commitmentsProposeCmd} {
+		cmd.Flags().Lookup(flagNameCommitment).Changed = false
 	}
 }
 

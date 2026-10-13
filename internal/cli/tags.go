@@ -251,6 +251,13 @@ func validateChoice(flag, value string, choices []string) error {
 	return fmt.Errorf("invalid --%s %q: choose one of %s", flag, value, strings.Join(choices, ", "))
 }
 
+func requireChoice(flag, value string, choices []string) error {
+	if value == "" {
+		return fmt.Errorf("--%s is required: choose one of %s", flag, strings.Join(choices, ", "))
+	}
+	return validateChoice(flag, value, choices)
+}
+
 func validateWindow() error {
 	start, err := parseDateFlag("start", flagTagsStart)
 	if err != nil {

@@ -127,6 +127,18 @@ func moneyOrNotMeasured(v *float64) string {
 	return moneyValue(*v)
 }
 
+// Whole units for a reservation, dollars an hour for a plan: printed as sent.
+func quantityValue(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+func quantityOrNotMeasured(v *float64) string {
+	if v == nil {
+		return notMeasured
+	}
+	return quantityValue(*v)
+}
+
 func textOrNotMeasured(v *string) string {
 	if v == nil || *v == "" {
 		return notMeasured

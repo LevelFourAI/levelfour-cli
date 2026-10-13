@@ -21,12 +21,13 @@ var stdinReader io.Reader = os.Stdin
 // The answer arrives on stdin. isTerminal reads stdout, a different question.
 var canPrompt = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
 
-// For the two tags writes whose blast radius reaches months of already-evaluated spend.
-func requireApproval(prompt, unattended string) (bool, error) {
-	if flagTagsYes {
+// For writes an unattended run must not send without an explicit --yes.
+func requireApproval(yes bool, prompt, unattended string) (bool, error) {
+	if yes {
 		return true, nil
 	}
-	if !canPrompt() {
+	// confirmAction answers yes unasked on a piped stdout, so stdout must be a terminal too.
+	if !canPrompt() || !isTerminal() {
 		return false, fmt.Errorf("%s outside a terminal needs --yes", unattended)
 	}
 	return confirmAction(prompt), nil
@@ -87,6 +88,26 @@ func sendJSON(method, path string, payload interface{}, headers map[string]strin
 	return decodeEnvelope(raw.Body)
 }
 
+// The typed data renders the screen, and the untouched body serves --json, --jq and --template.
+func requestData[T any](method, path string, body io.Reader, headers map[string]string) (T, json.RawMessage, error) {
+	var envelope struct {
+		Data T `json:"data"`
+	}
+	raw, err := sendRequest(method, path, body, headers)
+	if err != nil {
+		return envelope.Data, nil, err
+	}
+	if err := json.Unmarshal(raw.Body, &envelope); err != nil {
+		return envelope.Data, nil, fmt.Errorf("invalid JSON response: %w", err)
+	}
+	return envelope.Data, raw.Body, nil
+}
+
+func postData[T any](path string, payload interface{}) (T, json.RawMessage, error) {
+	body, _ := json.Marshal(payload)
+	return requestData[T](http.MethodPost, path, bytes.NewReader(body), idempotencyHeader())
+}
+
 func sendRequest(method, path string, body io.Reader, headers map[string]string) (*api.RawResponse, error) {
 	client, err := newSDKClientFn()
 	if err != nil {
@@ -97,9 +118,21 @@ func sendRequest(method, path string, body io.Reader, headers map[string]string)
 		return nil, err
 	}
 	if raw.StatusCode >= 400 {
-		return nil, classifyStatusError(raw.StatusCode, describeAPIError(raw))
+		return nil, refusalError(raw)
 	}
 	return raw, nil
+}
+
+// This refusal names who may act instead, and the generic 403 hint would send a
+// read-write key off to mint the read-write key it already is.
+const codeReleaseNeedsAdmin = "commitment_release_needs_admin"
+
+func refusalError(raw *api.RawResponse) error {
+	described := describeAPIError(raw)
+	if decodeRefusal(raw).Error.Code == codeReleaseNeedsAdmin {
+		return described
+	}
+	return classifyStatusError(raw.StatusCode, described)
 }
 
 func decodeEnvelope(body []byte) (map[string]interface{}, error) {
@@ -140,18 +173,25 @@ var problemPositions = []struct{ field, label string }{
 	{"split_index", "split"},
 }
 
+type apiRefusal struct {
+	Error struct {
+		Code    string      `json:"code"`
+		Details interface{} `json:"details"`
+	} `json:"error"`
+}
+
+func decodeRefusal(raw *api.RawResponse) apiRefusal {
+	var refusal apiRefusal
+	_ = json.Unmarshal(raw.Body, &refusal)
+	return refusal
+}
+
 func describeAPIError(raw *api.RawResponse) error {
 	base := raw.DecodeError()
-	var envelope struct {
-		Error struct {
-			Code    string      `json:"code"`
-			Details interface{} `json:"details"`
-		} `json:"error"`
-	}
-	_ = json.Unmarshal(raw.Body, &envelope)
-	lines := errorDetailLines(envelope.Error.Details)
-	if envelope.Error.Code == "version_conflict" {
-		lines = append(lines, versionConflictLine(envelope.Error.Details))
+	refusal := decodeRefusal(raw)
+	lines := errorDetailLines(refusal.Error.Details)
+	if refusal.Error.Code == "version_conflict" {
+		lines = append(lines, versionConflictLine(refusal.Error.Details))
 	}
 	if len(lines) == 0 {
 		return base

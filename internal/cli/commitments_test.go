@@ -68,6 +68,11 @@ func writeProviderList(w http.ResponseWriter, providers []string) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 }
 
+type apiReply struct {
+	status int
+	body   string
+}
+
 func useCommitmentsServer(t *testing.T, srv *httptest.Server) {
 	t.Helper()
 	kr.MockInit()
