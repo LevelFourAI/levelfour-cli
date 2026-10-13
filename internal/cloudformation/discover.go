@@ -24,11 +24,24 @@ const (
 	MaxFileSize = 1 << 20
 )
 
+// Tracking says whether version control holds a file.
+type Tracking int
+
+const (
+	// Untracked: the project is a git repository that does not track the file
+	// (an ignored file is never tracked).
+	Untracked Tracking = iota
+	Tracked
+	// NoRepository: the project is not a git repository.
+	NoRepository
+)
+
 // Tree reads a project by slash-separated paths relative to its root.
 type Tree interface {
 	// Walk lists every file under target: a directory, recursively, or the file itself.
 	Walk(target string) ([]string, error)
 	Read(path string) ([]byte, error)
+	Tracking(path string) Tracking
 }
 
 // Result is what Collect found.
@@ -76,10 +89,11 @@ func SkipDir(name string) bool {
 	return name == "node_modules" || name == "cdk.out" || (strings.HasPrefix(name, ".") && name != "." && name != "..")
 }
 
-// excludedPath reports paths under a skipped directory, and package or
-// Serverless Framework manifests.
+// excludedPath reports hidden files, paths under a skipped directory, and
+// package or Serverless Framework manifests. A hidden file such as .env.json
+// is where secrets live, so it is never read for upload.
 func excludedPath(p string) bool {
-	for _, segment := range strings.Split(path.Dir(p), "/") {
+	for _, segment := range strings.Split(p, "/") {
 		if SkipDir(segment) {
 			return true
 		}
@@ -181,12 +195,18 @@ func (c *collector) followReferences() {
 	}
 }
 
+// addReferenced adds a file a template names. A template can come from someone
+// else, so what it names is held to more than a discovered file: never hidden,
+// vendored or a manifest, and in a git repository tracked by git, so an ignored
+// credentials file cannot be pulled into the upload. An included snippet is not
+// a template, so outside a repository nothing vouches for it and it stays out.
 func (c *collector) addReferenced(p string) {
-	if c.contents[p] != nil {
+	if c.contents[p] != nil || c.rejected[p] {
 		return
 	}
-	if p == ".." || strings.HasPrefix(p, "../") {
-		c.warnings = append(c.warnings, fmt.Sprintf("Skipping %s: outside the project", p))
+	reason := c.refusal(p)
+	if reason != "" {
+		c.reject(p, reason)
 		return
 	}
 	content, ok := c.read(p)
@@ -197,7 +217,29 @@ func (c *collector) addReferenced(p string) {
 		c.addTemplate(p, content)
 		return
 	}
+	if c.tree.Tracking(p) == NoRepository {
+		c.reject(p, "an included file is uploaded only when git tracks it")
+		return
+	}
 	c.add(p, content)
+}
+
+// refusal says why a referenced path is never read, or returns "".
+func (c *collector) refusal(p string) string {
+	switch {
+	case p == ".." || strings.HasPrefix(p, "../"):
+		return "outside the project"
+	case excludedPath(p):
+		return "hidden, vendored or a package manifest"
+	case c.tree.Tracking(p) == Untracked:
+		return "not tracked by git"
+	}
+	return ""
+}
+
+func (c *collector) reject(p, reason string) {
+	c.rejected[p] = true
+	c.warnings = append(c.warnings, fmt.Sprintf("Skipping %s: %s", p, reason))
 }
 
 func (c *collector) addSamconfigs() {
@@ -207,13 +249,24 @@ func (c *collector) addSamconfigs() {
 	}
 	for dir := range dirs {
 		for _, name := range samconfigNames {
-			p := path.Join(dir, name)
-			if content, err := c.tree.Read(p); err == nil && c.contents[p] == nil {
-				c.contents[p] = content
-				c.files = append(c.files, api.TemplateFile{Path: p, Content: string(content)})
-			}
+			c.addSamconfig(path.Join(dir, name))
 		}
 	}
+}
+
+// addSamconfig adds a samconfig beside a template. It can carry parameter
+// overrides, so in a git repository it is uploaded only when git tracks it.
+func (c *collector) addSamconfig(p string) {
+	content, err := c.tree.Read(p)
+	if err != nil || c.contents[p] != nil {
+		return
+	}
+	if c.tree.Tracking(p) == Untracked {
+		c.reject(p, "not tracked by git")
+		return
+	}
+	c.contents[p] = content
+	c.files = append(c.files, api.TemplateFile{Path: p, Content: string(content)})
 }
 
 // References returns the local paths a template names in a literal

@@ -327,6 +327,18 @@ func Warning(msg string) {
 	fmt.Fprintf(Stderr, "%s %s\n", warnStyle.Render("Warning:"), msg)
 }
 
+// ProgressList writes a heading and one indented line per item to stderr,
+// where it stays out of JSON on stdout. --quiet silences it.
+func ProgressList(heading string, items []string) {
+	if QuietMode {
+		return
+	}
+	fmt.Fprintln(Stderr, heading)
+	for _, item := range items {
+		fmt.Fprintln(Stderr, "  "+item)
+	}
+}
+
 func Info(msg string) {
 	if QuietMode {
 		return

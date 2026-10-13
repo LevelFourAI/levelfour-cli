@@ -406,6 +406,7 @@ type failingTree struct{}
 
 func (failingTree) Walk(string) ([]string, error) { return nil, errors.New("unreadable") }
 func (failingTree) Read(string) ([]byte, error)   { return nil, errors.New("unreadable") }
+func (failingTree) Tracking(string) cfn.Tracking  { return cfn.Tracked }
 
 func TestDiff_AFailedTerraformBaselineReadsAsAdded(t *testing.T) {
 	srv, body := recordingAPI(t)
@@ -742,5 +743,81 @@ func TestResolvedPathKeepsAPathItCannotResolve(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing")
 	if got := resolvedPath(missing); got != missing {
 		t.Errorf("resolvedPath = %q, want %q", got, missing)
+	}
+}
+
+func TestEstimate_DoesNotUploadAFileGitIgnoresOrDoesNotTrack(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	initGitRepo(t, dir)
+	writeAt(t, dir, ".gitignore", "credentials.json\n")
+	writeAt(t, dir, "app.yaml", `AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  Db:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/db.yaml
+  Local:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/local-only.yaml
+  Creds:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: credentials.json}}
+`)
+	writeAt(t, dir, "nested/db.yaml", dbTemplate)
+	commitAll(t, dir)
+	writeAt(t, dir, "credentials.json", `{"aws_secret_access_key": "x"}`)
+	writeAt(t, dir, "nested/local-only.yaml", dbTemplate)
+
+	_, errOut, err := executeCommand(t, "estimate", filepath.Join(dir, "app.yaml"), "--api", srv.URL, "--token", testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	head := filePaths((*body)["cloudformation"].(map[string]interface{})["files"].(map[string]interface{})["head"])
+	if !reflect.DeepEqual(head, []string{"app.yaml", "nested/db.yaml"}) {
+		t.Errorf("head files = %v", head)
+	}
+	stderr := errOut.String()
+	for _, want := range []string{
+		"credentials.json: not tracked by git",
+		"nested/local-only.yaml: not tracked by git",
+		"Uploading 2 files to the LevelFour API:\n  app.yaml\n  nested/db.yaml\n",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestEstimate_QuietDoesNotListTheUpload(t *testing.T) {
+	srv, _ := recordingAPI(t)
+	dir := resolvedDir(t)
+	writeAt(t, dir, "app.yaml", dbTemplate)
+
+	_, errOut, err := executeCommand(t, "estimate", dir, "--quiet", "--api", srv.URL, "--token", testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(errOut.String(), "Uploading") {
+		t.Errorf("--quiet still listed the upload:\n%s", errOut.String())
+	}
+}
+
+func TestProjectTree_TrackingTakesThePathLiterally(t *testing.T) {
+	dir := resolvedDir(t)
+	initGitRepo(t, dir)
+	writeAt(t, dir, "a.yaml", dbTemplate)
+	commitAll(t, dir)
+	tree := projectTree{DirTree: cfn.DirTree{Root: dir}, inRepo: true}
+
+	if got := tree.Tracking("a.yaml"); got != cfn.Tracked {
+		t.Errorf("a.yaml = %v, want tracked", got)
+	}
+	if got := tree.Tracking("*.yaml"); got != cfn.Untracked {
+		t.Errorf("*.yaml = %v, want untracked: a pattern must not match a.yaml", got)
+	}
+	if got := (projectTree{DirTree: cfn.DirTree{Root: dir}}).Tracking("a.yaml"); got != cfn.NoRepository {
+		t.Errorf("outside a repository = %v", got)
 	}
 }

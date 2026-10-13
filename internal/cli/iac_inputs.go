@@ -275,6 +275,36 @@ func (g gitTree) Read(p string) ([]byte, error) {
 	return exec.CommandContext(context.Background(), "git", "-C", g.repoRoot, "show", g.sha+":"+p).Output()
 }
 
+// Tracking is always Tracked: a commit only holds tracked files.
+func (gitTree) Tracking(string) cfn.Tracking {
+	return cfn.Tracked
+}
+
+// projectTree reads the project from disk and asks git which files it tracks.
+type projectTree struct {
+	cfn.DirTree
+	inRepo bool
+}
+
+func newProjectTree(root string) projectTree {
+	_, err := gitRepoRoot(root)
+	return projectTree{DirTree: cfn.DirTree{Root: root}, inRepo: err == nil}
+}
+
+// Tracking asks `git ls-files --error-unmatch`, which fails for a file git does
+// not track, an ignored one included. Literal pathspecs keep a name holding * or
+// ? from matching some other, tracked file.
+func (p projectTree) Tracking(rel string) cfn.Tracking {
+	if !p.inRepo {
+		return cfn.NoRepository
+	}
+	cmd := exec.CommandContext(context.Background(), "git", "--literal-pathspecs", "-C", p.Root, "ls-files", "--error-unmatch", "--", rel)
+	if cmd.Run() != nil {
+		return cfn.Untracked
+	}
+	return cfn.Tracked
+}
+
 // cloudFormationTargets returns the targets, as project paths, that may hold
 // templates. Nothing outside the project root is read.
 func cloudFormationTargets(targets []iacTarget) ([]string, []string) {

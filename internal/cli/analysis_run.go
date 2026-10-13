@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	cfn "github.com/LevelFourAI/levelfour-cli/internal/cloudformation"
@@ -60,7 +61,7 @@ func readAnalysisInputs(args []string, opts tf.ParseOptions, regions regionFlags
 	snapshots = filterExcludedResources(snapshots, projectCfg.ExcludedResourceTypes)
 
 	cfnTargets, skipped := cloudFormationTargets(targets)
-	templates, err := collectTemplates(cfn.DirTree{Root: root}, cfnTargets)
+	templates, err := collectTemplates(newProjectTree(root), cfnTargets)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CloudFormation templates: %w", err)
 	}
@@ -128,6 +129,23 @@ func (in *analysisInputs) request(changes []api.ResourceChange, cfnInput *api.Cl
 		UsageOverrides:  in.usage,
 		CloudFormation:  cfnInput,
 	}
+}
+
+// announceUpload lists on stderr every file about to be sent to the API.
+func announceUpload(input *api.CloudFormationInput) {
+	if input == nil {
+		return
+	}
+	seen := make(map[string]bool)
+	var paths []string
+	for _, f := range append(append([]api.TemplateFile{}, input.Files.Base...), input.Files.Head...) {
+		if !seen[f.Path] {
+			seen[f.Path] = true
+			paths = append(paths, f.Path)
+		}
+	}
+	sort.Strings(paths)
+	output.ProgressList(fmt.Sprintf("Uploading %d files to the LevelFour API:", len(paths)), paths)
 }
 
 // renderOptions are the output flags estimate and diff share.

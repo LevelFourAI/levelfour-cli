@@ -94,6 +94,7 @@ pipeline step).`,
 			return err
 		}
 
+		announceUpload(cfnInput)
 		client, apiErr := newSDKClientFn()
 		if apiErr != nil {
 			return apiErr

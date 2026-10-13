@@ -30,6 +30,9 @@ func (m mapTree) Walk(target string) ([]string, error) {
 	return paths, nil
 }
 
+// Tracking treats every file as tracked, as in a repository that commits everything.
+func (m mapTree) Tracking(string) Tracking { return Tracked }
+
 func (m mapTree) Read(p string) ([]byte, error) {
 	content, ok := m[p]
 	if !ok {
@@ -350,5 +353,159 @@ func writeFile(t *testing.T, root, rel, content string) {
 	}
 	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// trackedTree is a project in a git repository that tracks only some files.
+type trackedTree struct {
+	mapTree
+	tracking map[string]Tracking
+	fallback Tracking
+}
+
+func (t trackedTree) Tracking(p string) Tracking {
+	if state, ok := t.tracking[p]; ok {
+		return state
+	}
+	return t.fallback
+}
+
+const referencingTemplate = `AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  Db:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/db.yaml
+  Ignored:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/local-only.yaml
+  Tags:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: snippets/tags.yaml}}
+  Creds:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: credentials.json}}
+  Secrets:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: .secrets/prod.json}}
+  Env:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: .env.json}}
+  Vendored:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: node_modules/pkg/x.json}}
+  Manifest:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: package.json}}
+`
+
+func referencingProject() mapTree {
+	return mapTree{
+		"app.yaml":                referencingTemplate,
+		"nested/db.yaml":          ec2Template,
+		"nested/local-only.yaml":  ec2Template,
+		"snippets/tags.yaml":      "Key: team\n",
+		"credentials.json":        `{"aws_secret_access_key": "x"}`,
+		".secrets/prod.json":      `{"password": "x"}`,
+		".env.json":               `{"TOKEN": "x"}`,
+		"node_modules/pkg/x.json": `{}`,
+		"package.json":            `{"name": "x"}`,
+	}
+}
+
+func warned(result Result, p string) bool {
+	for _, w := range result.Warnings {
+		if strings.Contains(w, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCollect_ReferencesGoThroughTheSameExclusions(t *testing.T) {
+	result, err := Collect(trackedTree{mapTree: referencingProject(), fallback: Tracked}, []string{"app.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, p := range []string{".secrets/prod.json", ".env.json", "node_modules/pkg/x.json", "package.json"} {
+		for _, f := range result.Files {
+			if f.Path == p {
+				t.Errorf("%s was uploaded", p)
+			}
+		}
+		if !warned(result, p) {
+			t.Errorf("no warning names %s: %v", p, result.Warnings)
+		}
+	}
+}
+
+func TestCollect_InARepositoryOnlyTrackedReferencesAreUploaded(t *testing.T) {
+	tree := trackedTree{
+		mapTree:  referencingProject(),
+		tracking: map[string]Tracking{"credentials.json": Untracked, "nested/local-only.yaml": Untracked},
+		fallback: Tracked,
+	}
+
+	result, err := Collect(tree, []string{"app.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := paths(result); !reflect.DeepEqual(got, []string{"app.yaml", "nested/db.yaml", "snippets/tags.yaml"}) {
+		t.Errorf("files = %v", got)
+	}
+	for _, p := range []string{"credentials.json", "nested/local-only.yaml"} {
+		if !warned(result, p+": not tracked by git") {
+			t.Errorf("no warning for %s: %v", p, result.Warnings)
+		}
+	}
+}
+
+func TestCollect_OutsideARepositoryAnIncludedSnippetIsSkipped(t *testing.T) {
+	result, err := Collect(trackedTree{mapTree: referencingProject(), fallback: NoRepository}, []string{"app.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := paths(result)
+	if !reflect.DeepEqual(got, []string{"app.yaml", "nested/db.yaml", "nested/local-only.yaml"}) {
+		t.Errorf("files = %v", got)
+	}
+	if !warned(result, "snippets/tags.yaml: an included file is uploaded only when git tracks it") {
+		t.Errorf("warnings = %v", result.Warnings)
+	}
+}
+
+func TestCollect_AHiddenTemplateFileIsNotDiscovered(t *testing.T) {
+	result, err := Collect(mapTree{"stacks/.draft.yaml": ec2Template, "stacks/app.yaml": ec2Template}, []string{"stacks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := paths(result); !reflect.DeepEqual(got, []string{"stacks/app.yaml"}) {
+		t.Errorf("files = %v", got)
+	}
+}
+
+func TestCollect_InARepositoryAnUntrackedSamconfigIsSkipped(t *testing.T) {
+	tree := trackedTree{
+		mapTree:  mapTree{"app/template.yaml": ec2Template, "app/samconfig.toml": "version = 0.1\n"},
+		tracking: map[string]Tracking{"app/samconfig.toml": Untracked},
+		fallback: Tracked,
+	}
+
+	result, err := Collect(tree, []string{"app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := paths(result); !reflect.DeepEqual(got, []string{"app/template.yaml"}) || !warned(result, "app/samconfig.toml") {
+		t.Errorf("files = %v, warnings = %v", got, result.Warnings)
+	}
+}
+
+func TestCollect_AnOversizedFileNamedTwiceWarnsOnce(t *testing.T) {
+	tree := mapTree{"big.yaml": ec2Template + strings.Repeat("#", MaxFileSize)}
+
+	result, err := Collect(tree, []string{".", "big.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Files) != 0 || len(result.Warnings) != 1 {
+		t.Errorf("files = %v, warnings = %v", paths(result), result.Warnings)
 	}
 }

@@ -131,7 +131,7 @@ l4 diff ./stacks/ --config-env prod --fail-above 200  # samconfig's prod environ
 
 A directory is read recursively. Each Terraform root module is priced once, with the modules it calls, and every CloudFormation template is found along with the nested stack templates, `AWS::Include` snippets and `samconfig` files it uses.
 
-Terraform is parsed on your machine and only the resources go to the API. **CloudFormation templates are uploaded to the LevelFour API**, which evaluates them (parameters, conditions, intrinsic functions, nested stacks) and prices them. The upload holds the templates, the files they reference, the `samconfig` beside them and the `--parameters-file`, and never anything outside the git repository (or, outside a repository, outside the directory you point at).
+Terraform is parsed on your machine and only the resources go to the API. **CloudFormation templates are uploaded to the LevelFour API**, which evaluates them (parameters, conditions, intrinsic functions, nested stacks) and prices them. The upload holds the templates, the files they reference, the `samconfig` beside them and the `--parameters-file`, and never anything outside the git repository (or, outside a repository, outside the directory you point at). A file a template references is uploaded only when git tracks it and it is not hidden, vendored or a package manifest, so an ignored `credentials.json` or a `.env.json` never leaves your machine; outside a git repository a referenced template is uploaded but an included snippet is not. Before the request goes out, the CLI lists every file it uploads on stderr.
 
 | Flag | What it does |
 |---|---|
