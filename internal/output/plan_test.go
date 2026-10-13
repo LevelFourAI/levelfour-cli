@@ -986,8 +986,8 @@ func TestRenderMarkdown_ModuleColumn(t *testing.T) {
 	RenderMarkdown(&buf, data, false)
 	got := buf.String()
 
-	if !strings.Contains(got, "| Module |") {
-		t.Error("missing Module column header")
+	if !strings.Contains(got, "| Location |") {
+		t.Error("missing Location column header")
 	}
 	if !strings.Contains(got, "`module.cache`") {
 		t.Error("missing module path in table")
@@ -1007,7 +1007,7 @@ func TestRenderMarkdown_NoModuleColumn(t *testing.T) {
 	RenderMarkdown(&buf, data, false)
 	got := buf.String()
 
-	if strings.Contains(got, "| Module |") {
+	if strings.Contains(got, "| Location |") {
 		t.Error("Module column should not appear when no resources have module paths")
 	}
 }
@@ -2101,7 +2101,7 @@ func TestRenderSuggestionsTable_NoSavingsFallback(t *testing.T) {
 	renderSuggestionsTable(&buf, suggestions)
 	got := buf.String()
 
-	if !strings.Contains(got, "better performance, same cost") {
+	if !strings.Contains(got, "Better performance, same cost") {
 		t.Errorf("expected fallback savings text, got %q", got)
 	}
 }

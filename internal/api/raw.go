@@ -136,6 +136,12 @@ func SecureTransport() *http.Transport {
 	}
 }
 
+func analysisTransport() *http.Transport {
+	transport := SecureTransport()
+	transport.ResponseHeaderTimeout = analysisTimeout
+	return transport
+}
+
 func BuildQueryString(params map[string]string) string {
 	if len(params) == 0 {
 		return ""
@@ -152,10 +158,23 @@ func BuildQueryString(params map[string]string) string {
 	return "?" + strings.Join(parts, "&")
 }
 
+// MaxAnalyzeBodyBytes is the largest analysis request the API accepts.
+const MaxAnalyzeBodyBytes = 8 << 20
+
+// analysisTimeout covers uploading templates and evaluating them, which takes
+// longer than the other calls this client makes.
+const analysisTimeout = 2 * time.Minute
+
 func (c *RawClient) AnalyzeIaC(ctx context.Context, req *AnalyzePrRequest) (*AnalyzePrResponse, error) {
 	body, _ := json.Marshal(req)
+	if len(body) > MaxAnalyzeBodyBytes {
+		return nil, fmt.Errorf("the analysis request is %.1f MiB, above the %d MiB the API accepts: pass fewer paths",
+			float64(len(body))/(1<<20), MaxAnalyzeBodyBytes>>20)
+	}
 
-	raw, err := c.DoRaw("POST", "/api/v1/iac-analysis/analyze", strings.NewReader(string(body)))
+	slow := *c
+	slow.httpClient = &http.Client{Timeout: analysisTimeout, Transport: analysisTransport()}
+	raw, err := slow.DoRaw("POST", "/api/v1/iac-analysis/analyze", strings.NewReader(string(body)))
 	if err != nil {
 		return nil, err
 	}

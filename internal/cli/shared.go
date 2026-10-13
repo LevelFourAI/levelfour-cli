@@ -27,64 +27,37 @@ const wordYes = "yes"
 // exports it once has both working.
 const credentialEnvVar = mcpinstall.CredentialEnvVar
 
-func classifyInputs(args []string) (dirs []string, files []string, err error) {
-	if len(args) == 0 {
-		args = []string{"."}
-	}
-	for _, a := range args {
-		info, statErr := os.Stat(a)
-		if statErr != nil {
-			return nil, nil, fmt.Errorf("path not found: %s", a)
-		}
-		if info.IsDir() {
-			dirs = append(dirs, a)
-		} else {
-			files = append(files, a)
+// detectProviderRegions reads the region of each provider block in the first
+// directory target, or in the directory of the first Terraform file target.
+func detectProviderRegions(targets []iacTarget, opts tf.ParseOptions) tf.ProviderRegions {
+	for _, t := range targets {
+		if t.isDir {
+			if result := tf.ParseProviderRegions(t.abs, opts); result != (tf.ProviderRegions{}) {
+				return result
+			}
+			break
 		}
 	}
-	return dirs, files, nil
-}
-
-func parseSnapshots(dirs, files []string, opts tf.ParseOptions) ([]api.ResourceSnapshot, []string, error) {
-	var all []api.ResourceSnapshot
-	var warnings []string
-
-	for _, dir := range dirs {
-		snaps, warns, err := tf.ParseDirectoryWithOpts(dir, opts)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse %s: %w", dir, err)
+	for _, t := range targets {
+		if isTerraformFile(t.abs) {
+			return tf.ParseProviderRegions(filepath.Dir(t.abs), opts)
 		}
-		all = append(all, snaps...)
-		warnings = append(warnings, warns...)
-	}
-
-	if len(files) > 0 {
-		snaps, warns, err := tf.ParseFilesWithOpts(files, opts)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse files: %w", err)
-		}
-		all = append(all, snaps...)
-		warnings = append(warnings, warns...)
-	}
-
-	return all, warnings, nil
-}
-
-func detectProviderRegions(dirs []string, files []string, opts tf.ParseOptions) tf.ProviderRegions {
-	if len(dirs) > 0 {
-		result := tf.ParseProviderRegions(dirs[0], opts)
-		if result.AWS != "" || result.GCP != "" || result.Azure != "" {
-			return result
-		}
-	}
-	if len(files) > 0 {
-		return tf.ParseProviderRegions(filepath.Dir(files[0]), opts)
 	}
 	return tf.ProviderRegions{}
 }
 
-func detectRegion(dirs []string, files []string) string {
-	return detectProviderRegions(dirs, files, tf.ParseOptions{}).AWS
+// pricingRegion is the AWS region the user gave: the --region flag, the project
+// config, or a Terraform provider block. Empty means none, so the API prices a
+// template in the region its samconfig names, or in its default.
+func pricingRegion(flag string, flagChanged bool, override *string, detected string) string {
+	switch {
+	case flagChanged:
+		return flag
+	case override != nil:
+		return *override
+	default:
+		return detected
+	}
 }
 
 func buildProviderRegions(
@@ -93,7 +66,10 @@ func buildProviderRegions(
 	detected tf.ProviderRegions,
 	gcpFlagChanged, azureFlagChanged bool,
 ) map[string]string {
-	pr := map[string]string{"aws": awsRegion}
+	pr := map[string]string{}
+	if awsRegion != "" {
+		pr["aws"] = awsRegion
+	}
 
 	// GCP: explicit flag > config > auto-detect > default
 	switch {
@@ -140,19 +116,7 @@ func loadUsageOverrides(dir string) map[string]interface{} {
 	return nil
 }
 
-func postAnalysis(client *api.SDKClient, snapshots []api.ResourceSnapshot, changes []api.ResourceChange, region string, providerRegions map[string]string, usageOverrides map[string]interface{}) (*api.AnalyzePrResponse, error) {
-	sdkRegions := make(map[string]*string, len(providerRegions))
-	for k, v := range providerRegions {
-		sdkRegions[k] = api.StringPtr(v)
-	}
-
-	req := &api.AnalyzePrRequest{
-		HeadResources:   snapshots,
-		ResourceChanges: changes,
-		Region:          api.StringPtr(region),
-		ProviderRegions: sdkRegions,
-		UsageOverrides:  usageOverrides,
-	}
+func postAnalysis(client *api.SDKClient, req *api.AnalyzePrRequest) (*api.AnalyzePrResponse, error) {
 	resp, err := client.Raw().AnalyzeIaC(context.Background(), req)
 	if err != nil {
 		return nil, classifyAPIError(err)
@@ -208,24 +172,49 @@ func toAttributesChanged(attrs map[string]interface{}, side string) map[string]i
 func snapshotsToAddedChanges(snapshots []api.ResourceSnapshot) []api.ResourceChange {
 	changes := make([]api.ResourceChange, 0, len(snapshots))
 	for _, s := range snapshots {
-		changes = append(changes, api.ResourceChange{
-			ResourceType:      s.Type,
-			ResourceName:      s.Name,
-			ChangeType:        "added",
-			AttributesChanged: toAttributesChanged(s.Attributes, "new"),
-		})
+		changes = append(changes, changeOf(s, "added", toAttributesChanged(s.Attributes, "new")))
 	}
 	return changes
 }
 
+func changeOf(s api.ResourceSnapshot, changeType string, attributes map[string]interface{}) api.ResourceChange {
+	return api.ResourceChange{
+		ResourceType:      s.Type,
+		ResourceName:      s.Name,
+		ChangeType:        changeType,
+		File:              s.File,
+		Scope:             s.Scope,
+		AttributesChanged: attributes,
+	}
+}
+
+// diffKey identifies a resource across base and head. A snapshot file saved
+// before resources carried a scope has none, so then the scope is left out.
+func diffKey(s api.ResourceSnapshot, withScope bool) string {
+	if withScope {
+		return s.Scope + "|" + tf.SnapshotKey(s)
+	}
+	return tf.SnapshotKey(s)
+}
+
+func anyScoped(snapshots []api.ResourceSnapshot) bool {
+	for _, s := range snapshots {
+		if s.Scope != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func diffSnapshots(old, new []api.ResourceSnapshot) []api.ResourceChange {
+	withScope := anyScoped(old)
 	oldMap := make(map[string]api.ResourceSnapshot)
 	for _, s := range old {
-		oldMap[tf.SnapshotKey(s)] = s
+		oldMap[diffKey(s, withScope)] = s
 	}
 	newMap := make(map[string]api.ResourceSnapshot)
 	for _, s := range new {
-		newMap[tf.SnapshotKey(s)] = s
+		newMap[diffKey(s, withScope)] = s
 	}
 
 	var changes []api.ResourceChange
@@ -255,42 +244,31 @@ func diffSnapshots(old, new []api.ResourceSnapshot) []api.ResourceChange {
 				}
 			}
 			if len(attrsChanged) > 0 {
-				changes = append(changes, api.ResourceChange{
-					ResourceType:      newSnap.Type,
-					ResourceName:      newSnap.Name,
-					ChangeType:        "modified",
-					AttributesChanged: attrsChanged,
-				})
+				changes = append(changes, changeOf(newSnap, "modified", attrsChanged))
 			}
 		} else {
-			changes = append(changes, api.ResourceChange{
-				ResourceType:      newSnap.Type,
-				ResourceName:      newSnap.Name,
-				ChangeType:        "added",
-				AttributesChanged: toAttributesChanged(newSnap.Attributes, "new"),
-			})
+			changes = append(changes, changeOf(newSnap, "added", toAttributesChanged(newSnap.Attributes, "new")))
 		}
 	}
 
 	for key, oldSnap := range oldMap {
 		if _, exists := newMap[key]; !exists {
-			changes = append(changes, api.ResourceChange{
-				ResourceType:      oldSnap.Type,
-				ResourceName:      oldSnap.Name,
-				ChangeType:        "removed",
-				AttributesChanged: toAttributesChanged(oldSnap.Attributes, "old"),
-			})
+			changes = append(changes, changeOf(oldSnap, "removed", toAttributesChanged(oldSnap.Attributes, "old")))
 		}
 	}
 
 	return changes
 }
 
-func isJSONFile(path string) bool {
-	if path == "" {
-		return false
+// loadSnapshotFile loads a .json argument that holds a snapshot saved by
+// `l4 estimate --out-file`, and reports false for anything else, such as a
+// CloudFormation template.
+func loadSnapshotFile(p string) ([]api.ResourceSnapshot, bool) {
+	if filepath.Ext(p) != ".json" {
+		return nil, false
 	}
-	return len(path) > 5 && path[len(path)-5:] == ".json"
+	snapshots, err := loadSnapshotsFromFile(p)
+	return snapshots, err == nil
 }
 
 var osReadFile = os.ReadFile
@@ -322,7 +300,6 @@ func loadSnapshotsFromFile(path string) ([]api.ResourceSnapshot, error) {
 var osWriteFile = os.WriteFile
 
 var filepathAbs = filepath.Abs
-var filepathRel = filepath.Rel
 var osChdir = os.Chdir
 var osMkdirTemp = os.MkdirTemp
 
@@ -431,82 +408,6 @@ func gitMergeBase(repoRoot, ref string) (string, error) {
 		return "", fmt.Errorf("merge-base failed for %s: %w", ref, err)
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-func gitBaselineSnapshots(targetPath, baseRef string, opts tf.ParseOptions) ([]api.ResourceSnapshot, error) {
-	abs, err := filepathAbs(targetPath)
-	if err != nil {
-		return nil, err
-	}
-	abs, err = filepath.EvalSymlinks(abs)
-	if err != nil {
-		return nil, err
-	}
-
-	repoRoot, err := gitRepoRoot(abs)
-	if err != nil {
-		return nil, err
-	}
-
-	if baseRef == "" {
-		baseRef = gitDefaultBranch(repoRoot)
-		if baseRef == "" {
-			return nil, fmt.Errorf("no main or master branch found")
-		}
-	}
-
-	sha, err := gitMergeBase(repoRoot, baseRef)
-	if err != nil {
-		return nil, err
-	}
-
-	dirAbs := abs
-	if info, statErr := os.Stat(abs); statErr == nil && !info.IsDir() {
-		dirAbs = filepath.Dir(abs)
-	}
-
-	relDirPath, err := filepathRel(repoRoot, dirAbs)
-	if err != nil {
-		return nil, err
-	}
-
-	opts.ProjectDir = dirAbs
-
-	origDir, _ := os.Getwd()
-	if chErr := osChdir(repoRoot); chErr != nil {
-		return nil, chErr
-	}
-
-	tmpDir, tmpErr := osMkdirTemp("", "l4-git-baseline-*")
-	if tmpErr != nil {
-		_ = osChdir(origDir)
-		return nil, tmpErr
-	}
-
-	snapshots, _, parseErr := tf.ParseGitRefWithOpts(sha, relDirPath, tmpDir, opts)
-
-	_ = osChdir(origDir)
-	_ = os.RemoveAll(tmpDir)
-
-	if parseErr != nil {
-		return nil, parseErr
-	}
-
-	return snapshots, nil
-}
-
-func scopeBaselineToCurrentResources(baseline, current []api.ResourceSnapshot) []api.ResourceSnapshot {
-	keys := make(map[string]bool, len(current))
-	for _, s := range current {
-		keys[s.Type+"."+s.Name] = true
-	}
-	var scoped []api.ResourceSnapshot
-	for _, s := range baseline {
-		if keys[s.Type+"."+s.Name] {
-			scoped = append(scoped, s)
-		}
-	}
-	return scoped
 }
 
 func buildProjectLabel(args []string) string {

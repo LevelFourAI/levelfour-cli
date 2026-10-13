@@ -8,6 +8,11 @@ type ResourceSnapshot struct {
 	Name       string                 `json:"name"`
 	ModulePath string                 `json:"module_path,omitempty"`
 	Attributes map[string]interface{} `json:"attributes"`
+	// Scope names the root module the resource belongs to, so two roots that
+	// declare the same address stay apart.
+	Scope string `json:"scope,omitempty"`
+	// File is the source file, kept for the change it turns into.
+	File string `json:"-"`
 }
 
 type ResourceChange struct {
@@ -16,6 +21,7 @@ type ResourceChange struct {
 	ChangeType        string                 `json:"change_type"`
 	File              string                 `json:"file"`
 	AttributesChanged map[string]interface{} `json:"attributes_changed"`
+	Scope             string                 `json:"scope,omitempty"`
 }
 
 type AnalyzePrRequest struct {
@@ -24,12 +30,45 @@ type AnalyzePrRequest struct {
 	Region          *string                `json:"region,omitempty"`
 	ProviderRegions map[string]*string     `json:"provider_regions,omitempty"`
 	UsageOverrides  map[string]interface{} `json:"usage_overrides,omitempty"`
+	CloudFormation  *CloudFormationInput   `json:"cloudformation,omitempty"`
+}
+
+// CloudFormationInput carries the templates the API evaluates and prices, as
+// they are at the base and at the head of the comparison.
+type CloudFormationInput struct {
+	Files CloudFormationFiles `json:"files"`
+	// Parameters holds parameter values per template path.
+	Parameters map[string]map[string]string `json:"parameters,omitempty"`
+	// ParameterFiles names an uploaded parameters file per template path.
+	ParameterFiles        map[string]string `json:"parameter_files,omitempty"`
+	SamconfigEnv          string            `json:"samconfig_env,omitempty"`
+	ExcludedResourceTypes []string          `json:"excluded_resource_types,omitempty"`
+}
+
+type CloudFormationFiles struct {
+	Base []TemplateFile `json:"base"`
+	Head []TemplateFile `json:"head"`
+}
+
+type TemplateFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 type AnalyzePrResponse struct {
 	ResourceCostEstimates []*ResourceCostEstimate `json:"resource_cost_estimates,omitempty"`
 	CostSummary           *CostSummary            `json:"cost_summary,omitempty"`
 	UpgradeSuggestions    []*UpgradeSuggestion    `json:"upgrade_suggestions,omitempty"`
+	// Diagnostics lists the assumptions an estimate rests on, such as a
+	// parameter priced at its default.
+	Diagnostics []*Diagnostic `json:"diagnostics,omitempty"`
+}
+
+type Diagnostic struct {
+	Code    string  `json:"code"`
+	Message string  `json:"message"`
+	File    *string `json:"file,omitempty"`
+	Line    *int    `json:"line,omitempty"`
 }
 
 type ResourceCostEstimate struct {
@@ -43,6 +82,7 @@ type ResourceCostEstimate struct {
 	MonthlyCostDifference *float64                 `json:"monthly_cost_difference,omitempty"`
 	Components            []*CostComponentEstimate `json:"components,omitempty"`
 	Note                  *string                  `json:"note,omitempty"`
+	Scope                 *string                  `json:"scope,omitempty"`
 }
 
 type CostComponentEstimate struct {
@@ -81,6 +121,14 @@ type UpgradeSuggestion struct {
 	Note                    *string               `json:"note,omitempty"`
 	GravitonAlternative     *GravitonAlternative  `json:"graviton_alternative,omitempty"`
 	ModulePath              *string               `json:"module_path,omitempty"`
+	Scope                   *string               `json:"scope,omitempty"`
+	Location                *SourceLocation       `json:"location,omitempty"`
+}
+
+// SourceLocation is where in a template the value a suggestion changes is written.
+type SourceLocation struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
 }
 
 type CompanionAttribute struct {

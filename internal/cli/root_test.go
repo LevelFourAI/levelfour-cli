@@ -50,6 +50,9 @@ func resetFlags() {
 	flagEstNewVarFile = nil
 	flagEstNewVar = nil
 	flagEstNewMaxResources = 0
+	flagEstNewParameter = nil
+	flagEstNewParametersFile = ""
+	flagEstNewConfigEnv = ""
 
 	flagDiffFormat = ""
 	flagDiffFailAbove = 0
@@ -58,6 +61,9 @@ func resetFlags() {
 	flagDiffVar = nil
 	flagDiffMaxResources = 0
 	flagDiffBase = ""
+	flagDiffParameter = nil
+	flagDiffParametersFile = ""
+	flagDiffConfigEnv = ""
 
 	flagBreakdownAccount = nil
 	flagBreakdownStart = ""

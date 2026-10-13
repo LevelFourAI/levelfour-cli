@@ -106,7 +106,7 @@ func TestDiffNoResourcesFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out.String(), "No Terraform resources found.") {
+	if !strings.Contains(out.String(), "No Terraform or CloudFormation resources found.") {
 		t.Errorf("expected no-resources message, got: %s", out.String())
 	}
 }
@@ -382,8 +382,8 @@ func TestDiffBaselineLoadError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing baseline")
 	}
-	if !strings.Contains(err.Error(), "failed to load baseline") {
-		t.Errorf("err = %q, want 'failed to load baseline'", err.Error())
+	if !strings.Contains(err.Error(), "path not found") {
+		t.Errorf("err = %q, want 'path not found'", err.Error())
 	}
 }
 

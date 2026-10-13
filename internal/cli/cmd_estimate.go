@@ -1,10 +1,7 @@
 package cli
 
 import (
-	"fmt"
-	"path/filepath"
-
-	"github.com/LevelFourAI/levelfour-cli/internal/config"
+	cfn "github.com/LevelFourAI/levelfour-cli/internal/cloudformation"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	tf "github.com/LevelFourAI/levelfour-cli/internal/terraform"
 	"github.com/spf13/cobra"
@@ -21,18 +18,32 @@ var (
 	flagEstNewVar             []string
 	flagEstNewMaxResources    int
 	flagEstNewDownloadModules bool
+	flagEstNewParameter       []string
+	flagEstNewParametersFile  string
+	flagEstNewConfigEnv       string
 )
 
 var estimateNewCmd = &cobra.Command{
 	Use:   "estimate [path|file ...]",
 	Short: "Estimate infrastructure costs and show optimization opportunities",
-	Long: `Parse Terraform files locally and estimate monthly cloud costs
-before resources are created or modified.
+	Long: `Estimate the monthly cloud cost of Terraform and CloudFormation before
+resources are created or modified.
 
-Accepts directories, individual .tf files, or a mix of both.
+Accepts directories, individual .tf files, CloudFormation templates
+(.yaml, .yml, .json, .template), or a mix. A directory is read recursively:
+every Terraform root module in it is priced once, and every CloudFormation
+template in it is found.
+
+Terraform is parsed locally. CloudFormation templates are uploaded to the
+LevelFour API to be evaluated and priced, together with the files they need:
+nested stack templates, included snippets, samconfig files and the
+--parameters-file. Nothing outside the project (the git repository, or the
+current directory) is uploaded.
+
 Use 'l4 diff' to compare costs against your git branch; no snapshot needed.
-Use --out-file only when you need a baseline outside of git (e.g. standalone
-files not in a repo, or saving a CI artifact to diff in a later pipeline step).`,
+Use --out-file only when you need a Terraform baseline outside of git (e.g.
+standalone files not in a repo, or saving a CI artifact to diff in a later
+pipeline step).`,
 	Example: `- Estimate current directory
 
   $ l4 estimate
@@ -41,6 +52,11 @@ files not in a repo, or saving a CI artifact to diff in a later pipeline step).`
 
   $ l4 estimate ./infra/
   $ l4 estimate main.tf
+  $ l4 estimate template.yaml
+
+- Price a template with a parameter value
+
+  $ l4 estimate template.yaml --parameter InstanceType=m6i.large
 
 - Save a snapshot for non-git comparisons
 
@@ -52,107 +68,56 @@ files not in a repo, or saving a CI artifact to diff in a later pipeline step).`
   $ l4 estimate --fail-above 500 -q`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dirs, files, err := classifyInputs(args)
-		if err != nil {
-			return err
-		}
-
-		projectCfg := config.LoadProjectConfig(".")
-
 		opts := tf.ParseOptions{
 			VarFiles:        flagEstNewVarFile,
 			Vars:            flagEstNewVar,
 			MaxResources:    flagEstNewMaxResources,
 			DownloadModules: flagEstNewDownloadModules,
 		}
-
-		snapshots, warnings, err := parseSnapshots(dirs, files, opts)
+		in, err := readAnalysisInputs(args, opts, regionFlagsOf(cmd, flagEstNewRegion, flagEstNewGCPRegion, flagEstNewAzureRegion))
 		if err != nil {
-			return fmt.Errorf("failed to parse Terraform files: %w", err)
+			return err
 		}
-
-		snapshots = filterExcludedResources(snapshots, projectCfg.ExcludedResourceTypes)
-
-		for _, w := range warnings {
-			output.Warning(w)
-		}
-
-		if len(snapshots) == 0 {
-			output.Info("No Terraform resources found.")
+		if in.empty() {
+			output.Info("No Terraform or CloudFormation resources found.")
 			return nil
 		}
+		projectLabel := buildProjectLabel(args)
+		output.InfoLabel(in.foundLabel(projectLabel))
 
-		output.InfoLabel(fmt.Sprintf("Found %d resources in %s", len(snapshots), buildProjectLabel(args)))
-
-		detected := detectProviderRegions(dirs, files, opts)
-
-		region := flagEstNewRegion
-		if !cmd.Flags().Changed("region") {
-			if projectCfg.RegionOverride != nil {
-				region = *projectCfg.RegionOverride
-			} else if detected.AWS != "" {
-				region = detected.AWS
-			}
+		cfnInput, err := buildCloudFormationInput(in.root, in.templates, cfn.Result{}, cfnFlags{
+			parameters:     flagEstNewParameter,
+			parametersFile: flagEstNewParametersFile,
+			configEnv:      flagEstNewConfigEnv,
+		}, in.config.ExcludedResourceTypes)
+		if err != nil {
+			return err
 		}
-
-		providerRegions := buildProviderRegions(
-			region, flagEstNewGCPRegion, flagEstNewAzureRegion,
-			projectCfg.ProviderRegions, detected,
-			cmd.Flags().Changed("gcp-region"), cmd.Flags().Changed("azure-region"),
-		)
-
-		output.GravitonEnabled = projectCfg.GravitonForManagedServicesEnabled
 
 		client, apiErr := newSDKClientFn()
 		if apiErr != nil {
 			return apiErr
 		}
-
-		changes := snapshotsToAddedChanges(snapshots)
-
-		usageDir := "."
-		if len(dirs) > 0 {
-			usageDir = dirs[0]
-		} else if len(files) > 0 {
-			usageDir = filepath.Dir(files[0])
-		}
-		usageOverrides := loadUsageOverrides(usageDir)
-
-		data, err := postAnalysis(client, snapshots, changes, region, providerRegions, usageOverrides)
+		data, err := postAnalysis(client, in.request(snapshotsToAddedChanges(in.terraform), cfnInput))
 		if err != nil {
 			return err
 		}
 
 		if flagEstNewOutFile != "" {
-			if writeErr := saveSnapshots(flagEstNewOutFile, snapshots); writeErr != nil {
+			if writeErr := saveSnapshots(flagEstNewOutFile, in.terraform); writeErr != nil {
 				return writeErr
 			}
 		}
 
-		if flagEstNewFormat == formatJSON || output.HasFormattingFlags() {
-			if err := printJSONResult(data); err != nil {
-				return err
-			}
-			return checkFailAbove(data, flagEstNewFailAbove)
-		}
-
-		projectLabel := buildProjectLabel(args)
-
-		if flagEstNewFormat == "github-comment" {
-			output.RenderMarkdown(output.Stdout, data, false)
-			return checkFailAbove(data, flagEstNewFailAbove)
-		}
-
-		output.RenderBreakdown(output.Stdout, data, projectLabel)
-		return checkFailAbove(data, flagEstNewFailAbove)
+		return renderAnalysis(data, renderOptions{format: flagEstNewFormat, projectLabel: projectLabel, failAbove: flagEstNewFailAbove})
 	},
 }
 
 func init() {
 	estimateNewCmd.Flags().StringVar(&flagEstNewFormat, "format", "table", "Output format: table, json, github-comment")
-	estimateNewCmd.Flags().StringVar(&flagEstNewOutFile, "out-file", "", "Save resource snapshot for later use with 'l4 diff'")
+	estimateNewCmd.Flags().StringVar(&flagEstNewOutFile, "out-file", "", "Save the Terraform resource snapshot for later use with 'l4 diff'")
 	estimateNewCmd.Flags().Float64Var(&flagEstNewFailAbove, "fail-above", 0, "Exit code 2 if monthly cost exceeds this threshold")
-	estimateNewCmd.Flags().StringVar(&flagEstNewRegion, "region", "us-east-1", "AWS region for pricing")
+	estimateNewCmd.Flags().StringVar(&flagEstNewRegion, "region", "", "AWS region for pricing (default: the project config, a provider block, a template's samconfig, then us-east-1)")
 	estimateNewCmd.Flags().StringVar(&flagEstNewGCPRegion, "gcp-region", "", "GCP region for pricing (default: auto-detect or us-central1)")
 	estimateNewCmd.Flags().StringVar(&flagEstNewAzureRegion, "azure-region", "", "Azure region for pricing (default: auto-detect or eastus)")
 	estimateNewCmd.Flags().StringArrayVar(&flagEstNewVarFile, "var-file", nil, "Terraform variable files")
@@ -160,4 +125,7 @@ func init() {
 	estimateNewCmd.Flags().IntVar(&flagEstNewMaxResources, "max-resources", 500, "Maximum number of resources to include")
 	_ = estimateNewCmd.Flags().MarkHidden("max-resources")
 	estimateNewCmd.Flags().BoolVar(&flagEstNewDownloadModules, "download-modules", true, "Download and resolve remote Terraform modules for accurate estimates")
+	estimateNewCmd.Flags().StringArrayVar(&flagEstNewParameter, "parameter", nil, "CloudFormation parameter value (Key=Value), for every template that declares Key")
+	estimateNewCmd.Flags().StringVar(&flagEstNewParametersFile, "parameters-file", "", "CloudFormation parameters file (CLI JSON or CodePipeline format), uploaded with the templates")
+	estimateNewCmd.Flags().StringVar(&flagEstNewConfigEnv, "config-env", "default", "samconfig environment whose parameters and region apply")
 }

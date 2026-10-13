@@ -415,3 +415,31 @@ func TestIntPtr(t *testing.T) {
 		t.Errorf("IntPtr(42) = %v", p)
 	}
 }
+
+func TestAnalyzeIaC_RefusesABodyOverTheLimit(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+	client, _ := NewRawClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
+	big := strings.Repeat("x", MaxAnalyzeBodyBytes)
+	req := &AnalyzePrRequest{CloudFormation: &CloudFormationInput{Files: CloudFormationFiles{
+		Head: []TemplateFile{{Path: "template.yaml", Content: big}},
+	}}}
+
+	_, err := client.AnalyzeIaC(context.Background(), req)
+
+	if err == nil || !strings.Contains(err.Error(), "8 MiB") {
+		t.Errorf("err = %v, want the size limit", err)
+	}
+	if called {
+		t.Error("an oversized request was sent")
+	}
+}
+
+func TestAnalysisTransportWaitsForSlowAnalyses(t *testing.T) {
+	if got := analysisTransport().ResponseHeaderTimeout; got != analysisTimeout {
+		t.Errorf("ResponseHeaderTimeout = %v, want %v", got, analysisTimeout)
+	}
+}

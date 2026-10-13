@@ -117,7 +117,7 @@ func TestEstimateNoResourcesFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out.String(), "No Terraform resources found.") {
+	if !strings.Contains(out.String(), "No Terraform or CloudFormation resources found.") {
 		t.Errorf("expected no-resources message, got: %s", out.String())
 	}
 }
