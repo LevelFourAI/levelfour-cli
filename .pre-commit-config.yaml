@@ -1,3 +1,4 @@
+minimum_pre_commit_version: "3.2.0"
 repos:
   - repo: local
     hooks:
@@ -38,5 +39,14 @@ repos:
         entry: ./scripts/check-coverage.sh
         language: script
         types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: check-docs
+        name: No internal working documents
+        entry: scripts/check-docs.sh --staged
+        language: script
         pass_filenames: false
         stages: [pre-commit]
