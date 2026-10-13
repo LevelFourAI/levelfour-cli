@@ -165,7 +165,7 @@ for comparisons outside of git (e.g. standalone files or CI artifacts).`,
 		}
 
 		if flagDiffFormat == formatJSON || output.HasFormattingFlags() {
-			if err := output.PrintResult(data); err != nil {
+			if err := printJSONResult(data); err != nil {
 				return err
 			}
 			return checkFailAbove(data, flagDiffFailAbove)

@@ -13,6 +13,7 @@ import (
 	"github.com/LevelFourAI/levelfour-cli/internal/mcpinstall"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
+	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	tf "github.com/LevelFourAI/levelfour-cli/internal/terraform"
 	"gopkg.in/yaml.v3"
 )
@@ -378,6 +379,16 @@ func filterExcludedResources(snapshots []api.ResourceSnapshot, patterns []string
 		}
 	}
 	return filtered
+}
+
+// printJSONResult prints the analysis for --format json. --json, --jq and --template
+// shape the output when given; --format json on its own prints the whole response.
+func printJSONResult(data *api.AnalyzePrResponse) error {
+	if output.HasFormattingFlags() {
+		return output.PrintResult(data)
+	}
+	output.PrintJSON(data)
+	return nil
 }
 
 func checkFailAbove(data *api.AnalyzePrResponse, threshold float64) error {

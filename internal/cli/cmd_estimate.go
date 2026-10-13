@@ -130,7 +130,7 @@ files not in a repo, or saving a CI artifact to diff in a later pipeline step).`
 		}
 
 		if flagEstNewFormat == formatJSON || output.HasFormattingFlags() {
-			if err := output.PrintResult(data); err != nil {
+			if err := printJSONResult(data); err != nil {
 				return err
 			}
 			return checkFailAbove(data, flagEstNewFailAbove)

@@ -178,9 +178,12 @@ func TestDiffFormatJSONWithoutGlobalFlag(t *testing.T) {
 	tfDir := t.TempDir()
 	writeTFFile(t, tfDir, "main.tf", basicTF)
 
-	_, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "json")
+	out, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out.String(), "resource_cost_estimates") {
+		t.Errorf("--format json alone printed no JSON, got: %s", out.String())
 	}
 }
 
