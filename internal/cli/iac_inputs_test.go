@@ -907,3 +907,48 @@ func TestEstimate_WithoutRegionTemplatesGetNone(t *testing.T) {
 		t.Errorf("region = %v, want the provider block's eu-west-1 for Terraform", (*body)["region"])
 	}
 }
+
+func TestDiff_ABranchThatDeletesEverythingPricesTheRemovals(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	initGitRepo(t, dir)
+	writeAt(t, dir, "infra/main.tf", basicTF)
+	writeAt(t, dir, "infra/app.yaml", dbTemplate)
+	writeAt(t, dir, "infra/README.md", "infra\n")
+	commitAll(t, dir)
+	os.Remove(filepath.Join(dir, "infra", "main.tf"))
+	os.Remove(filepath.Join(dir, "infra", "app.yaml"))
+	chdir(t, dir)
+
+	out, _, err := executeCommand(t, "diff", "infra", "--api", srv.URL, "--token", testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(out.String(), "No Terraform or CloudFormation resources found") {
+		t.Fatalf("the deletions were never priced:\n%s", out.String())
+	}
+	changes := fieldList(*body, "resource_changes")
+	if len(changes) != 1 || changes[0]["change_type"] != "removed" {
+		t.Errorf("changes = %v, want aws_instance.test removed", changes)
+	}
+	files := (*body)["cloudformation"].(map[string]interface{})["files"].(map[string]interface{})
+	if got := filePaths(files["base"]); !reflect.DeepEqual(got, []string{"infra/app.yaml"}) || len(files["head"].([]interface{})) != 0 {
+		t.Errorf("files = %v", files)
+	}
+}
+
+func TestDiff_NothingAtBaseOrHeadIsReported(t *testing.T) {
+	dir := resolvedDir(t)
+	initGitRepo(t, dir)
+	writeAt(t, dir, "README.md", "nothing\n")
+	commitAll(t, dir)
+
+	out, _, err := executeCommand(t, "diff", dir, "--api", "http://localhost:9999", "--token", testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No Terraform or CloudFormation resources found.") {
+		t.Errorf("output:\n%s", out.String())
+	}
+}

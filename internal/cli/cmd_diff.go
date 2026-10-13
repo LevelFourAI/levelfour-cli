@@ -74,17 +74,18 @@ added.`,
 		if err != nil {
 			return err
 		}
-		if in.empty() {
+		// The baseline is read before deciding there is nothing to price: a
+		// branch that deletes every resource has an empty head and a full base.
+		changes, baseTemplates, err := diffAgainstBaseline(in, baseline, opts)
+		if err != nil {
+			return err
+		}
+		if in.empty() && len(changes) == 0 && len(baseTemplates.Templates) == 0 {
 			output.Info("No Terraform or CloudFormation resources found.")
 			return nil
 		}
 		projectLabel := buildProjectLabel(paths)
 		output.InfoLabel(in.foundLabel(projectLabel))
-
-		changes, baseTemplates, err := diffAgainstBaseline(in, baseline, opts)
-		if err != nil {
-			return err
-		}
 		cfnInput, err := buildCloudFormationInput(in.root, in.templates, baseTemplates, cfnFlags{
 			parameters:     flagDiffParameter,
 			parametersFile: flagDiffParametersFile,
