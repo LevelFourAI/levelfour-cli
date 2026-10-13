@@ -423,6 +423,7 @@ func RenderBreakdown(w io.Writer, data *api.AnalyzePrResponse, projectLabel stri
 	if QuietMode {
 		return
 	}
+	data, projectLabel = sanitizedResponse(data), Sanitize(projectLabel)
 
 	colName := 55
 	colQty := 10
@@ -606,6 +607,7 @@ func RenderDiff(w io.Writer, data *api.AnalyzePrResponse, projectLabel string) {
 	if QuietMode {
 		return
 	}
+	data, projectLabel = sanitizedResponse(data), Sanitize(projectLabel)
 
 	fmt.Fprintf(w, "\n%s %s\n", applyStyle(planBold, "Project:"), projectLabel)
 	fmt.Fprintf(w, "\n%s\n", applyStyle(planDim, "Key: ~ changed, + added, - removed"))
@@ -802,6 +804,7 @@ func renderMarkdownTable(w io.Writer, data *api.AnalyzePrResponse) bool {
 }
 
 func RenderMarkdown(w io.Writer, data *api.AnalyzePrResponse, isDiff bool) {
+	data = sanitizedResponse(data)
 	if isDiff {
 		fmt.Fprintln(w, "## Cost Estimate (diff)")
 	} else {
