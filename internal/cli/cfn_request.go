@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
@@ -55,6 +57,9 @@ func buildCloudFormationInput(root string, head, base cfn.Result, flags cfnFlags
 	input.Files.Head = withFile(input.Files.Head, file)
 	if len(base.Templates) > 0 {
 		input.Files.Base = withFile(input.Files.Base, file)
+	}
+	if len(input.Files.Head) > cfn.MaxFiles || len(input.Files.Base) > cfn.MaxFiles {
+		return nil, fmt.Errorf("the parameters file takes the upload past %d files on one side: pass fewer paths", cfn.MaxFiles)
 	}
 	input.ParameterFiles = make(map[string]string)
 	for _, template := range allTemplates(head, base) {
@@ -121,22 +126,24 @@ func declaredValues(values map[string]string, head, base cfn.Result) map[string]
 }
 
 // readParametersFile reads the --parameters-file, which has to sit inside the
-// project root like everything else that is uploaded, reached without a symlink.
+// project root like everything else that is uploaded. Its directory is
+// resolved so a working directory behind a symlink (/tmp, /var on macOS)
+// matches the resolved root; the file itself must not be a symlink.
 func readParametersFile(root, name string) (api.TemplateFile, error) {
 	abs, err := filepathAbs(name)
 	if err != nil {
 		return api.TemplateFile{}, err
 	}
-	rel := relativeSlash(root, abs)
+	rel := relativeSlash(root, filepath.Join(resolvedPath(filepath.Dir(abs)), filepath.Base(abs)))
 	if rel == ".." || strings.HasPrefix(rel, "../") {
 		return api.TemplateFile{}, fmt.Errorf("parameters file %s is outside the project root %s", name, root)
 	}
 	content, err := cfn.DirTree{Root: root}.Read(rel)
+	if errors.Is(err, cfn.ErrTooLarge) {
+		return api.TemplateFile{}, fmt.Errorf("parameters file %s exceeds the 1MB limit", name)
+	}
 	if err != nil {
 		return api.TemplateFile{}, fmt.Errorf("cannot read parameters file %s: %w", name, err)
-	}
-	if len(content) > cfn.MaxFileSize {
-		return api.TemplateFile{}, fmt.Errorf("parameters file %s exceeds the 1MB limit", name)
 	}
 	return api.TemplateFile{Path: rel, Content: string(content)}, nil
 }

@@ -46,19 +46,33 @@ func (d DirTree) Walk(target string) ([]string, error) {
 }
 
 // Read returns a regular file inside Root reached without following any
-// symlink. A path above Root, or through a symlink, is refused.
+// symlink. A path above Root, or through a symlink, is refused, and so is
+// anything but a regular file, before it is opened: opening a named pipe would
+// block. A file over MaxFileSize is refused from its size alone.
 func (d DirTree) Read(p string) ([]byte, error) {
 	full := filepath.Join(d.Root, filepath.FromSlash(path.Clean(p)))
 	rel, _ := filepath.Rel(d.Root, full)
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("%s is outside the project", p)
 	}
-	real, err := filepath.EvalSymlinks(full)
+	info, err := os.Lstat(full)
 	if err != nil {
 		return nil, err
 	}
-	if real != full {
+	// A path that cannot be resolved cannot be shown to be free of links.
+	if real, evalErr := filepath.EvalSymlinks(full); evalErr != nil || real != full {
 		return nil, fmt.Errorf("%s: %w", p, ErrSymlink)
 	}
-	return os.ReadFile(filepath.Clean(full))
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", p)
+	}
+	if info.Size() > MaxFileSize {
+		return nil, fmt.Errorf("%s: %w", p, ErrTooLarge)
+	}
+	f, err := os.Open(filepath.Clean(full))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return ReadCapped(f)
 }

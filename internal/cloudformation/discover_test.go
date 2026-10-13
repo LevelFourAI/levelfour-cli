@@ -39,6 +39,9 @@ func (m mapTree) Read(p string) ([]byte, error) {
 	if !ok {
 		return nil, errors.New("not found")
 	}
+	if len(content) > MaxFileSize {
+		return nil, fmt.Errorf("%s: %w", p, ErrTooLarge)
+	}
 	return []byte(content), nil
 }
 
@@ -604,5 +607,109 @@ func TestCollect_ASamconfigATemplateIncludesIsUploadedOnce(t *testing.T) {
 	}
 	if got := paths(result); !reflect.DeepEqual(got, []string{"app/samconfig.yaml", "app/template.yaml"}) {
 		t.Errorf("files = %v", got)
+	}
+}
+
+// countingReader is an endless source that counts what is read from it.
+type countingReader struct{ read int }
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'x'
+	}
+	c.read += len(p)
+	return len(p), nil
+}
+
+func TestReadCapped_StopsJustPastTheCap(t *testing.T) {
+	source := &countingReader{}
+
+	content, err := ReadCapped(source)
+
+	if !errors.Is(err, ErrTooLarge) || content != nil {
+		t.Errorf("ReadCapped = %d bytes, %v; want ErrTooLarge", len(content), err)
+	}
+	if source.read > MaxFileSize+1 {
+		t.Errorf("read %d bytes from an endless source, want at most %d", source.read, MaxFileSize+1)
+	}
+}
+
+func TestReadCapped_ReturnsAFileAtTheCap(t *testing.T) {
+	content, err := ReadCapped(strings.NewReader(strings.Repeat("x", MaxFileSize)))
+	if err != nil || len(content) != MaxFileSize {
+		t.Errorf("ReadCapped = %d bytes, %v", len(content), err)
+	}
+}
+
+func TestReadCapped_PassesAReadError(t *testing.T) {
+	if _, err := ReadCapped(failingReader{}); err == nil || errors.Is(err, ErrTooLarge) {
+		t.Errorf("err = %v, want the read error", err)
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("disk error") }
+
+func TestDirTree_ReadRefusesAFileOverTheCapWithoutOpeningIt(t *testing.T) {
+	root := resolvedTempDir(t)
+	writeFile(t, root, "big.yaml", strings.Repeat("x", MaxFileSize+1))
+	// Unreadable, so only a check made before opening can answer ErrTooLarge.
+	os.Chmod(filepath.Join(root, "big.yaml"), 0o000)
+	defer os.Chmod(filepath.Join(root, "big.yaml"), 0o644)
+
+	if _, err := (DirTree{Root: root}).Read("big.yaml"); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("err = %v, want ErrTooLarge", err)
+	}
+}
+
+func TestDirTree_ReadReportsAnUnreadableFile(t *testing.T) {
+	root := resolvedTempDir(t)
+	writeFile(t, root, "locked.yaml", ec2Template)
+	os.Chmod(filepath.Join(root, "locked.yaml"), 0o000)
+	defer os.Chmod(filepath.Join(root, "locked.yaml"), 0o644)
+
+	if _, err := (DirTree{Root: root}).Read("locked.yaml"); err == nil {
+		t.Error("expected a permission error")
+	}
+}
+
+func TestCollect_CapsTheFilesPerSide(t *testing.T) {
+	tree := mapTree{}
+	for i := 0; i < 150; i++ {
+		name := fmt.Sprintf("t%03d", i)
+		tree["stacks/"+name+".yaml"] = ec2Template + "  A:\n    Fn::Transform: {Name: AWS::Include, Parameters: {Location: " + name + "-a.yaml}}\n" +
+			"  B:\n    Fn::Transform: {Name: AWS::Include, Parameters: {Location: " + name + "-b.yaml}}\n"
+		tree["stacks/"+name+"-a.yaml"] = "Key: a\n"
+		tree["stacks/"+name+"-b.yaml"] = "Key: b\n"
+	}
+
+	result, err := Collect(tree, []string{"stacks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Files) != MaxFiles {
+		t.Errorf("uploaded %d files, want %d", len(result.Files), MaxFiles)
+	}
+	if !warned(result, "Left out 50 files") {
+		t.Errorf("warnings = %v", result.Warnings)
+	}
+}
+
+func TestCollect_RefusesAReferenceWithABackslash(t *testing.T) {
+	tree := mapTree{
+		"app.yaml":              ec2Template + "  X:\n    Fn::Transform: {Name: AWS::Include, Parameters: {Location: sub\\.aws\\creds.json}}\n",
+		"sub\\.aws\\creds.json": `{"secret": "x"}`,
+	}
+
+	result, err := Collect(tree, []string{"app.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := paths(result); !reflect.DeepEqual(got, []string{"app.yaml"}) {
+		t.Errorf("files = %v", got)
+	}
+	if !warned(result, `sub\.aws\creds.json: a backslash`) {
+		t.Errorf("warnings = %v", result.Warnings)
 	}
 }

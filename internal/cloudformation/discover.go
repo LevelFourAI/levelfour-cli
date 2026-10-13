@@ -9,6 +9,7 @@ package cloudformation
 import (
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"regexp"
 	"sort"
@@ -21,9 +22,29 @@ import (
 const (
 	// MaxTemplates caps how many templates one run uploads.
 	MaxTemplates = 200
+	// MaxFiles caps the files one side of a run uploads, templates and the
+	// snippets and samconfigs they bring together, which is what the API takes.
+	MaxFiles = 400
 	// MaxFileSize caps the size of any one uploaded file.
 	MaxFileSize = 1 << 20
 )
+
+// ErrTooLarge refuses a file over MaxFileSize. It is raised before the file is
+// read in full, so a huge file costs no memory.
+var ErrTooLarge = errors.New("file exceeds 1MB limit")
+
+// ReadCapped reads r up to MaxFileSize, and refuses with ErrTooLarge as soon
+// as there is one byte more, without reading further.
+func ReadCapped(r io.Reader) ([]byte, error) {
+	content, err := io.ReadAll(io.LimitReader(r, MaxFileSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > MaxFileSize {
+		return nil, ErrTooLarge
+	}
+	return content, nil
+}
 
 // Tracking says whether version control holds a file.
 type Tracking int
@@ -41,6 +62,8 @@ const (
 type Tree interface {
 	// Walk lists every file under target: a directory, recursively, or the file itself.
 	Walk(target string) ([]string, error)
+	// Read returns a file, or ErrTooLarge for one over MaxFileSize without
+	// reading it in full.
 	Read(path string) ([]byte, error)
 	Tracking(path string) Tracking
 }
@@ -120,6 +143,9 @@ func Collect(tree Tree, targets []string) (Result, error) {
 	}
 	c.followReferences()
 	c.addSamconfigs()
+	if c.leftOut > 0 {
+		c.warnings = append(c.warnings, fmt.Sprintf("Left out %d files: one run uploads at most %d per side", c.leftOut, MaxFiles))
+	}
 	sort.Slice(c.files, func(i, j int) bool { return c.files[i].Path < c.files[j].Path })
 	sort.Strings(c.templates)
 	return Result{Files: c.files, Templates: c.templates, Warnings: c.warnings}, nil
@@ -133,6 +159,7 @@ type collector struct {
 	templates []string
 	queue     []string
 	warnings  []string
+	leftOut   int
 }
 
 func (c *collector) walk(target string) error {
@@ -158,13 +185,10 @@ func (c *collector) read(p string) ([]byte, bool) {
 		return nil, false
 	}
 	content, err := c.tree.Read(p)
-	switch {
-	case errors.Is(err, ErrSymlink):
-		c.warnings = append(c.warnings, fmt.Sprintf("Skipping %s: %v", p, ErrSymlink))
-	case err == nil && len(content) > MaxFileSize:
-		c.warnings = append(c.warnings, fmt.Sprintf("Skipping %s: file exceeds 1MB limit", p))
+	if errors.Is(err, ErrSymlink) || errors.Is(err, ErrTooLarge) {
+		c.warnings = append(c.warnings, fmt.Sprintf("Skipping %s: %v", p, errors.Unwrap(err)))
 	}
-	if err != nil || len(content) > MaxFileSize {
+	if err != nil {
 		c.rejected[p] = true
 		return nil, false
 	}
@@ -179,14 +203,29 @@ func (c *collector) addTemplate(p string, content []byte) {
 		c.warnings = append(c.warnings, fmt.Sprintf("Skipping %s: more than %d templates found", p, MaxTemplates))
 		return
 	}
-	c.add(p, content)
-	c.templates = append(c.templates, p)
+	if c.add(p, content) {
+		c.templates = append(c.templates, p)
+	}
 }
 
-func (c *collector) add(p string, content []byte) {
+// add keeps a file and queues it for its references, unless the run already
+// holds MaxFiles. It reports whether the file was kept.
+func (c *collector) add(p string, content []byte) bool {
+	if !c.store(p, content) {
+		return false
+	}
+	c.queue = append(c.queue, p)
+	return true
+}
+
+func (c *collector) store(p string, content []byte) bool {
+	if len(c.files) >= MaxFiles {
+		c.leftOut++
+		return false
+	}
 	c.contents[p] = content
 	c.files = append(c.files, api.TemplateFile{Path: p, Content: string(content)})
-	c.queue = append(c.queue, p)
+	return true
 }
 
 func (c *collector) followReferences() {
@@ -194,6 +233,12 @@ func (c *collector) followReferences() {
 		p := c.queue[0]
 		c.queue = c.queue[1:]
 		for _, ref := range References(c.contents[p]) {
+			// A backslash is a path separator on Windows, where it would walk
+			// past the dot-segment checks below.
+			if strings.Contains(ref, `\`) {
+				c.reject(ref, "a backslash in a path is refused")
+				continue
+			}
 			c.addReferenced(path.Join(path.Dir(p), ref))
 		}
 	}
@@ -272,8 +317,7 @@ func (c *collector) addSamconfig(p string) {
 		c.reject(p, "not tracked by git")
 		return
 	}
-	c.contents[p] = content
-	c.files = append(c.files, api.TemplateFile{Path: p, Content: string(content)})
+	c.store(p, content)
 }
 
 // References returns the local paths a template names in a literal

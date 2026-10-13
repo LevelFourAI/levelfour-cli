@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -950,5 +951,72 @@ func TestDiff_NothingAtBaseOrHeadIsReported(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "No Terraform or CloudFormation resources found.") {
 		t.Errorf("output:\n%s", out.String())
+	}
+}
+
+func TestGitTree_RefusesABlobOverTheCapFromItsSize(t *testing.T) {
+	dir := resolvedDir(t)
+	initGitRepo(t, dir)
+	writeAt(t, dir, "big.yaml", strings.Repeat("x", cfn.MaxFileSize+1))
+	writeAt(t, dir, "small.yaml", dbTemplate)
+	commitAll(t, dir)
+	sha, _ := resolveBaseCommit(dir, "")
+	tree := gitTree{repoRoot: dir, sha: sha}
+
+	if _, err := tree.Read("big.yaml"); !errors.Is(err, cfn.ErrTooLarge) {
+		t.Errorf("err = %v, want ErrTooLarge", err)
+	}
+	if content, err := tree.Read("small.yaml"); err != nil || string(content) != dbTemplate {
+		t.Errorf("Read(small.yaml) = %q, %v", content, err)
+	}
+	if _, err := tree.Read("missing.yaml"); err == nil {
+		t.Error("expected an error for a path the commit does not have")
+	}
+}
+
+func TestEstimate_RefusesAnOversizedTemplateArgument(t *testing.T) {
+	dir := resolvedDir(t)
+	big := writeAt(t, dir, "big.yaml", dbTemplate+strings.Repeat("#", cfn.MaxFileSize))
+
+	_, _, err := executeCommand(t, "estimate", big, "--api", "http://localhost:9999", "--token", testToken)
+	if err == nil || !strings.Contains(err.Error(), "exceeds the 1MB limit") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestEstimate_FindsTheParametersFileFromASymlinkedDirectory(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	writeAt(t, dir, "app.yaml", appTemplate)
+	writeAt(t, dir, "nested/db.yaml", dbTemplate)
+	writeAt(t, dir, "params.json", "[]")
+	link := filepath.Join(resolvedDir(t), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, link)
+	t.Setenv("PWD", link)
+
+	if _, _, err := executeCommand(t, "estimate", ".", "--parameters-file", "params.json", "--api", srv.URL, "--token", testToken); err != nil {
+		t.Fatal(err)
+	}
+
+	block := (*body)["cloudformation"].(map[string]interface{})
+	if block["parameter_files"].(map[string]interface{})["app.yaml"] != "params.json" {
+		t.Errorf("parameter_files = %v", block["parameter_files"])
+	}
+}
+
+func TestBuildCloudFormationInput_RefusesASideOverTheFileCap(t *testing.T) {
+	dir := resolvedDir(t)
+	writeAt(t, dir, "params.json", "[]")
+	head := cfn.Result{Templates: []string{"t0.yaml"}}
+	for i := 0; i < cfn.MaxFiles; i++ {
+		head.Files = append(head.Files, api.TemplateFile{Path: fmt.Sprintf("t%d.yaml", i)})
+	}
+
+	_, err := buildCloudFormationInput(dir, head, cfn.Result{}, cfnFlags{parametersFile: filepath.Join(dir, "params.json")}, nil)
+	if err == nil || !strings.Contains(err.Error(), "400") {
+		t.Errorf("err = %v, want the per-side cap", err)
 	}
 }

@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
@@ -93,16 +95,19 @@ func checkFileTargets(targets []iacTarget) error {
 		if t.isDir || isTerraformFile(t.abs) {
 			continue
 		}
-		if !cfn.IsCandidatePath(t.abs) || !isTemplateFile(t.abs) {
+		if !cfn.IsCandidatePath(t.abs) {
+			return fmt.Errorf("%s is neither a Terraform file nor a CloudFormation template", t.arg)
+		}
+		// t.abs is resolved, so its directory is a root DirTree accepts.
+		content, err := cfn.DirTree{Root: filepath.Dir(t.abs)}.Read(filepath.Base(t.abs))
+		if errors.Is(err, cfn.ErrTooLarge) {
+			return fmt.Errorf("%s exceeds the 1MB limit", t.arg)
+		}
+		if err != nil || !cfn.LooksLikeTemplate(content) {
 			return fmt.Errorf("%s is neither a Terraform file nor a CloudFormation template", t.arg)
 		}
 	}
 	return nil
-}
-
-func isTemplateFile(p string) bool {
-	content, err := osReadFile(filepath.Clean(p))
-	return err == nil && cfn.LooksLikeTemplate(content)
 }
 
 // collectTerraform parses the Terraform targets. File paths and scopes come out
@@ -271,8 +276,18 @@ func (g gitTree) Walk(target string) ([]string, error) {
 	return paths, nil
 }
 
+// Read returns a file as it was at the commit. Its size is asked first, so a
+// blob over the cap is never read.
 func (g gitTree) Read(p string) ([]byte, error) {
-	return exec.CommandContext(context.Background(), "git", "-C", g.repoRoot, "show", g.sha+":"+p).Output()
+	object := g.sha + ":" + p
+	size, err := exec.CommandContext(context.Background(), "git", "-C", g.repoRoot, "cat-file", "-s", object).Output()
+	if err != nil {
+		return nil, fmt.Errorf("git cat-file failed for %s: %w", p, err)
+	}
+	if n, _ := strconv.Atoi(strings.TrimSpace(string(size))); n > cfn.MaxFileSize {
+		return nil, fmt.Errorf("%s: %w", p, cfn.ErrTooLarge)
+	}
+	return exec.CommandContext(context.Background(), "git", "-C", g.repoRoot, "cat-file", "blob", object).Output()
 }
 
 // Tracking is always Tracked: a commit only holds tracked files.
