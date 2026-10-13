@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -125,5 +126,63 @@ func TestSanitize_StripsFormatCharactersThatSpoofANameOnScreen(t *testing.T) {
 		if got := SanitizeMultiline(in); got != want {
 			t.Errorf("SanitizeMultiline(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestNotices_KeepATemplatePathOnOneLine(t *testing.T) {
+	outBuf, errBuf := setupOutput(t)
+	forged := "a.yaml\nWarning: \tforged"
+
+	Warning("Skipping " + forged + ": not tracked by git")
+	Info("Found " + forged)
+	InfoLabel("Found " + forged)
+
+	for name, got := range map[string]string{"stdout": outBuf.String(), "stderr": errBuf.String()} {
+		for _, line := range strings.Split(strings.TrimSuffix(got, "\n"), "\n") {
+			if strings.HasPrefix(line, "Warning: ") && !strings.Contains(line, "Skipping") {
+				t.Errorf("%s carries a forged line: %q", name, got)
+			}
+		}
+		if strings.Contains(got, "\t") {
+			t.Errorf("%s kept a tab: %q", name, got)
+		}
+	}
+	if strings.Count(errBuf.String(), "\n") != 1 {
+		t.Errorf("stderr = %q, want one line", errBuf.String())
+	}
+}
+
+func TestJSONOutput_EscapesFormatCharactersAndKeepsTheValue(t *testing.T) {
+	name := "app\u202Elmay.json"
+	value := map[string]string{"resource_name": name}
+
+	for _, print := range map[string]func(){
+		"json": func() { PrintJSON(value) },
+		"jq": func() {
+			JQExpression = "."
+			defer func() { JQExpression = "" }()
+			_ = PrintResult(value)
+		},
+	} {
+		outBuf, _ := setupOutput(t)
+		print()
+
+		if strings.Contains(outBuf.String(), "\u202E") {
+			t.Errorf("a right-to-left override reached stdout raw: %q", outBuf.String())
+		}
+		if !strings.Contains(outBuf.String(), `\u202e`) {
+			t.Errorf("stdout = %q, want the override as \\u202e", outBuf.String())
+		}
+		var decoded map[string]string
+		if err := json.Unmarshal(outBuf.Bytes(), &decoded); err != nil || decoded["resource_name"] != name {
+			t.Errorf("decoded = %v, %v; want the original value", decoded, err)
+		}
+	}
+}
+
+func TestEscapeFormatRunes_UsesSurrogatesAboveTheBasicPlane(t *testing.T) {
+	got := string(escapeFormatRunes([]byte("\"tag" + string(rune(0xE0001)) + "\"")))
+	if got != `"tag\udb40\udc01"` {
+		t.Errorf("escapeFormatRunes = %q", got)
 	}
 }

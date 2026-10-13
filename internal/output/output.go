@@ -41,7 +41,7 @@ func PrintJSON(v interface{}) {
 		return
 	}
 	data, _ := json.MarshalIndent(v, "", "  ")
-	fmt.Fprintln(Stdout, string(data))
+	fmt.Fprintln(Stdout, string(escapeFormatRunes(data)))
 }
 
 func PrintResult(v interface{}) error {
@@ -80,7 +80,7 @@ func printJQ(v interface{}) error {
 			return fmt.Errorf("jq error: %w", err)
 		}
 		out, _ := json.MarshalIndent(val, "", "  ")
-		fmt.Fprintln(Stdout, string(out))
+		fmt.Fprintln(Stdout, string(escapeFormatRunes(out)))
 	}
 	return nil
 }
@@ -324,7 +324,7 @@ func Warning(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintf(Stderr, "%s %s\n", warnStyle.Render("Warning:"), SanitizeMultiline(msg))
+	fmt.Fprintf(Stderr, "%s %s\n", warnStyle.Render("Warning:"), Sanitize(msg))
 }
 
 // ProgressList writes a heading and one indented line per item to stderr,
@@ -343,7 +343,7 @@ func Info(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(noticeStream(), SanitizeMultiline(msg))
+	fmt.Fprintln(noticeStream(), Sanitize(msg))
 }
 
 func InfoLabel(msg string) {
@@ -351,7 +351,7 @@ func InfoLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("114")).Render("INFO")
-	fmt.Fprintf(noticeStream(), "%s %s\n", label, SanitizeMultiline(msg))
+	fmt.Fprintf(noticeStream(), "%s %s\n", label, Sanitize(msg))
 }
 
 func WarnLabel(msg string) {

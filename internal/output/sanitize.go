@@ -1,8 +1,10 @@
 package output
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
@@ -37,6 +39,24 @@ func sanitize(s string, multiline bool) string {
 	}, s)
 }
 
+// escapeFormatRunes writes every Unicode format character in encoded JSON as
+// its \uXXXX escape (a surrogate pair above the basic plane). encoding/json
+// leaves them raw, and a bidi override in a name can reorder what a terminal
+// shows; escaped, the JSON still decodes to the same values.
+func escapeFormatRunes(data []byte) []byte {
+	var out strings.Builder
+	for _, r := range string(data) {
+		if !unicode.Is(unicode.Cf, r) {
+			out.WriteRune(r)
+			continue
+		}
+		for _, unit := range utf16.Encode([]rune{r}) {
+			fmt.Fprintf(&out, `\u%04x`, unit)
+		}
+	}
+	return []byte(out.String())
+}
+
 func sanitizedPtr(s *string) *string {
 	if s == nil {
 		return nil
@@ -46,7 +66,8 @@ func sanitizedPtr(s *string) *string {
 }
 
 // sanitizedResponse copies the response with every string a renderer prints
-// sanitized. JSON output prints the response itself, which encoding escapes.
+// sanitized. JSON output keeps the response itself: encoding/json escapes the
+// control characters, and escapeFormatRunes the format characters it leaves.
 func sanitizedResponse(data *api.AnalyzePrResponse) *api.AnalyzePrResponse {
 	clean := *data
 	clean.ResourceCostEstimates = make([]*api.ResourceCostEstimate, len(data.ResourceCostEstimates))
