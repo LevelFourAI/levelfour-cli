@@ -90,6 +90,16 @@ func (c *RawClient) DoRawWithHeaders(method, path string, body io.Reader, header
 	}, nil
 }
 
+// ResponseError is an error response from the API, kept whole so a caller can
+// describe its details as well as its message.
+type ResponseError struct {
+	Response *RawResponse
+}
+
+func (e *ResponseError) Error() string {
+	return e.Response.DecodeError().Error()
+}
+
 func (r *RawResponse) DecodeError() error {
 	var errResp map[string]interface{}
 	if json.Unmarshal(r.Body, &errResp) == nil {
@@ -179,7 +189,7 @@ func (c *RawClient) AnalyzeIaC(ctx context.Context, req *AnalyzePrRequest) (*Ana
 		return nil, err
 	}
 	if raw.StatusCode >= 400 {
-		return nil, raw.DecodeError()
+		return nil, &ResponseError{Response: raw}
 	}
 
 	var envelope struct {

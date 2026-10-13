@@ -551,12 +551,12 @@ func TestPricingRegion(t *testing.T) {
 }
 
 func TestBuildCloudFormationInput(t *testing.T) {
-	if input, err := buildCloudFormationInput(".", cfn.Result{}, cfn.Result{}, cfnFlags{}, nil); input != nil || err != nil {
+	if input, err := buildCloudFormationInput(".", cfn.Result{}, cfn.Result{}, cfnOptions{}); input != nil || err != nil {
 		t.Errorf("no templates gave %v, %v", input, err)
 	}
 
 	base := cfn.Result{Files: []api.TemplateFile{{Path: "gone.yaml", Content: appTemplate}}, Templates: []string{"gone.yaml"}}
-	input, err := buildCloudFormationInput(".", cfn.Result{}, base, cfnFlags{parameters: []string{"InstanceType=x"}, region: "sa-east-1"}, nil)
+	input, err := buildCloudFormationInput(".", cfn.Result{}, base, cfnOptions{parameters: []string{"InstanceType=x"}, region: "sa-east-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +570,7 @@ func TestBuildCloudFormationInput(t *testing.T) {
 		t.Errorf("a template only at base still gets its parameters: %v", input.Parameters)
 	}
 
-	none, _ := buildCloudFormationInput(".", base, cfn.Result{}, cfnFlags{parameters: []string{"Missing=x"}}, nil)
+	none, _ := buildCloudFormationInput(".", base, cfn.Result{}, cfnOptions{parameters: []string{"Missing=x"}})
 	if none.Parameters != nil {
 		t.Errorf("an undeclared key went somewhere: %v", none.Parameters)
 	}
@@ -1015,8 +1015,97 @@ func TestBuildCloudFormationInput_RefusesASideOverTheFileCap(t *testing.T) {
 		head.Files = append(head.Files, api.TemplateFile{Path: fmt.Sprintf("t%d.yaml", i)})
 	}
 
-	_, err := buildCloudFormationInput(dir, head, cfn.Result{}, cfnFlags{parametersFile: filepath.Join(dir, "params.json")}, nil)
+	_, err := buildCloudFormationInput(dir, head, cfn.Result{}, cfnOptions{parametersFile: filepath.Join(dir, "params.json")})
 	if err == nil || !strings.Contains(err.Error(), "400") {
 		t.Errorf("err = %v, want the per-side cap", err)
+	}
+}
+
+func TestEstimate_TheProjectRegionOverridePinsTemplatesToo(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	writeAt(t, dir, "app.yaml", dbTemplate)
+	writeAt(t, dir, ".levelfour/config.yml", "region_override: sa-east-1\n")
+	chdir(t, dir)
+
+	if _, _, err := executeCommand(t, "estimate", "--api", srv.URL, "--token", testToken); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*body)["cloudformation"].(map[string]interface{})["region"]; got != "sa-east-1" {
+		t.Errorf("cloudformation.region = %v, want the project's region_override", got)
+	}
+
+	if _, _, err := executeCommand(t, "estimate", "--region", "eu-west-2", "--api", srv.URL, "--token", testToken); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*body)["cloudformation"].(map[string]interface{})["region"]; got != "eu-west-2" {
+		t.Errorf("cloudformation.region = %v, want --region over the project config", got)
+	}
+}
+
+func TestEstimate_CapsTheExcludedResourceTypesItSends(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	writeAt(t, dir, "app.yaml", dbTemplate)
+	long := "AWS::" + strings.Repeat("X", 260)
+	var patterns []string
+	for i := 0; i < 102; i++ {
+		patterns = append(patterns, fmt.Sprintf("\"AWS::Type%03d\"", i))
+	}
+	patterns = append([]string{`"` + long + `"`}, patterns...)
+	writeAt(t, dir, ".levelfour/config.yml", "excluded_resource_types: ["+strings.Join(patterns, ", ")+"]\n")
+	chdir(t, dir)
+
+	_, errOut, err := executeCommand(t, "estimate", "--api", srv.URL, "--token", testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sent := (*body)["cloudformation"].(map[string]interface{})["excluded_resource_types"].([]interface{})
+	if len(sent) != 100 || sent[0] != "AWS::Type000" || sent[99] != "AWS::Type099" {
+		t.Errorf("sent %d patterns: first %v, last %v", len(sent), sent[0], sent[len(sent)-1])
+	}
+	for _, want := range []string{long[:40], "AWS::Type100, AWS::Type101"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr does not name %q:\n%s", want, errOut.String())
+		}
+	}
+}
+
+func TestEstimate_RefusesALongConfigEnv(t *testing.T) {
+	dir := resolvedDir(t)
+	writeAt(t, dir, "app.yaml", dbTemplate)
+
+	_, _, err := executeCommand(t, "estimate", dir, "--config-env", strings.Repeat("e", 129), "--api", "http://localhost:9999", "--token", testToken)
+	if err == nil || !strings.Contains(err.Error(), "--config-env") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestPostAnalysis_ShowsTheValidationDetailsOnSafeLines(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(422)
+		w.Write([]byte(`{"error": {"code": "VALIDATION_ERROR", "message": "Invalid request data", "details": [
+			{"type": "string_too_long", "loc": ["body", "cloudformation", "samconfig_env"], "msg": "String should have at most 128 characters", "input": "secret template text"},
+			{"type": "too_long", "loc": ["body", "cloudformation", "files", "head"], "msg": "List should have at most 400 items\nforged\u001b[2J"}
+		]}}`))
+	}))
+	defer srv.Close()
+	client, _ := api.NewSDKClient(srv.URL, testToken, "0.0.0-test")
+
+	_, err := postAnalysis(client, &api.AnalyzePrRequest{})
+
+	got := err.Error()
+	for _, want := range []string{
+		"API error (422): Invalid request data",
+		"  - body.cloudformation.samconfig_env: String should have at most 128 characters",
+		"  - body.cloudformation.files.head: List should have at most 400 items",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("error %q does not contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "\x1b") || strings.Contains(got, "\nforged") || strings.Contains(got, "secret template text") {
+		t.Errorf("error = %q, want sanitized detail lines without the echoed input", got)
 	}
 }

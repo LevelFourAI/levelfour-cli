@@ -85,12 +85,13 @@ pipeline step).`,
 		projectLabel := buildProjectLabel(args)
 		output.InfoLabel(in.foundLabel(projectLabel))
 
-		cfnInput, err := buildCloudFormationInput(in.root, in.templates, cfn.Result{}, cfnFlags{
+		cfnInput, err := buildCloudFormationInput(in.root, in.templates, cfn.Result{}, cfnOptions{
 			parameters:     flagEstNewParameter,
 			parametersFile: flagEstNewParametersFile,
 			configEnv:      flagEstNewConfigEnv,
-			region:         givenRegion(cmd, flagEstNewRegion),
-		}, in.config.ExcludedResourceTypes)
+			region:         templateRegion(cmd, flagEstNewRegion, in.config.RegionOverride),
+			excluded:       in.config.ExcludedResourceTypes,
+		})
 		if err != nil {
 			return err
 		}
@@ -119,7 +120,7 @@ func init() {
 	estimateNewCmd.Flags().StringVar(&flagEstNewFormat, "format", "table", "Output format: table, json, github-comment")
 	estimateNewCmd.Flags().StringVar(&flagEstNewOutFile, "out-file", "", "Save the Terraform resource snapshot for later use with 'l4 diff'")
 	estimateNewCmd.Flags().Float64Var(&flagEstNewFailAbove, "fail-above", 0, "Exit code 2 if monthly cost exceeds this threshold")
-	estimateNewCmd.Flags().StringVar(&flagEstNewRegion, "region", "", "AWS region for pricing (default: Terraform reads the project config or a provider block, CloudFormation a template's samconfig, then us-east-1)")
+	estimateNewCmd.Flags().StringVar(&flagEstNewRegion, "region", "", "AWS region for pricing (default: the project config's region_override, then a Terraform provider block or a template's samconfig, then us-east-1)")
 	estimateNewCmd.Flags().StringVar(&flagEstNewGCPRegion, "gcp-region", "", "GCP region for pricing (default: auto-detect or us-central1)")
 	estimateNewCmd.Flags().StringVar(&flagEstNewAzureRegion, "azure-region", "", "Azure region for pricing (default: auto-detect or eastus)")
 	estimateNewCmd.Flags().StringArrayVar(&flagEstNewVarFile, "var-file", nil, "Terraform variable files")
@@ -127,7 +128,7 @@ func init() {
 	estimateNewCmd.Flags().IntVar(&flagEstNewMaxResources, "max-resources", 500, "Maximum number of resources to include")
 	_ = estimateNewCmd.Flags().MarkHidden("max-resources")
 	estimateNewCmd.Flags().BoolVar(&flagEstNewDownloadModules, "download-modules", true, "Download and resolve remote Terraform modules for accurate estimates")
-	estimateNewCmd.Flags().StringArrayVar(&flagEstNewParameter, "parameter", nil, "CloudFormation parameter value (Key=Value), for every template that declares Key")
-	estimateNewCmd.Flags().StringVar(&flagEstNewParametersFile, "parameters-file", "", "CloudFormation parameters file (CLI JSON or CodePipeline format), uploaded with the templates")
+	estimateNewCmd.Flags().StringArrayVar(&flagEstNewParameter, "parameter", nil, "CloudFormation parameter value (Key=Value) for the root templates that declare Key; a nested stack gets what its parent passes")
+	estimateNewCmd.Flags().StringVar(&flagEstNewParametersFile, "parameters-file", "", "CloudFormation parameters file (CLI JSON or CodePipeline format) for the root templates, uploaded with them")
 	estimateNewCmd.Flags().StringVar(&flagEstNewConfigEnv, "config-env", "default", "samconfig environment whose parameters and region apply")
 }

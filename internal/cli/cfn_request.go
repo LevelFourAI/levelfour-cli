@@ -8,15 +8,26 @@ import (
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	cfn "github.com/LevelFourAI/levelfour-cli/internal/cloudformation"
+	"github.com/LevelFourAI/levelfour-cli/internal/output"
 )
 
-// cfnFlags are the CloudFormation flags estimate and diff share.
-type cfnFlags struct {
+// cfnOptions are what estimate and diff send with the templates: the
+// CloudFormation flags they share and the project config that applies.
+type cfnOptions struct {
 	parameters     []string
 	parametersFile string
 	configEnv      string
 	region         string
+	excluded       []string
 }
+
+// The API's limits on the fields below, refused or trimmed here so a run gets
+// a clear message instead of a 422.
+const (
+	maxConfigEnv       = 128
+	maxExcludedTypes   = 100
+	maxExcludedPattern = 256
+)
 
 func parseParameterFlags(values []string) (map[string]string, error) {
 	parsed := make(map[string]string, len(values))
@@ -32,40 +43,70 @@ func parseParameterFlags(values []string) (map[string]string, error) {
 
 // buildCloudFormationInput assembles the templates as they are at base and at
 // head, or returns nil when neither side has one.
-func buildCloudFormationInput(root string, head, base cfn.Result, flags cfnFlags, excluded []string) (*api.CloudFormationInput, error) {
+func buildCloudFormationInput(root string, head, base cfn.Result, opts cfnOptions) (*api.CloudFormationInput, error) {
 	if len(head.Templates) == 0 && len(base.Templates) == 0 {
 		return nil, nil
 	}
-	values, err := parseParameterFlags(flags.parameters)
+	if len(opts.configEnv) > maxConfigEnv {
+		return nil, fmt.Errorf("--config-env is %d characters, longer than the %d the API accepts", len(opts.configEnv), maxConfigEnv)
+	}
+	values, err := parseParameterFlags(opts.parameters)
 	if err != nil {
 		return nil, err
 	}
 	input := &api.CloudFormationInput{
 		Files:                 api.CloudFormationFiles{Base: nonNilFiles(base.Files), Head: nonNilFiles(head.Files)},
 		Parameters:            declaredValues(values, head, base),
-		SamconfigEnv:          flags.configEnv,
-		ExcludedResourceTypes: excluded,
-		Region:                flags.region,
+		SamconfigEnv:          opts.configEnv,
+		ExcludedResourceTypes: limitExclusions(opts.excluded),
+		Region:                opts.region,
 	}
-	if flags.parametersFile == "" {
+	if opts.parametersFile == "" {
 		return input, nil
 	}
-	file, err := readParametersFile(root, flags.parametersFile)
+	return input, attachParametersFile(input, root, opts.parametersFile, allTemplates(head, base))
+}
+
+// attachParametersFile uploads the --parameters-file on each side that has
+// templates and names it for every template.
+func attachParametersFile(input *api.CloudFormationInput, root, name string, templates []string) error {
+	file, err := readParametersFile(root, name)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	input.Files.Head = withFile(input.Files.Head, file)
-	if len(base.Templates) > 0 {
+	if len(input.Files.Base) > 0 {
 		input.Files.Base = withFile(input.Files.Base, file)
 	}
 	if len(input.Files.Head) > cfn.MaxFiles || len(input.Files.Base) > cfn.MaxFiles {
-		return nil, fmt.Errorf("the parameters file takes the upload past %d files on one side: pass fewer paths", cfn.MaxFiles)
+		return fmt.Errorf("the parameters file takes the upload past %d files on one side: pass fewer paths", cfn.MaxFiles)
 	}
 	input.ParameterFiles = make(map[string]string)
-	for _, template := range allTemplates(head, base) {
+	for _, template := range templates {
 		input.ParameterFiles[template] = file.Path
 	}
-	return input, nil
+	return nil
+}
+
+// limitExclusions keeps the excluded_resource_types the API accepts: the first
+// 100 patterns of at most 256 characters. It warns naming each one it drops.
+func limitExclusions(patterns []string) []string {
+	var kept []string
+	var extra []string
+	for _, p := range patterns {
+		switch {
+		case len(p) > maxExcludedPattern:
+			output.Warning(fmt.Sprintf("Ignoring excluded_resource_types entry %q: longer than %d characters", p, maxExcludedPattern))
+		case len(kept) == maxExcludedTypes:
+			extra = append(extra, p)
+		default:
+			kept = append(kept, p)
+		}
+	}
+	if len(extra) > 0 {
+		output.Warning(fmt.Sprintf("Ignoring excluded_resource_types after the first %d: %s", maxExcludedTypes, strings.Join(extra, ", ")))
+	}
+	return kept
 }
 
 func nonNilFiles(files []api.TemplateFile) []api.TemplateFile {

@@ -31,12 +31,16 @@ func regionFlagsOf(cmd *cobra.Command, aws, gcp, azure string) regionFlags {
 // collectTemplates is a variable so a test can make reading templates fail.
 var collectTemplates = cfn.Collect
 
-// givenRegion is the --region flag when the user passed it. Unlike the
-// Terraform region it never falls back to the project config or a provider
-// block, so a template is priced in its samconfig region unless told otherwise.
-func givenRegion(cmd *cobra.Command, value string) string {
-	if cmd.Flags().Changed("region") {
-		return value
+// templateRegion pins every template to one region: the --region flag, or the
+// project config's region_override. Unlike the Terraform region it never comes
+// from a provider block, so without either a template is priced in its
+// samconfig region.
+func templateRegion(cmd *cobra.Command, flag string, override *string) string {
+	switch {
+	case cmd.Flags().Changed("region"):
+		return flag
+	case override != nil:
+		return *override
 	}
 	return ""
 }

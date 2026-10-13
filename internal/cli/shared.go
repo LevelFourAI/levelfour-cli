@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -118,6 +119,10 @@ func loadUsageOverrides(dir string) map[string]interface{} {
 
 func postAnalysis(client *api.SDKClient, req *api.AnalyzePrRequest) (*api.AnalyzePrResponse, error) {
 	resp, err := client.Raw().AnalyzeIaC(context.Background(), req)
+	var respErr *api.ResponseError
+	if errors.As(err, &respErr) {
+		err = describeAPIError(respErr.Response)
+	}
 	if err != nil {
 		return nil, classifyAPIError(err)
 	}

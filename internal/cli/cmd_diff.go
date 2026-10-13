@@ -86,12 +86,13 @@ added.`,
 		}
 		projectLabel := buildProjectLabel(paths)
 		output.InfoLabel(in.foundLabel(projectLabel))
-		cfnInput, err := buildCloudFormationInput(in.root, in.templates, baseTemplates, cfnFlags{
+		cfnInput, err := buildCloudFormationInput(in.root, in.templates, baseTemplates, cfnOptions{
 			parameters:     flagDiffParameter,
 			parametersFile: flagDiffParametersFile,
 			configEnv:      flagDiffConfigEnv,
-			region:         givenRegion(cmd, flagDiffRegion),
-		}, in.config.ExcludedResourceTypes)
+			region:         templateRegion(cmd, flagDiffRegion, in.config.RegionOverride),
+			excluded:       in.config.ExcludedResourceTypes,
+		})
 		if err != nil {
 			return err
 		}
@@ -169,7 +170,7 @@ func allAdded(in *analysisInputs, cause error) ([]api.ResourceChange, cfn.Result
 func init() {
 	diffCmd.Flags().StringVar(&flagDiffFormat, "format", "table", "Output format: table, json, github-comment")
 	diffCmd.Flags().Float64Var(&flagDiffFailAbove, "fail-above", 0, "Exit code 2 if monthly delta exceeds this threshold")
-	diffCmd.Flags().StringVar(&flagDiffRegion, "region", "", "AWS region for pricing (default: Terraform reads the project config or a provider block, CloudFormation a template's samconfig, then us-east-1)")
+	diffCmd.Flags().StringVar(&flagDiffRegion, "region", "", "AWS region for pricing (default: the project config's region_override, then a Terraform provider block or a template's samconfig, then us-east-1)")
 	diffCmd.Flags().StringVar(&flagDiffGCPRegion, "gcp-region", "", "GCP region for pricing (default: auto-detect or us-central1)")
 	diffCmd.Flags().StringVar(&flagDiffAzureRegion, "azure-region", "", "Azure region for pricing (default: auto-detect or eastus)")
 	diffCmd.Flags().StringArrayVar(&flagDiffVarFile, "var-file", nil, "Terraform variable files")
@@ -178,7 +179,7 @@ func init() {
 	_ = diffCmd.Flags().MarkHidden("max-resources")
 	diffCmd.Flags().BoolVar(&flagDiffDownloadModules, "download-modules", true, "Download and resolve remote Terraform modules for accurate estimates")
 	diffCmd.Flags().StringVar(&flagDiffBase, "base", "", "Git ref to diff against (default: auto-detect main/master)")
-	diffCmd.Flags().StringArrayVar(&flagDiffParameter, "parameter", nil, "CloudFormation parameter value (Key=Value), for every template that declares Key")
-	diffCmd.Flags().StringVar(&flagDiffParametersFile, "parameters-file", "", "CloudFormation parameters file (CLI JSON or CodePipeline format), uploaded with the templates")
+	diffCmd.Flags().StringArrayVar(&flagDiffParameter, "parameter", nil, "CloudFormation parameter value (Key=Value) for the root templates that declare Key; a nested stack gets what its parent passes")
+	diffCmd.Flags().StringVar(&flagDiffParametersFile, "parameters-file", "", "CloudFormation parameters file (CLI JSON or CodePipeline format) for the root templates, uploaded with them")
 	diffCmd.Flags().StringVar(&flagDiffConfigEnv, "config-env", "default", "samconfig environment whose parameters and region apply")
 }

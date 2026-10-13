@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -441,5 +442,25 @@ func TestAnalyzeIaC_RefusesABodyOverTheLimit(t *testing.T) {
 func TestAnalysisTransportWaitsForSlowAnalyses(t *testing.T) {
 	if got := analysisTransport().ResponseHeaderTimeout; got != analysisTimeout {
 		t.Errorf("ResponseHeaderTimeout = %v, want %v", got, analysisTimeout)
+	}
+}
+
+func TestAnalyzeIaC_ReturnsTheErrorResponseWhole(t *testing.T) {
+	body := `{"error": {"message": "Invalid request data", "details": [{"loc": ["body"], "msg": "bad"}]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(422)
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	client, _ := NewRawClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
+
+	_, err := client.AnalyzeIaC(context.Background(), &AnalyzePrRequest{})
+
+	var respErr *ResponseError
+	if !errors.As(err, &respErr) || string(respErr.Response.Body) != body {
+		t.Fatalf("err = %v, want a ResponseError carrying the body", err)
+	}
+	if err.Error() != "API error (422): Invalid request data" {
+		t.Errorf("Error() = %q", err.Error())
 	}
 }
