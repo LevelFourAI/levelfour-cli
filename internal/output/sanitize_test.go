@@ -107,3 +107,23 @@ func TestNoticesStripControlCharacters(t *testing.T) {
 	assertNoEscape(t, "stdout", outBuf.String())
 	assertNoEscape(t, "stderr", errBuf.String())
 }
+
+func TestSanitize_StripsFormatCharactersThatSpoofANameOnScreen(t *testing.T) {
+	cases := map[string]string{
+		"app\u202Elmay.json":               "app\uFFFDlmay.json",
+		"a\u202Ab\u202Bc\u202Cd\u202De":    "a\uFFFDb\uFFFDc\uFFFDd\uFFFDe",
+		"x\u2066y\u2067z\u2068w\u2069":     "x\uFFFDy\uFFFDz\uFFFDw\uFFFD",
+		"zero\u200Bwidth\u200Fmark":        "zero\uFFFDwidth\uFFFDmark",
+		"\uFEFFbom":                        "\uFFFDbom",
+		"line\u2028para\u2029end":          "line\uFFFDpara\uFFFDend",
+		"caf\u00E9 \u00FCber \u65E5\u672C": "caf\u00E9 \u00FCber \u65E5\u672C",
+	}
+	for in, want := range cases {
+		if got := Sanitize(in); got != want {
+			t.Errorf("Sanitize(%q) = %q, want %q", in, got, want)
+		}
+		if got := SanitizeMultiline(in); got != want {
+			t.Errorf("SanitizeMultiline(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

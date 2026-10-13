@@ -2,6 +2,7 @@ package output
 
 import (
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
@@ -9,8 +10,11 @@ import (
 
 // Sanitize makes text that came from a template, a file name or the API safe
 // to print on one line: every C0 and C1 control character (ESC and BEL among
-// them) and every invalid byte becomes U+FFFD, so a crafted name cannot move
-// the cursor, clear the screen or plant a hyperlink in the terminal.
+// them), every invalid byte, every Unicode format character (bidi overrides,
+// zero-width characters, the byte order mark) and the line and paragraph
+// separators become U+FFFD. A crafted name then cannot move the cursor, clear
+// the screen, plant a hyperlink, or show a different file name than the one
+// uploaded.
 func Sanitize(s string) string {
 	return sanitize(s, false)
 }
@@ -26,7 +30,7 @@ func sanitize(s string, multiline bool) string {
 		switch {
 		case multiline && (r == '\n' || r == '\t'):
 			return r
-		case r < 0x20, r >= 0x7f && r <= 0x9f:
+		case r < 0x20, r >= 0x7f && r <= 0x9f, r == '\u2028', r == '\u2029', unicode.Is(unicode.Cf, r):
 			return utf8.RuneError
 		}
 		return r
