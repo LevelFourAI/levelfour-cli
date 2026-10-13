@@ -7,6 +7,7 @@
 package cloudformation
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"regexp"
@@ -157,7 +158,10 @@ func (c *collector) read(p string) ([]byte, bool) {
 		return nil, false
 	}
 	content, err := c.tree.Read(p)
-	if err == nil && len(content) > MaxFileSize {
+	switch {
+	case errors.Is(err, ErrSymlink):
+		c.warnings = append(c.warnings, fmt.Sprintf("Skipping %s: %v", p, ErrSymlink))
+	case err == nil && len(content) > MaxFileSize:
 		c.warnings = append(c.warnings, fmt.Sprintf("Skipping %s: file exceeds 1MB limit", p))
 	}
 	if err != nil || len(content) > MaxFileSize {
@@ -257,8 +261,11 @@ func (c *collector) addSamconfigs() {
 // addSamconfig adds a samconfig beside a template. It can carry parameter
 // overrides, so in a git repository it is uploaded only when git tracks it.
 func (c *collector) addSamconfig(p string) {
-	content, err := c.tree.Read(p)
-	if err != nil || c.contents[p] != nil {
+	if c.contents[p] != nil {
+		return
+	}
+	content, ok := c.read(p)
+	if !ok {
 		return
 	}
 	if c.tree.Tracking(p) == Untracked {

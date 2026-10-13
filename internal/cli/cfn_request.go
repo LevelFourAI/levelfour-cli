@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
@@ -120,23 +119,19 @@ func declaredValues(values map[string]string, head, base cfn.Result) map[string]
 }
 
 // readParametersFile reads the --parameters-file, which has to sit inside the
-// project root like everything else that is uploaded.
+// project root like everything else that is uploaded, reached without a symlink.
 func readParametersFile(root, name string) (api.TemplateFile, error) {
 	abs, err := filepathAbs(name)
 	if err != nil {
 		return api.TemplateFile{}, err
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return api.TemplateFile{}, fmt.Errorf("parameters file not found: %s", name)
-	}
-	rel := relativeSlash(root, resolved)
+	rel := relativeSlash(root, abs)
 	if rel == ".." || strings.HasPrefix(rel, "../") {
 		return api.TemplateFile{}, fmt.Errorf("parameters file %s is outside the project root %s", name, root)
 	}
 	content, err := cfn.DirTree{Root: root}.Read(rel)
 	if err != nil {
-		return api.TemplateFile{}, err
+		return api.TemplateFile{}, fmt.Errorf("cannot read parameters file %s: %w", name, err)
 	}
 	if len(content) > cfn.MaxFileSize {
 		return api.TemplateFile{}, fmt.Errorf("parameters file %s exceeds the 1MB limit", name)

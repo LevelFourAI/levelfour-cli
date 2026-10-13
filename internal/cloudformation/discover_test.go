@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -293,7 +294,7 @@ func TestDeclaredParameters(t *testing.T) {
 	}
 }
 
-func TestDirTree_WalksRegularFilesAndSkipsHiddenDirectories(t *testing.T) {
+func TestDirTree_WalksFilesAndSkipsHiddenDirectories(t *testing.T) {
 	root := resolvedTempDir(t)
 	writeFile(t, root, "stacks/app.yaml", ec2Template)
 	writeFile(t, root, ".git/config", "x")
@@ -306,7 +307,7 @@ func TestDirTree_WalksRegularFilesAndSkipsHiddenDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got, []string{"stacks/app.yaml"}) {
+	if !reflect.DeepEqual(got, []string{"stacks/app.yaml", "stacks/link.yaml"}) {
 		t.Errorf("Walk = %v", got)
 	}
 
@@ -507,5 +508,101 @@ func TestCollect_AnOversizedFileNamedTwiceWarnsOnce(t *testing.T) {
 	}
 	if len(result.Files) != 0 || len(result.Warnings) != 1 {
 		t.Errorf("files = %v, warnings = %v", paths(result), result.Warnings)
+	}
+}
+
+func TestDirTree_ReadRefusesASymlinkInsideTheRoot(t *testing.T) {
+	root := resolvedTempDir(t)
+	writeFile(t, root, ".secrets/creds.json", `{"password": "x"}`)
+	writeFile(t, root, "real/params.json", `[]`)
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../.secrets/creds.json", filepath.Join(root, "docs", "readme.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	tree := DirTree{Root: root}
+
+	for _, p := range []string{"docs/readme.yaml", "linked/params.json"} {
+		if _, err := tree.Read(p); !errors.Is(err, ErrSymlink) {
+			t.Errorf("Read(%s) err = %v, want ErrSymlink", p, err)
+		}
+	}
+	if _, err := tree.Read("../outside.yaml"); err == nil {
+		t.Error("a path above the root was read")
+	}
+}
+
+func TestDirTree_WalkListsSymlinkedFilesSoTheyCanBeRefused(t *testing.T) {
+	root := resolvedTempDir(t)
+	writeFile(t, root, "stacks/app.yaml", ec2Template)
+	if err := os.Symlink("app.yaml", filepath.Join(root, "stacks", "link.yaml")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := DirTree{Root: root}.Walk("stacks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"stacks/app.yaml", "stacks/link.yaml"}) {
+		t.Errorf("Walk = %v", got)
+	}
+}
+
+// symlinkTree reads like mapTree but refuses some paths as symlinks.
+type symlinkTree struct {
+	mapTree
+	links map[string]bool
+}
+
+func (s symlinkTree) Read(p string) ([]byte, error) {
+	if s.links[p] {
+		return nil, fmt.Errorf("%s: %w", p, ErrSymlink)
+	}
+	return s.mapTree.Read(p)
+}
+
+func TestCollect_WarnsAboutEverySymlinkItRefuses(t *testing.T) {
+	tree := symlinkTree{
+		mapTree: mapTree{
+			"app.yaml":           referencingTemplate,
+			"nested/db.yaml":     ec2Template,
+			"stacks/link.yaml":   ec2Template,
+			"samconfig.toml":     "version = 0.1\n",
+			"snippets/tags.yaml": "Key: team\n",
+		},
+		links: map[string]bool{"nested/db.yaml": true, "stacks/link.yaml": true, "samconfig.toml": true},
+	}
+
+	result, err := Collect(tree, []string{"."})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := paths(result); !reflect.DeepEqual(got, []string{"app.yaml", "snippets/tags.yaml"}) {
+		t.Errorf("files = %v", got)
+	}
+	for _, p := range []string{"nested/db.yaml", "stacks/link.yaml", "samconfig.toml"} {
+		if !warned(result, p+": a symlink") {
+			t.Errorf("no symlink warning for %s: %v", p, result.Warnings)
+		}
+	}
+}
+
+func TestCollect_ASamconfigATemplateIncludesIsUploadedOnce(t *testing.T) {
+	tree := mapTree{
+		"app/template.yaml":  ec2Template + "  Cfg:\n    Fn::Transform: {Name: AWS::Include, Parameters: {Location: samconfig.yaml}}\n",
+		"app/samconfig.yaml": "version: 0.1\n",
+	}
+
+	result, err := Collect(tree, []string{"app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := paths(result); !reflect.DeepEqual(got, []string{"app/samconfig.yaml", "app/template.yaml"}) {
+		t.Errorf("files = %v", got)
 	}
 }

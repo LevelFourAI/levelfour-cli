@@ -216,12 +216,12 @@ func TestEstimate_RefusesBadCloudFormationInput(t *testing.T) {
 	outside := writeAt(t, resolvedDir(t), "params.json", "[]")
 
 	cases := map[string][]string{
-		"neither a Terraform file":  {filepath.Join(dir, "notes.yaml")},
-		"neither a Terraform file ": {filepath.Join(dir, "readme.txt")},
-		"want Key=Value":            {dir, "--parameter", "NoEquals"},
-		"outside the project root":  {dir, "--parameters-file", outside},
-		"parameters file not found": {dir, "--parameters-file", filepath.Join(dir, "missing.json")},
-		"exceeds the 1MB limit":     {dir, "--parameters-file", filepath.Join(dir, "big.json")},
+		"neither a Terraform file":    {filepath.Join(dir, "notes.yaml")},
+		"neither a Terraform file ":   {filepath.Join(dir, "readme.txt")},
+		"want Key=Value":              {dir, "--parameter", "NoEquals"},
+		"outside the project root":    {dir, "--parameters-file", outside},
+		"cannot read parameters file": {dir, "--parameters-file", filepath.Join(dir, "missing.json")},
+		"exceeds the 1MB limit":       {dir, "--parameters-file", filepath.Join(dir, "big.json")},
 	}
 	for want, args := range cases {
 		args = append([]string{"estimate"}, append(args, "--api", "http://localhost:9999", "--token", testToken)...)
@@ -819,5 +819,53 @@ func TestProjectTree_TrackingTakesThePathLiterally(t *testing.T) {
 	}
 	if got := (projectTree{DirTree: cfn.DirTree{Root: dir}}).Tracking("a.yaml"); got != cfn.NoRepository {
 		t.Errorf("outside a repository = %v", got)
+	}
+}
+
+func TestEstimate_ATrackedSymlinkNeverUploadsItsTarget(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	initGitRepo(t, dir)
+	writeAt(t, dir, ".gitignore", "ignored.json\n")
+	writeAt(t, dir, ".secrets/creds.json", `{"password": "hidden"}`)
+	writeAt(t, dir, "ignored.json", `{"password": "ignored"}`)
+	writeAt(t, dir, "app.yaml", `AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  Readme:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: docs/readme.yaml}}
+  Notes:
+    Fn::Transform: {Name: AWS::Include, Parameters: {Location: docs/notes.json}}
+`)
+	os.MkdirAll(filepath.Join(dir, "docs"), 0o755)
+	os.Symlink("../.secrets/creds.json", filepath.Join(dir, "docs", "readme.yaml"))
+	os.Symlink("../ignored.json", filepath.Join(dir, "docs", "notes.json"))
+	commitAll(t, dir)
+
+	_, errOut, err := executeCommand(t, "estimate", filepath.Join(dir, "app.yaml"), "--api", srv.URL, "--token", testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	head := filePaths((*body)["cloudformation"].(map[string]interface{})["files"].(map[string]interface{})["head"])
+	if !reflect.DeepEqual(head, []string{"app.yaml"}) {
+		t.Errorf("head files = %v", head)
+	}
+	for _, p := range []string{"docs/readme.yaml", "docs/notes.json"} {
+		if !strings.Contains(errOut.String(), "Skipping "+p+": a symlink") {
+			t.Errorf("no symlink warning for %s:\n%s", p, errOut.String())
+		}
+	}
+}
+
+func TestEstimate_RefusesASymlinkedParametersFile(t *testing.T) {
+	dir := resolvedDir(t)
+	writeAt(t, dir, "app.yaml", appTemplate)
+	writeAt(t, dir, ".secrets/prod.json", "[]")
+	os.Symlink(".secrets/prod.json", filepath.Join(dir, "params.json"))
+
+	_, _, err := executeCommand(t, "estimate", dir, "--parameters-file", filepath.Join(dir, "params.json"),
+		"--api", "http://localhost:9999", "--token", testToken)
+	if err == nil || !strings.Contains(err.Error(), "a symlink") {
+		t.Errorf("err = %v, want the symlink refused", err)
 	}
 }
