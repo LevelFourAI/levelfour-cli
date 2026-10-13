@@ -204,6 +204,9 @@ func describeProblem(m map[string]interface{}) string {
 	return code + " at " + strings.Join(at, ", ")
 }
 
+// describeRequestProblem says where a validation problem is and what it is, on
+// one safe line. It leaves out the input the API echoes, which can be a whole
+// template.
 func describeRequestProblem(m map[string]interface{}) string {
 	loc, _ := m["loc"].([]interface{})
 	parts := make([]string, 0, len(loc))
@@ -211,7 +214,7 @@ func describeRequestProblem(m map[string]interface{}) string {
 		parts = append(parts, fmt.Sprint(p))
 	}
 	msg, _ := m["msg"].(string)
-	return strings.Join(parts, ".") + ": " + msg
+	return output.Sanitize(strings.Join(parts, ".") + ": " + msg)
 }
 
 // The contract sends {id, name}. A bare name still renders, rather than Go syntax.

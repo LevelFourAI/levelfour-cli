@@ -106,7 +106,7 @@ func TestDiffNoResourcesFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out.String(), "No Terraform resources found.") {
+	if !strings.Contains(out.String(), "No Terraform or CloudFormation resources found.") {
 		t.Errorf("expected no-resources message, got: %s", out.String())
 	}
 }
@@ -178,9 +178,12 @@ func TestDiffFormatJSONWithoutGlobalFlag(t *testing.T) {
 	tfDir := t.TempDir()
 	writeTFFile(t, tfDir, "main.tf", basicTF)
 
-	_, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "json")
+	out, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out.String(), "resource_cost_estimates") {
+		t.Errorf("--format json alone printed no JSON, got: %s", out.String())
 	}
 }
 
@@ -379,8 +382,8 @@ func TestDiffBaselineLoadError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing baseline")
 	}
-	if !strings.Contains(err.Error(), "failed to load baseline") {
-		t.Errorf("err = %q, want 'failed to load baseline'", err.Error())
+	if !strings.Contains(err.Error(), "path not found") {
+		t.Errorf("err = %q, want 'path not found'", err.Error())
 	}
 }
 

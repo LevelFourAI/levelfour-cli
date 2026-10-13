@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/cli"
+	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	"github.com/LevelFourAI/levelfour-cli/internal/sentryx"
 	"github.com/getsentry/sentry-go"
 )
@@ -40,12 +41,13 @@ func run() (exitCode int) {
 		if errors.Is(err, cli.ErrIssuesFound) {
 			return cli.ExitIssuesFound
 		}
-		msg := err.Error()
+		// An error can carry a file name or an API message, so it is printed
+		// without control characters.
+		msg := output.SanitizeMultiline(err.Error())
+		fmt.Fprintln(os.Stderr, msg)
 		if strings.Contains(msg, "not authenticated") {
-			fmt.Fprintln(os.Stderr, err)
 			return cli.ExitAuthRequired
 		}
-		fmt.Fprintln(os.Stderr, err)
 		return cli.ExitError
 	}
 	return 0

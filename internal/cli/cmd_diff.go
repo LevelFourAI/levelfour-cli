@@ -2,11 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
-	"github.com/LevelFourAI/levelfour-cli/internal/config"
+	cfn "github.com/LevelFourAI/levelfour-cli/internal/cloudformation"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	tf "github.com/LevelFourAI/levelfour-cli/internal/terraform"
 	"github.com/spf13/cobra"
@@ -23,23 +21,35 @@ var (
 	flagDiffMaxResources    int
 	flagDiffDownloadModules bool
 	flagDiffBase            string
+	flagDiffParameter       []string
+	flagDiffParametersFile  string
+	flagDiffConfigEnv       string
 )
 
 var diffCmd = &cobra.Command{
 	Use:   "diff [baseline.json] [path|file ...]",
 	Short: "Show cost difference between current and baseline state",
-	Long: `Show how your Terraform changes affect monthly cloud costs.
+	Long: `Show how your Terraform and CloudFormation changes affect monthly cloud costs.
 
 By default, compares the current branch against the git merge-base
-(main or master); just point it at your .tf files, no setup needed.
-Use --base to compare against a different git ref.
+(main or master); just point it at your .tf files or templates, no setup
+needed. Use --base to compare against a different git ref.
+
+CloudFormation templates are uploaded to the LevelFour API to be evaluated
+and priced, as they are at the merge-base and as they are now, together with
+the files they need: nested stack templates, included snippets, samconfig
+files and the --parameters-file. Nothing outside the git repository is
+uploaded.
 
 You can also pass a .json snapshot file created by 'l4 estimate --out-file'
-for comparisons outside of git (e.g. standalone files or CI artifacts).`,
+for Terraform comparisons outside of git (e.g. standalone files or CI
+artifacts). Against a snapshot file, CloudFormation templates are priced as
+added.`,
 	Example: `- See cost impact of your changes
 
   $ l4 diff main.tf
   $ l4 diff ./infra/
+  $ l4 diff template.yaml
 
 - Compare against a specific branch
 
@@ -50,143 +60,117 @@ for comparisons outside of git (e.g. standalone files or CI artifacts).`,
   $ l4 diff baseline.json`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var baselineFile string
-		var tfArgs []string
-
-		for _, a := range args {
-			if isJSONFile(a) {
-				if baselineFile != "" {
-					return fmt.Errorf("only one baseline .json file is supported")
-				}
-				baselineFile = a
-			} else {
-				tfArgs = append(tfArgs, a)
-			}
-		}
-
-		dirs, files, err := classifyInputs(tfArgs)
+		baseline, paths, err := splitBaselineArg(args)
 		if err != nil {
 			return err
 		}
-
-		projectCfg := config.LoadProjectConfig(".")
-
 		opts := tf.ParseOptions{
 			VarFiles:        flagDiffVarFile,
 			Vars:            flagDiffVar,
 			MaxResources:    flagDiffMaxResources,
 			DownloadModules: flagDiffDownloadModules,
 		}
-
-		snapshots, warnings, err := parseSnapshots(dirs, files, opts)
+		in, err := readAnalysisInputs(paths, opts, regionFlagsOf(cmd, flagDiffRegion, flagDiffGCPRegion, flagDiffAzureRegion))
 		if err != nil {
-			return fmt.Errorf("failed to parse Terraform files: %w", err)
+			return err
 		}
-
-		snapshots = filterExcludedResources(snapshots, projectCfg.ExcludedResourceTypes)
-
-		for _, w := range warnings {
-			output.Warning(w)
+		// The baseline is read before deciding there is nothing to price: a
+		// branch that deletes every resource has an empty head and a full base.
+		changes, baseTemplates, err := diffAgainstBaseline(in, baseline, opts)
+		if err != nil {
+			return err
 		}
-
-		if len(snapshots) == 0 {
-			output.Info("No Terraform resources found.")
+		if in.empty() && len(changes) == 0 && len(baseTemplates.Templates) == 0 {
+			output.Info("No Terraform or CloudFormation resources found.")
 			return nil
 		}
-
-		output.InfoLabel(fmt.Sprintf("Found %d resources in %s", len(snapshots), buildProjectLabel(tfArgs)))
-
-		detected := detectProviderRegions(dirs, files, opts)
-
-		region := flagDiffRegion
-		if !cmd.Flags().Changed("region") {
-			if projectCfg.RegionOverride != nil {
-				region = *projectCfg.RegionOverride
-			} else if detected.AWS != "" {
-				region = detected.AWS
-			}
+		projectLabel := buildProjectLabel(paths)
+		output.InfoLabel(in.foundLabel(projectLabel))
+		cfnInput, err := buildCloudFormationInput(in.root, in.templates, baseTemplates, cfnOptions{
+			parameters:     flagDiffParameter,
+			parametersFile: flagDiffParametersFile,
+			configEnv:      flagDiffConfigEnv,
+			region:         templateRegion(cmd, flagDiffRegion, in.config.RegionOverride),
+			excluded:       in.config.ExcludedResourceTypes,
+		})
+		if err != nil {
+			return err
 		}
-
-		providerRegions := buildProviderRegions(
-			region, flagDiffGCPRegion, flagDiffAzureRegion,
-			projectCfg.ProviderRegions, detected,
-			cmd.Flags().Changed("gcp-region"), cmd.Flags().Changed("azure-region"),
-		)
-
-		output.GravitonEnabled = projectCfg.GravitonForManagedServicesEnabled
-
-		client, apiErr := newSDKClientFn()
-		if apiErr != nil {
-			return apiErr
-		}
-
-		var changes []api.ResourceChange
-		if baselineFile != "" {
-			baseline, loadErr := loadSnapshotsFromFile(baselineFile)
-			if loadErr != nil {
-				return fmt.Errorf("failed to load baseline: %w", loadErr)
-			}
-			changes = diffSnapshots(baseline, snapshots)
-		} else {
-			targetPath := "."
-			if len(tfArgs) > 0 {
-				targetPath = tfArgs[0]
-			}
-			baseline, gitErr := gitBaselineSnapshots(targetPath, flagDiffBase, opts)
-			if gitErr != nil {
-				output.Info(fmt.Sprintf("Git baseline unavailable (%s), showing all resources as added.", gitErr))
-				changes = snapshotsToAddedChanges(snapshots)
-			} else {
-				baseline = filterExcludedResources(baseline, projectCfg.ExcludedResourceTypes)
-				baseline = scopeBaselineToCurrentResources(baseline, snapshots)
-				changes = diffSnapshots(baseline, snapshots)
-			}
-		}
-
-		if len(changes) == 0 {
+		if len(changes) == 0 && cfnInput == nil {
 			output.Info("No resource changes detected.")
 			return nil
 		}
 
-		usageDir := "."
-		if len(tfArgs) > 0 {
-			info, _ := os.Stat(tfArgs[0])
-			if info != nil && info.IsDir() {
-				usageDir = tfArgs[0]
-			} else {
-				usageDir = filepath.Dir(tfArgs[0])
-			}
+		announceUpload(cfnInput)
+		client, apiErr := newSDKClientFn()
+		if apiErr != nil {
+			return apiErr
 		}
-		usageOverrides := loadUsageOverrides(usageDir)
-
-		data, err := postAnalysis(client, snapshots, changes, region, providerRegions, usageOverrides)
+		data, err := postAnalysis(client, in.request(changes, cfnInput))
 		if err != nil {
 			return err
 		}
-
-		if flagDiffFormat == formatJSON || output.HasFormattingFlags() {
-			if err := output.PrintResult(data); err != nil {
-				return err
-			}
-			return checkFailAbove(data, flagDiffFailAbove)
-		}
-
-		projectLabel := buildProjectLabel(tfArgs)
-
-		if flagDiffFormat == "github-comment" {
-			output.RenderMarkdown(output.Stdout, data, true)
-			return checkFailAbove(data, flagDiffFailAbove)
-		}
-
-		output.RenderDiff(output.Stdout, data, projectLabel)
-		return checkFailAbove(data, flagDiffFailAbove)
+		return renderAnalysis(data, renderOptions{format: flagDiffFormat, projectLabel: projectLabel, isDiff: true, failAbove: flagDiffFailAbove})
 	},
+}
+
+// splitBaselineArg separates a snapshot saved by 'l4 estimate --out-file' from
+// the paths to compare, and loads it. A .json argument that is not one is a
+// template. The snapshot is nil when there is none.
+func splitBaselineArg(args []string) (*[]api.ResourceSnapshot, []string, error) {
+	var baseline *[]api.ResourceSnapshot
+	var paths []string
+	for _, a := range args {
+		snapshots, ok := loadSnapshotFile(a)
+		if !ok {
+			paths = append(paths, a)
+			continue
+		}
+		if baseline != nil {
+			return nil, nil, fmt.Errorf("only one baseline .json file is supported")
+		}
+		baseline = &snapshots
+	}
+	return baseline, paths, nil
+}
+
+// diffAgainstBaseline returns the Terraform changes and the CloudFormation
+// templates as they were at the baseline: the snapshot when one is given, the
+// git merge-base otherwise. Without a baseline everything reads as added.
+func diffAgainstBaseline(in *analysisInputs, snapshot *[]api.ResourceSnapshot, opts tf.ParseOptions) ([]api.ResourceChange, cfn.Result, error) {
+	if snapshot != nil {
+		return diffSnapshots(*snapshot, in.terraform), cfn.Result{}, nil
+	}
+
+	sha, err := resolveBaseCommit(in.root, flagDiffBase)
+	if err != nil {
+		return allAdded(in, err)
+	}
+	baseline, err := gitBaseline(in.root, sha, in.targets, opts)
+	if err != nil {
+		return allAdded(in, err)
+	}
+	templates, err := cfn.Collect(baseTree(in.root, sha), in.cfnTargets)
+	if err != nil {
+		return nil, cfn.Result{}, fmt.Errorf("failed to read CloudFormation templates at %s: %w", sha, err)
+	}
+	baseline = filterExcludedResources(baseline, in.config.ExcludedResourceTypes)
+	return diffSnapshots(baseline, in.terraform), templates, nil
+}
+
+// baseTree reads the project at the baseline commit. A variable so a test can
+// make that read fail.
+var baseTree = func(root, sha string) cfn.Tree { return gitTree{repoRoot: root, sha: sha} }
+
+func allAdded(in *analysisInputs, cause error) ([]api.ResourceChange, cfn.Result, error) {
+	output.Info(fmt.Sprintf("Git baseline unavailable (%s), showing all resources as added.", cause))
+	return snapshotsToAddedChanges(in.terraform), cfn.Result{}, nil
 }
 
 func init() {
 	diffCmd.Flags().StringVar(&flagDiffFormat, "format", "table", "Output format: table, json, github-comment")
 	diffCmd.Flags().Float64Var(&flagDiffFailAbove, "fail-above", 0, "Exit code 2 if monthly delta exceeds this threshold")
-	diffCmd.Flags().StringVar(&flagDiffRegion, "region", "us-east-1", "AWS region for pricing")
+	diffCmd.Flags().StringVar(&flagDiffRegion, "region", "", "AWS region for pricing (default: the project config's region_override, then a Terraform provider block or a template's samconfig, then us-east-1)")
 	diffCmd.Flags().StringVar(&flagDiffGCPRegion, "gcp-region", "", "GCP region for pricing (default: auto-detect or us-central1)")
 	diffCmd.Flags().StringVar(&flagDiffAzureRegion, "azure-region", "", "Azure region for pricing (default: auto-detect or eastus)")
 	diffCmd.Flags().StringArrayVar(&flagDiffVarFile, "var-file", nil, "Terraform variable files")
@@ -195,4 +179,7 @@ func init() {
 	_ = diffCmd.Flags().MarkHidden("max-resources")
 	diffCmd.Flags().BoolVar(&flagDiffDownloadModules, "download-modules", true, "Download and resolve remote Terraform modules for accurate estimates")
 	diffCmd.Flags().StringVar(&flagDiffBase, "base", "", "Git ref to diff against (default: auto-detect main/master)")
+	diffCmd.Flags().StringArrayVar(&flagDiffParameter, "parameter", nil, "CloudFormation parameter value (Key=Value) for the root templates that declare Key; a nested stack gets what its parent passes")
+	diffCmd.Flags().StringVar(&flagDiffParametersFile, "parameters-file", "", "CloudFormation parameters file (CLI JSON or CodePipeline format) for the root templates, uploaded with them")
+	diffCmd.Flags().StringVar(&flagDiffConfigEnv, "config-env", "default", "samconfig environment whose parameters and region apply")
 }

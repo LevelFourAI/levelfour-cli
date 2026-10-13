@@ -185,26 +185,82 @@ func splitModulePath(path string) []string {
 	return segments
 }
 
+// buildModuleTree groups estimates by root (when there is more than one), then
+// by nested CloudFormation stack and Terraform module.
 func buildModuleTree(estimates []*api.ResourceCostEstimate) *moduleNode {
+	byScope := distinctScopes(estimates) > 1
 	root := &moduleNode{}
 	nodeMap := map[string]*moduleNode{"": root}
 
 	for _, e := range estimates {
-		mp := derefStr(e.ModulePath)
-		segments := splitModulePath(mp)
-		parentPath := ""
-		for _, seg := range segments {
-			if _, ok := nodeMap[seg]; !ok {
+		key := ""
+		for _, seg := range groupSegments(e, byScope) {
+			childKey := key + "\x00" + seg
+			if _, ok := nodeMap[childKey]; !ok {
 				node := &moduleNode{path: seg}
-				nodeMap[seg] = node
-				nodeMap[parentPath].children = append(nodeMap[parentPath].children, node)
+				nodeMap[childKey] = node
+				nodeMap[key].children = append(nodeMap[key].children, node)
 			}
-			parentPath = seg
+			key = childKey
 		}
-		target := nodeMap[parentPath]
-		target.resources = append(target.resources, e)
+		nodeMap[key].resources = append(nodeMap[key].resources, e)
 	}
 	return root
+}
+
+func distinctScopes(estimates []*api.ResourceCostEstimate) int {
+	scopes := make(map[string]bool)
+	for _, e := range estimates {
+		scopes[derefStr(e.Scope)] = true
+	}
+	return len(scopes)
+}
+
+func groupSegments(e *api.ResourceCostEstimate, byScope bool) []string {
+	var segments []string
+	if byScope {
+		segments = scopeSegments(derefStr(e.Scope))
+	}
+	return append(segments, splitModulePath(derefStr(e.ModulePath))...)
+}
+
+var templateExtensions = map[string]bool{".yaml": true, ".yml": true, ".json": true, ".template": true}
+
+// scopeSegments splits a scope into its root and, for a CloudFormation
+// template, each nested stack below it: "app.yaml/Db/Cache" gives "app.yaml",
+// "app.yaml/Db" and "app.yaml/Db/Cache".
+func scopeSegments(scope string) []string {
+	parts := strings.Split(scope, "/")
+	for i, part := range parts {
+		if !templateExtensions[filepathExt(part)] {
+			continue
+		}
+		segments := []string{strings.Join(parts[:i+1], "/")}
+		for j := i + 1; j < len(parts); j++ {
+			segments = append(segments, strings.Join(parts[:j+1], "/"))
+		}
+		return segments
+	}
+	if scope == "" {
+		return nil
+	}
+	return []string{scope}
+}
+
+func filepathExt(name string) string {
+	if i := strings.LastIndex(name, "."); i > 0 {
+		return name[i:]
+	}
+	return ""
+}
+
+// resourceLabel names a resource the way its language does: `aws_instance.web`
+// for Terraform, `AWS::EC2::Instance Web` for CloudFormation.
+func resourceLabel(resourceType, name string) string {
+	if strings.Contains(resourceType, "::") {
+		return resourceType + " " + name
+	}
+	return resourceType + "." + name
 }
 
 func renderComponentRow(w io.Writer, c *api.CostComponentEstimate, connector string, indent, colName, colQty, colUnit, colCost int) {
@@ -334,11 +390,11 @@ func renderBreakdownNode(w io.Writer, node *moduleNode, depth int, parentConn st
 		conn := treeConnector(itemIdx, totalItems)
 		cont := treeContinuation(itemIdx, totalItems)
 		if depth == 0 {
-			fmt.Fprintf(w, "\n %s\n", applyStyle(planBold, e.ResourceType+"."+e.ResourceName))
+			fmt.Fprintf(w, "\n %s\n", applyStyle(planBold, resourceLabel(e.ResourceType, e.ResourceName)))
 			renderBreakdownResource(w, e, 0, colName, colQty, colUnit, colCost)
 		} else {
 			resourceIndent := strings.Repeat("   ", depth)
-			fmt.Fprintf(w, " %s%s %s\n", resourceIndent, applyStyle(planDim, conn), applyStyle(planBold, e.ResourceType+"."+e.ResourceName))
+			fmt.Fprintf(w, " %s%s %s\n", resourceIndent, applyStyle(planDim, conn), applyStyle(planBold, resourceLabel(e.ResourceType, e.ResourceName)))
 			compIndent := len(resourceIndent) + len(cont) + 1
 			renderBreakdownResource(w, e, compIndent, colName, colQty, colUnit, colCost)
 		}
@@ -367,6 +423,7 @@ func RenderBreakdown(w io.Writer, data *api.AnalyzePrResponse, projectLabel stri
 	if QuietMode {
 		return
 	}
+	data, projectLabel = sanitizedResponse(data), Sanitize(projectLabel)
 
 	colName := 55
 	colQty := 10
@@ -385,6 +442,7 @@ func RenderBreakdown(w io.Writer, data *api.AnalyzePrResponse, projectLabel stri
 	renderBreakdownNode(w, tree, 0, "", colName, colQty, colUnit, colCost)
 
 	renderBreakdownFooter(w, data, colName+colQty+colUnit+2, colCost, projectLabel)
+	renderAssumptions(w, data.Diagnostics, false)
 }
 
 func filterVisibleSuggestions(suggestions []*api.UpgradeSuggestion) []*api.UpgradeSuggestion {
@@ -400,6 +458,32 @@ func filterVisibleSuggestions(suggestions []*api.UpgradeSuggestion) []*api.Upgra
 	return filtered
 }
 
+func suggestionResource(s *api.UpgradeSuggestion) string {
+	resource := resourceLabel(s.ResourceType, s.ResourceName)
+	if mp := derefStr(s.ModulePath); mp != "" {
+		resource = mp + "." + resource
+	}
+	return resource
+}
+
+// suggestionLocation is where the value to change is written: file:line for a
+// CloudFormation template, the file for Terraform.
+func suggestionLocation(s *api.UpgradeSuggestion) string {
+	if s.Location != nil {
+		return fmt.Sprintf("%s:%d", s.Location.File, s.Location.Line)
+	}
+	return s.File
+}
+
+func anyLocated(suggestions []*api.UpgradeSuggestion) bool {
+	for _, s := range suggestions {
+		if s.Location != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func renderSuggestionsTable(w io.Writer, suggestions []*api.UpgradeSuggestion) {
 	suggestions = filterVisibleSuggestions(suggestions)
 	if len(suggestions) == 0 {
@@ -407,27 +491,60 @@ func renderSuggestionsTable(w io.Writer, suggestions []*api.UpgradeSuggestion) {
 	}
 	fmt.Fprintf(w, "\n%s\n\n", applyStyle(planBold, fmt.Sprintf("Optimization opportunities (%d):", len(suggestions))))
 
+	located := anyLocated(suggestions)
 	var rows [][]string
 	lastResource := ""
 	for _, s := range suggestions {
-		resource := s.ResourceType + "." + s.ResourceName
-		mp := derefStr(s.ModulePath)
-		if mp != "" {
-			resource = mp + "." + s.ResourceType + "." + s.ResourceName
-		}
+		resource := suggestionResource(s)
 		displayResource := resource
 		if resource == lastResource {
 			displayResource = ""
 		} else {
 			lastResource = resource
 		}
-		savings := "— (better performance, same cost)"
+		savings := "Better performance, same cost"
 		if s.EstimatedMonthlySavings != nil && *s.EstimatedMonthlySavings != 0 {
 			savings = formatCost(*s.EstimatedMonthlySavings) + "/mo"
 		}
-		rows = append(rows, []string{displayResource, s.Reason, savings})
+		row := []string{displayResource, s.Reason, savings}
+		if located {
+			row = append(row, suggestionLocation(s))
+		}
+		rows = append(rows, row)
 	}
-	TableTo(w, []string{"Resource", "Suggestion", "Est. Savings"}, rows)
+	headers := []string{"Resource", "Suggestion", "Est. Savings"}
+	if located {
+		headers = append(headers, "Location")
+	}
+	TableTo(w, headers, rows)
+}
+
+// renderAssumptions lists what the estimate assumed, such as a parameter priced
+// at its default.
+func renderAssumptions(w io.Writer, diagnostics []*api.Diagnostic, markdown bool) {
+	if len(diagnostics) == 0 {
+		return
+	}
+	if markdown {
+		fmt.Fprintf(w, "\n**Assumptions**\n\n")
+	} else {
+		fmt.Fprintf(w, "\n%s\n", applyStyle(planBold, "Assumptions:"))
+	}
+	for _, d := range diagnostics {
+		where := ""
+		if d.File != nil {
+			where = " (" + *d.File
+			if d.Line != nil {
+				where += fmt.Sprintf(":%d", *d.Line)
+			}
+			where += ")"
+		}
+		if markdown {
+			fmt.Fprintf(w, "- %s%s\n", d.Message, where)
+		} else {
+			fmt.Fprintf(w, "%s\n", applyStyle(planDim, "∙ "+d.Message+where))
+		}
+	}
 }
 
 func renderBreakdownFooter(w io.Writer, data *api.AnalyzePrResponse, labelWidth, costWidth int, projectLabel string) {
@@ -490,6 +607,7 @@ func RenderDiff(w io.Writer, data *api.AnalyzePrResponse, projectLabel string) {
 	if QuietMode {
 		return
 	}
+	data, projectLabel = sanitizedResponse(data), Sanitize(projectLabel)
 
 	fmt.Fprintf(w, "\n%s %s\n", applyStyle(planBold, "Project:"), projectLabel)
 	fmt.Fprintf(w, "\n%s\n", applyStyle(planDim, "Key: ~ changed, + added, - removed"))
@@ -498,6 +616,7 @@ func RenderDiff(w io.Writer, data *api.AnalyzePrResponse, projectLabel string) {
 	renderDiffNode(w, tree, 0)
 
 	renderDiffSummary(w, data, projectLabel)
+	renderAssumptions(w, data.Diagnostics, false)
 }
 
 func renderDiffNode(w io.Writer, node *moduleNode, depth int) {
@@ -529,7 +648,7 @@ func renderDiffResource(w io.Writer, e *api.ResourceCostEstimate, indent string)
 	}
 
 	sym, style := symbolAndStyle(e.ChangeType)
-	fmt.Fprintf(w, "\n%s%s %s\n", indent, applyStyle(style, sym), applyStyle(planBold, e.ResourceType+"."+e.ResourceName))
+	fmt.Fprintf(w, "\n%s%s %s\n", indent, applyStyle(style, sym), applyStyle(planBold, resourceLabel(e.ResourceType, e.ResourceName)))
 
 	prev := ptrF(e.PreviousMonthlyCost)
 	cur := ptrF(e.NewMonthlyCost)
@@ -636,19 +755,32 @@ func renderMarkdownDetectionSummary(w io.Writer, summary *api.CostSummary) {
 	fmt.Fprintln(w)
 }
 
+// markdownGroup is the root, nested stack and module a resource sits in.
+func markdownGroup(e *api.ResourceCostEstimate, byScope bool) string {
+	var parts []string
+	if byScope && derefStr(e.Scope) != "" {
+		parts = append(parts, "`"+derefStr(e.Scope)+"`")
+	}
+	if mp := derefStr(e.ModulePath); mp != "" {
+		parts = append(parts, "`"+mp+"`")
+	}
+	return strings.Join(parts, " ")
+}
+
 func renderMarkdownTable(w io.Writer, data *api.AnalyzePrResponse) bool {
-	hasModules := false
+	byScope := distinctScopes(data.ResourceCostEstimates) > 1
+	hasGroups := false
 	for _, e := range data.ResourceCostEstimates {
-		if derefStr(e.ModulePath) != "" {
-			hasModules = true
+		if markdownGroup(e, byScope) != "" {
+			hasGroups = true
 			break
 		}
 	}
 
 	fmt.Fprintln(w)
-	if hasModules {
-		fmt.Fprintln(w, "| Module | Resource | Type | Cost/mo | Delta |")
-		fmt.Fprintln(w, "|--------|----------|------|---------|-------|")
+	if hasGroups {
+		fmt.Fprintln(w, "| Location | Resource | Type | Cost/mo | Delta |")
+		fmt.Fprintln(w, "|----------|----------|------|---------|-------|")
 	} else {
 		fmt.Fprintln(w, "| Resource | Type | Cost/mo | Delta |")
 		fmt.Fprintln(w, "|----------|------|---------|-------|")
@@ -660,23 +792,19 @@ func renderMarkdownTable(w io.Writer, data *api.AnalyzePrResponse) bool {
 		sym, _ := symbolAndStyle(e.ChangeType)
 		cost := ptrF(e.NewMonthlyCost)
 		diff := ptrF(e.MonthlyCostDifference)
-		if hasModules {
-			modCol := ""
-			mp := derefStr(e.ModulePath)
-			if mp != "" {
-				modCol = "`" + mp + "`"
-			}
+		if hasGroups {
 			fmt.Fprintf(w, "| %s | %s %s | %s | %s | %s |\n",
-				modCol, sym, e.ResourceName, e.ResourceType, formatCost(cost), formatDeltaCost(diff))
+				markdownGroup(e, byScope), sym, e.ResourceName, e.ResourceType, formatCost(cost), formatDeltaCost(diff))
 		} else {
 			fmt.Fprintf(w, "| %s %s | %s | %s | %s |\n",
 				sym, e.ResourceName, e.ResourceType, formatCost(cost), formatDeltaCost(diff))
 		}
 	}
-	return hasModules
+	return hasGroups
 }
 
 func RenderMarkdown(w io.Writer, data *api.AnalyzePrResponse, isDiff bool) {
+	data = sanitizedResponse(data)
 	if isDiff {
 		fmt.Fprintln(w, "## Cost Estimate (diff)")
 	} else {
@@ -705,25 +833,34 @@ func RenderMarkdown(w io.Writer, data *api.AnalyzePrResponse, isDiff bool) {
 
 	visible := filterVisibleSuggestions(data.UpgradeSuggestions)
 	if len(visible) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "<details><summary>Optimization suggestions</summary>")
-		fmt.Fprintln(w)
+		renderMarkdownSuggestions(w, visible)
+	}
+	renderAssumptions(w, data.Diagnostics, true)
+}
+
+func renderMarkdownSuggestions(w io.Writer, suggestions []*api.UpgradeSuggestion) {
+	located := anyLocated(suggestions)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "<details><summary>Optimization suggestions</summary>")
+	fmt.Fprintln(w)
+	if located {
+		fmt.Fprintln(w, "| Resource | Suggestion | Est. Savings | Location |")
+		fmt.Fprintln(w, "|----------|------------|-------------|----------|")
+	} else {
 		fmt.Fprintln(w, "| Resource | Suggestion | Est. Savings |")
 		fmt.Fprintln(w, "|----------|------------|-------------|")
-		for _, s := range visible {
-			savings := ""
-			if s.EstimatedMonthlySavings != nil {
-				savings = formatCost(*s.EstimatedMonthlySavings) + "/mo"
-			}
-			resource := s.ResourceType + "." + s.ResourceName
-			mp := derefStr(s.ModulePath)
-			if mp != "" {
-				resource = mp + "." + resource
-			}
-			fmt.Fprintf(w, "| %s | %s | %s |\n",
-				resource, s.Reason, savings)
-		}
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "</details>")
 	}
+	for _, s := range suggestions {
+		savings := ""
+		if s.EstimatedMonthlySavings != nil {
+			savings = formatCost(*s.EstimatedMonthlySavings) + "/mo"
+		}
+		if located {
+			fmt.Fprintf(w, "| %s | %s | %s | `%s` |\n", suggestionResource(s), s.Reason, savings, suggestionLocation(s))
+		} else {
+			fmt.Fprintf(w, "| %s | %s | %s |\n", suggestionResource(s), s.Reason, savings)
+		}
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "</details>")
 }

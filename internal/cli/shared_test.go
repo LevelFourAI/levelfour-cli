@@ -16,232 +16,6 @@ import (
 	tf "github.com/LevelFourAI/levelfour-cli/internal/terraform"
 )
 
-func TestClassifyInputs_DefaultsToDot(t *testing.T) {
-	dirs, files, err := classifyInputs(nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(dirs) != 1 || dirs[0] != "." {
-		t.Errorf("dirs = %v, want [.]", dirs)
-	}
-	if len(files) != 0 {
-		t.Errorf("files = %v, want empty", files)
-	}
-}
-
-func TestClassifyInputs_EmptyArgs(t *testing.T) {
-	dirs, files, err := classifyInputs([]string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(dirs) != 1 || dirs[0] != "." {
-		t.Errorf("dirs = %v, want [.]", dirs)
-	}
-	if len(files) != 0 {
-		t.Errorf("files = %v, want empty", files)
-	}
-}
-
-func TestClassifyInputs_Directory(t *testing.T) {
-	tmp := t.TempDir()
-	dirs, files, err := classifyInputs([]string{tmp})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(dirs) != 1 || dirs[0] != tmp {
-		t.Errorf("dirs = %v, want [%s]", dirs, tmp)
-	}
-	if len(files) != 0 {
-		t.Errorf("files = %v, want empty", files)
-	}
-}
-
-func TestClassifyInputs_File(t *testing.T) {
-	tmp := t.TempDir()
-	f := filepath.Join(tmp, "main.tf")
-	os.WriteFile(f, []byte(""), 0o600)
-
-	dirs, files, err := classifyInputs([]string{f})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(dirs) != 0 {
-		t.Errorf("dirs = %v, want empty", dirs)
-	}
-	if len(files) != 1 || files[0] != f {
-		t.Errorf("files = %v, want [%s]", files, f)
-	}
-}
-
-func TestClassifyInputs_MixedDirAndFile(t *testing.T) {
-	tmp := t.TempDir()
-	f := filepath.Join(tmp, "main.tf")
-	os.WriteFile(f, []byte(""), 0o600)
-
-	dirs, files, err := classifyInputs([]string{tmp, f})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(dirs) != 1 {
-		t.Errorf("dirs = %v, want 1 entry", dirs)
-	}
-	if len(files) != 1 {
-		t.Errorf("files = %v, want 1 entry", files)
-	}
-}
-
-func TestClassifyInputs_NotFound(t *testing.T) {
-	_, _, err := classifyInputs([]string{"/nonexistent/path/xyz"})
-	if err == nil {
-		t.Fatal("expected error for nonexistent path")
-	}
-	if !strings.Contains(err.Error(), "path not found") {
-		t.Errorf("error = %q, want 'path not found'", err.Error())
-	}
-}
-
-func TestParseSnapshots_Directory(t *testing.T) {
-	tmp := t.TempDir()
-	tf1 := filepath.Join(tmp, "main.tf")
-	os.WriteFile(tf1, []byte(`resource "aws_instance" "web" {
-  ami           = "ami-12345"
-  instance_type = "t2.micro"
-}
-`), 0o600)
-
-	snaps, warns, err := parseSnapshots([]string{tmp}, nil, tf.ParseOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(snaps) == 0 {
-		t.Fatal("expected at least one snapshot")
-	}
-	if snaps[0].Type != "aws_instance" {
-		t.Errorf("type = %q, want aws_instance", snaps[0].Type)
-	}
-	_ = warns
-}
-
-func TestParseSnapshots_Files(t *testing.T) {
-	tmp := t.TempDir()
-	tf1 := filepath.Join(tmp, "main.tf")
-	os.WriteFile(tf1, []byte(`resource "aws_s3_bucket" "b" {
-  bucket = "my-bucket"
-}
-`), 0o600)
-
-	snaps, _, err := parseSnapshots(nil, []string{tf1}, tf.ParseOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(snaps) == 0 {
-		t.Fatal("expected at least one snapshot")
-	}
-	if snaps[0].Type != "aws_s3_bucket" {
-		t.Errorf("type = %q, want aws_s3_bucket", snaps[0].Type)
-	}
-}
-
-func TestParseSnapshots_DirError(t *testing.T) {
-	_, _, err := parseSnapshots([]string{"/nonexistent/dir/xyz"}, nil, tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error for nonexistent directory")
-	}
-	if !strings.Contains(err.Error(), "failed to parse") {
-		t.Errorf("error = %q, want 'failed to parse'", err.Error())
-	}
-}
-
-func TestParseSnapshots_FilesError(t *testing.T) {
-	_, _, err := parseSnapshots(nil, []string{"/nonexistent/file.txt"}, tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error for invalid file")
-	}
-	if !strings.Contains(err.Error(), "failed to parse files") {
-		t.Errorf("error = %q, want 'failed to parse files'", err.Error())
-	}
-}
-
-func TestParseSnapshots_EmptyInputs(t *testing.T) {
-	snaps, warns, err := parseSnapshots(nil, nil, tf.ParseOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(snaps) != 0 {
-		t.Errorf("snaps = %v, want empty", snaps)
-	}
-	if len(warns) != 0 {
-		t.Errorf("warns = %v, want empty", warns)
-	}
-}
-
-func TestDetectRegion_FromDir(t *testing.T) {
-	tmp := t.TempDir()
-	os.WriteFile(filepath.Join(tmp, "provider.tf"), []byte(`provider "aws" {
-  region = "us-west-2"
-}
-`), 0o600)
-
-	r := detectRegion([]string{tmp}, nil)
-	if r != "us-west-2" {
-		t.Errorf("region = %q, want us-west-2", r)
-	}
-}
-
-func TestDetectRegion_FromFile(t *testing.T) {
-	tmp := t.TempDir()
-	f := filepath.Join(tmp, "provider.tf")
-	os.WriteFile(f, []byte(`provider "aws" {
-  region = "eu-west-1"
-}
-`), 0o600)
-
-	r := detectRegion(nil, []string{f})
-	if r != "eu-west-1" {
-		t.Errorf("region = %q, want eu-west-1", r)
-	}
-}
-
-func TestDetectRegion_Empty(t *testing.T) {
-	r := detectRegion(nil, nil)
-	if r != "" {
-		t.Errorf("region = %q, want empty", r)
-	}
-}
-
-func TestDetectRegion_DirNoProvider(t *testing.T) {
-	tmp := t.TempDir()
-	os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`resource "aws_instance" "web" {
-  ami = "ami-123"
-}
-`), 0o600)
-
-	r := detectRegion([]string{tmp}, nil)
-	if r != "" {
-		t.Errorf("region = %q, want empty", r)
-	}
-}
-
-func TestDetectRegion_DirFallsThruToFile(t *testing.T) {
-	dirTmp := t.TempDir()
-	os.WriteFile(filepath.Join(dirTmp, "main.tf"), []byte(`resource "aws_instance" "web" {
-  ami = "ami-123"
-}
-`), 0o600)
-
-	fileTmp := t.TempDir()
-	f := filepath.Join(fileTmp, "provider.tf")
-	os.WriteFile(f, []byte(`provider "aws" {
-  region = "ap-southeast-1"
-}
-`), 0o600)
-
-	r := detectRegion([]string{dirTmp}, []string{f})
-	if r != "ap-southeast-1" {
-		t.Errorf("region = %q, want ap-southeast-1", r)
-	}
-}
-
 func TestPostAnalysis_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/iac-analysis/analyze" {
@@ -269,7 +43,7 @@ func TestPostAnalysis_Success(t *testing.T) {
 	defer srv.Close()
 
 	client, _ := api.NewSDKClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
-	result, err := postAnalysis(client, nil, nil, "us-east-1", nil, nil)
+	result, err := postAnalysis(client, &api.AnalyzePrRequest{Region: api.StringPtr("us-east-1")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -289,7 +63,7 @@ func TestPostAnalysis_401Error(t *testing.T) {
 	defer srv.Close()
 
 	client, _ := api.NewSDKClient(srv.URL, "l4_test_badkey1234567890a", "0.0.0-test")
-	_, err := postAnalysis(client, nil, nil, "us-east-1", nil, nil)
+	_, err := postAnalysis(client, &api.AnalyzePrRequest{Region: api.StringPtr("us-east-1")})
 	if err == nil {
 		t.Fatal("expected error for 401")
 	}
@@ -311,7 +85,7 @@ func TestPostAnalysis_403Error(t *testing.T) {
 	defer srv.Close()
 
 	client, _ := api.NewSDKClient(srv.URL, "l4_test_readonly123456789", "0.0.0-test")
-	_, err := postAnalysis(client, nil, nil, "us-east-1", nil, nil)
+	_, err := postAnalysis(client, &api.AnalyzePrRequest{Region: api.StringPtr("us-east-1")})
 	if err == nil {
 		t.Fatal("expected error for 403")
 	}
@@ -401,7 +175,7 @@ func TestPostAnalysis_Non401Error(t *testing.T) {
 	defer srv.Close()
 
 	client, _ := api.NewSDKClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
-	_, err := postAnalysis(client, nil, nil, "us-east-1", nil, nil)
+	_, err := postAnalysis(client, &api.AnalyzePrRequest{Region: api.StringPtr("us-east-1")})
 	if err == nil {
 		t.Fatal("expected error for 500")
 	}
@@ -580,30 +354,6 @@ func TestDiffSnapshots_Empty(t *testing.T) {
 	changes := diffSnapshots(nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("len(changes) = %d, want 0", len(changes))
-	}
-}
-
-func TestIsJSONFile(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"snapshots.json", true},
-		{"/tmp/data.json", true},
-		{"main.tf", false},
-		{"json", false},
-		{".json", false},
-		{"a.json", true},
-		{"ab.json", true},
-		{"", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			got := isJSONFile(tt.path)
-			if got != tt.want {
-				t.Errorf("isJSONFile(%q) = %v, want %v", tt.path, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -1022,32 +772,9 @@ func TestPostAnalysis_SendsPayloadFields(t *testing.T) {
 	client, _ := api.NewSDKClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
 	snaps := []api.ResourceSnapshot{{Type: "aws_instance", Name: "web", Attributes: map[string]interface{}{"ami": "ami-123"}}}
 	changes := []api.ResourceChange{{ResourceType: "aws_instance", ResourceName: "web", ChangeType: "added"}}
-	_, err := postAnalysis(client, snaps, changes, "us-east-1", nil, nil)
+	_, err := postAnalysis(client, (&analysisInputs{terraform: snaps, region: "us-east-1"}).request(changes, nil))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestParseSnapshots_DirAndFiles(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "aws_instance" "a" {
-  ami = "ami-111"
-}
-`), 0o600)
-
-	fileDir := t.TempDir()
-	f := filepath.Join(fileDir, "extra.tf")
-	os.WriteFile(f, []byte(`resource "aws_s3_bucket" "b" {
-  bucket = "bkt"
-}
-`), 0o600)
-
-	snaps, _, err := parseSnapshots([]string{dir}, []string{f}, tf.ParseOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(snaps) != 2 {
-		t.Errorf("len(snaps) = %d, want 2", len(snaps))
 	}
 }
 
@@ -1174,58 +901,6 @@ func TestGitMergeBase_InvalidRef(t *testing.T) {
 	}
 }
 
-func TestGitBaselineSnapshots(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-
-	infraDir := filepath.Join(dir, "infra")
-	os.MkdirAll(infraDir, 0o755)
-	os.WriteFile(filepath.Join(infraDir, "main.tf"), []byte(`resource "aws_instance" "test" {
-  ami           = "ami-123"
-  instance_type = "t3.small"
-}
-`), 0o600)
-	gitRun(t, dir, "add", "-A")
-	gitRun(t, dir, "commit", "-m", "init")
-
-	snaps, err := gitBaselineSnapshots(infraDir, "", tf.ParseOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(snaps) != 1 {
-		t.Fatalf("len(snaps) = %d, want 1", len(snaps))
-	}
-	if snaps[0].Type != "aws_instance" {
-		t.Errorf("type = %q, want aws_instance", snaps[0].Type)
-	}
-}
-
-func TestGitBaselineSnapshots_FilePath(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-
-	os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "aws_instance" "web" {
-  ami           = "ami-123"
-  instance_type = "t3.micro"
-}
-resource "aws_ebs_volume" "data" {
-  availability_zone = "us-east-1a"
-  size              = 20
-}
-`), 0o600)
-	gitRun(t, dir, "add", "-A")
-	gitRun(t, dir, "commit", "-m", "init")
-
-	filePath := filepath.Join(dir, "main.tf")
-	snaps, err := gitBaselineSnapshots(filePath, "", tf.ParseOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(snaps) != 2 {
-		t.Fatalf("len(snaps) = %d, want 2", len(snaps))
-	}
-}
-
 func TestGitDefaultBranch_NoBranch(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
@@ -1233,168 +908,6 @@ func TestGitDefaultBranch_NoBranch(t *testing.T) {
 	branch := gitDefaultBranch(dir)
 	if branch != "" {
 		t.Errorf("branch = %q, want empty for repo with no commits", branch)
-	}
-}
-
-func TestGitBaselineSnapshots_NoBranch(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-	gitRun(t, dir, "checkout", "-b", "feature")
-	os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "aws_instance" "x" {}`), 0o600)
-	gitRun(t, dir, "add", "-A")
-	gitRun(t, dir, "commit", "-m", "init")
-
-	_, err := gitBaselineSnapshots(dir, "", tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error when no main/master branch exists")
-	}
-	if !strings.Contains(err.Error(), "no main or master branch found") {
-		t.Errorf("error = %q, want 'no main or master branch found'", err.Error())
-	}
-}
-
-func TestGitBaselineSnapshots_InvalidBaseRef(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-	os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "aws_instance" "x" {}`), 0o600)
-	gitRun(t, dir, "add", "-A")
-	gitRun(t, dir, "commit", "-m", "init")
-
-	_, err := gitBaselineSnapshots(dir, "nonexistent-ref", tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error for invalid base ref")
-	}
-	if !strings.Contains(err.Error(), "merge-base failed") {
-		t.Errorf("error = %q, want 'merge-base failed'", err.Error())
-	}
-}
-
-func TestGitBaselineSnapshots_NonexistentPath(t *testing.T) {
-	_, err := gitBaselineSnapshots("/nonexistent/path/xyz", "", tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error for nonexistent path")
-	}
-}
-
-func TestGitBaselineSnapshots_NotARepo(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "aws_instance" "x" {}`), 0o600)
-
-	_, err := gitBaselineSnapshots(dir, "", tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error for non-git dir")
-	}
-	if !strings.Contains(err.Error(), "not a git repository") {
-		t.Errorf("error = %q, want 'not a git repository'", err.Error())
-	}
-}
-
-func TestGitBaselineSnapshots_AbsError(t *testing.T) {
-	origAbs := filepathAbs
-	filepathAbs = func(_ string) (string, error) {
-		return "", errors.New("abs error")
-	}
-	defer func() { filepathAbs = origAbs }()
-
-	_, err := gitBaselineSnapshots(".", "", tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "abs error") {
-		t.Errorf("error = %q, want 'abs error'", err.Error())
-	}
-}
-
-func TestGitBaselineSnapshots_RelError(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-	os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "aws_instance" "x" {}`), 0o600)
-	gitRun(t, dir, "add", "-A")
-	gitRun(t, dir, "commit", "-m", "init")
-
-	origRel := filepathRel
-	filepathRel = func(_, _ string) (string, error) {
-		return "", errors.New("rel error")
-	}
-	defer func() { filepathRel = origRel }()
-
-	_, err := gitBaselineSnapshots(dir, "", tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "rel error") {
-		t.Errorf("error = %q, want 'rel error'", err.Error())
-	}
-}
-
-func TestGitBaselineSnapshots_ChdirError(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-	os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "aws_instance" "x" {}`), 0o600)
-	gitRun(t, dir, "add", "-A")
-	gitRun(t, dir, "commit", "-m", "init")
-
-	origChdir := osChdir
-	osChdir = func(_ string) error {
-		return errors.New("chdir error")
-	}
-	defer func() { osChdir = origChdir }()
-
-	_, err := gitBaselineSnapshots(dir, "", tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "chdir error") {
-		t.Errorf("error = %q, want 'chdir error'", err.Error())
-	}
-}
-
-func TestGitBaselineSnapshots_MkdirTempError(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-	os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "aws_instance" "x" {}`), 0o600)
-	gitRun(t, dir, "add", "-A")
-	gitRun(t, dir, "commit", "-m", "init")
-
-	origMkdirTemp := osMkdirTemp
-	callCount := 0
-	origChdir := osChdir
-	osChdir = func(dir string) error {
-		callCount++
-		return origChdir(dir)
-	}
-	osMkdirTemp = func(_, _ string) (string, error) {
-		return "", errors.New("mkdirtemp error")
-	}
-	defer func() {
-		osMkdirTemp = origMkdirTemp
-		osChdir = origChdir
-	}()
-
-	_, err := gitBaselineSnapshots(dir, "", tf.ParseOptions{})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "mkdirtemp error") {
-		t.Errorf("error = %q, want 'mkdirtemp error'", err.Error())
-	}
-}
-
-func TestGitBaselineSnapshots_ParseError(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-
-	os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("no tf here"), 0o600)
-	gitRun(t, dir, "add", "-A")
-	gitRun(t, dir, "commit", "-m", "init")
-
-	subdir := filepath.Join(dir, "subdir")
-	os.MkdirAll(subdir, 0o755)
-	os.WriteFile(filepath.Join(subdir, "main.tf"), []byte(`resource "aws_instance" "x" {}`), 0o600)
-
-	_, err := gitBaselineSnapshots(subdir, "", tf.ParseOptions{})
-	if err != nil {
-		t.Logf("got expected error: %v", err)
 	}
 }
 
@@ -1511,7 +1024,7 @@ func TestPostAnalysis_ProviderRegionsInPayload(t *testing.T) {
 
 	client, _ := api.NewSDKClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
 	pr := map[string]string{"aws": "us-east-1", "gcp": "us-central1", "azure": "eastus"}
-	_, err := postAnalysis(client, nil, nil, "us-east-1", pr, nil)
+	_, err := postAnalysis(client, (&analysisInputs{region: "us-east-1", providerRegions: pr}).request(nil, nil))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1534,7 +1047,7 @@ func TestPostAnalysis_UsageOverridesInPayload(t *testing.T) {
 
 	client, _ := api.NewSDKClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
 	overrides := map[string]interface{}{"lambda_invocations": 5000000, "hours_per_month": 730.0}
-	_, err := postAnalysis(client, nil, nil, "us-east-1", nil, overrides)
+	_, err := postAnalysis(client, (&analysisInputs{region: "us-east-1", usage: overrides}).request(nil, nil))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
