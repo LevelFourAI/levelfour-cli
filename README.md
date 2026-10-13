@@ -138,7 +138,7 @@ Terraform is parsed on your machine and only the resources go to the API. **Clou
 | `--parameter Key=Value` | A parameter value, given to every template that declares `Key`. Repeatable |
 | `--parameters-file` | A parameters file in the AWS CLI JSON format (`[{"ParameterKey", "ParameterValue"}]`) or the CodePipeline format (`{"Parameters": {...}}`) |
 | `--config-env` | The `samconfig` environment whose parameters and region apply (default `default`) |
-| `--region` | The AWS region to price in. Without it: `region_override` in `.levelfour/config.yml`, a Terraform provider block, a template's `samconfig`, then `us-east-1` |
+| `--region` | The AWS region to price in, for Terraform and CloudFormation alike. Without it, Terraform uses `region_override` in `.levelfour/config.yml` or a provider block, a CloudFormation template uses its `samconfig` region, and either falls back to `us-east-1` |
 
 When an estimate rests on an assumption, such as a parameter priced at its default or a condition that could not be settled, the output lists it under **Assumptions**.
 

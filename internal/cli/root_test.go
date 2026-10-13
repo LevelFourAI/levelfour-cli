@@ -11,6 +11,8 @@ import (
 
 	"github.com/LevelFourAI/levelfour-cli/internal/mcp"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	kr "github.com/zalando/go-keyring"
 )
 
@@ -145,6 +147,10 @@ func resetFlags() {
 	// would otherwise still read as explicitly set in the next.
 	if f := commitmentsExpiringCmd.Flags().Lookup("within"); f != nil {
 		f.Changed = false
+	}
+	// estimate and diff read Changed("region") to tell a given region from none.
+	for _, cmd := range []*cobra.Command{estimateNewCmd, diffCmd} {
+		cmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	}
 }
 

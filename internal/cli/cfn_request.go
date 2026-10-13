@@ -13,6 +13,7 @@ type cfnFlags struct {
 	parameters     []string
 	parametersFile string
 	configEnv      string
+	region         string
 }
 
 func parseParameterFlags(values []string) (map[string]string, error) {
@@ -42,6 +43,7 @@ func buildCloudFormationInput(root string, head, base cfn.Result, flags cfnFlags
 		Parameters:            declaredValues(values, head, base),
 		SamconfigEnv:          flags.configEnv,
 		ExcludedResourceTypes: excluded,
+		Region:                flags.region,
 	}
 	if flags.parametersFile == "" {
 		return input, nil

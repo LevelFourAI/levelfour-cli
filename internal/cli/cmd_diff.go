@@ -89,6 +89,7 @@ added.`,
 			parameters:     flagDiffParameter,
 			parametersFile: flagDiffParametersFile,
 			configEnv:      flagDiffConfigEnv,
+			region:         givenRegion(cmd, flagDiffRegion),
 		}, in.config.ExcludedResourceTypes)
 		if err != nil {
 			return err
@@ -167,7 +168,7 @@ func allAdded(in *analysisInputs, cause error) ([]api.ResourceChange, cfn.Result
 func init() {
 	diffCmd.Flags().StringVar(&flagDiffFormat, "format", "table", "Output format: table, json, github-comment")
 	diffCmd.Flags().Float64Var(&flagDiffFailAbove, "fail-above", 0, "Exit code 2 if monthly delta exceeds this threshold")
-	diffCmd.Flags().StringVar(&flagDiffRegion, "region", "", "AWS region for pricing (default: the project config, a provider block, a template's samconfig, then us-east-1)")
+	diffCmd.Flags().StringVar(&flagDiffRegion, "region", "", "AWS region for pricing (default: Terraform reads the project config or a provider block, CloudFormation a template's samconfig, then us-east-1)")
 	diffCmd.Flags().StringVar(&flagDiffGCPRegion, "gcp-region", "", "GCP region for pricing (default: auto-detect or us-central1)")
 	diffCmd.Flags().StringVar(&flagDiffAzureRegion, "azure-region", "", "Azure region for pricing (default: auto-detect or eastus)")
 	diffCmd.Flags().StringArrayVar(&flagDiffVarFile, "var-file", nil, "Terraform variable files")

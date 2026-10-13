@@ -555,12 +555,15 @@ func TestBuildCloudFormationInput(t *testing.T) {
 	}
 
 	base := cfn.Result{Files: []api.TemplateFile{{Path: "gone.yaml", Content: appTemplate}}, Templates: []string{"gone.yaml"}}
-	input, err := buildCloudFormationInput(".", cfn.Result{}, base, cfnFlags{parameters: []string{"InstanceType=x"}}, nil)
+	input, err := buildCloudFormationInput(".", cfn.Result{}, base, cfnFlags{parameters: []string{"InstanceType=x"}, region: "sa-east-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(input.Files.Head) != 0 || input.Files.Head == nil {
 		t.Errorf("head should be an empty list, got %#v", input.Files.Head)
+	}
+	if input.Region != "sa-east-1" {
+		t.Errorf("region = %q, want the given one", input.Region)
 	}
 	if input.Parameters["gone.yaml"]["InstanceType"] != "x" {
 		t.Errorf("a template only at base still gets its parameters: %v", input.Parameters)
@@ -867,5 +870,40 @@ func TestEstimate_RefusesASymlinkedParametersFile(t *testing.T) {
 		"--api", "http://localhost:9999", "--token", testToken)
 	if err == nil || !strings.Contains(err.Error(), "a symlink") {
 		t.Errorf("err = %v, want the symlink refused", err)
+	}
+}
+
+func TestEstimate_SendsTheGivenRegionForTemplatesToo(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	writeAt(t, dir, "app.yaml", dbTemplate)
+	writeAt(t, dir, "main.tf", providerTF+basicTF)
+
+	if _, _, err := executeCommand(t, "estimate", dir, "--region", "eu-west-2", "--api", srv.URL, "--token", testToken); err != nil {
+		t.Fatal(err)
+	}
+
+	block := (*body)["cloudformation"].(map[string]interface{})
+	if (*body)["region"] != "eu-west-2" || block["region"] != "eu-west-2" {
+		t.Errorf("region = %v, cloudformation.region = %v; want eu-west-2 in both", (*body)["region"], block["region"])
+	}
+}
+
+func TestEstimate_WithoutRegionTemplatesGetNone(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	writeAt(t, dir, "app.yaml", dbTemplate)
+	writeAt(t, dir, "main.tf", providerTF+basicTF)
+
+	if _, _, err := executeCommand(t, "estimate", dir, "--api", srv.URL, "--token", testToken); err != nil {
+		t.Fatal(err)
+	}
+
+	block := (*body)["cloudformation"].(map[string]interface{})
+	if _, ok := block["region"]; ok {
+		t.Errorf("cloudformation.region = %v, want none so samconfig applies", block["region"])
+	}
+	if (*body)["region"] != "eu-west-1" {
+		t.Errorf("region = %v, want the provider block's eu-west-1 for Terraform", (*body)["region"])
 	}
 }

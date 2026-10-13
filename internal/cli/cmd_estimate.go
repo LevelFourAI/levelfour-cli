@@ -89,6 +89,7 @@ pipeline step).`,
 			parameters:     flagEstNewParameter,
 			parametersFile: flagEstNewParametersFile,
 			configEnv:      flagEstNewConfigEnv,
+			region:         givenRegion(cmd, flagEstNewRegion),
 		}, in.config.ExcludedResourceTypes)
 		if err != nil {
 			return err
@@ -118,7 +119,7 @@ func init() {
 	estimateNewCmd.Flags().StringVar(&flagEstNewFormat, "format", "table", "Output format: table, json, github-comment")
 	estimateNewCmd.Flags().StringVar(&flagEstNewOutFile, "out-file", "", "Save the Terraform resource snapshot for later use with 'l4 diff'")
 	estimateNewCmd.Flags().Float64Var(&flagEstNewFailAbove, "fail-above", 0, "Exit code 2 if monthly cost exceeds this threshold")
-	estimateNewCmd.Flags().StringVar(&flagEstNewRegion, "region", "", "AWS region for pricing (default: the project config, a provider block, a template's samconfig, then us-east-1)")
+	estimateNewCmd.Flags().StringVar(&flagEstNewRegion, "region", "", "AWS region for pricing (default: Terraform reads the project config or a provider block, CloudFormation a template's samconfig, then us-east-1)")
 	estimateNewCmd.Flags().StringVar(&flagEstNewGCPRegion, "gcp-region", "", "GCP region for pricing (default: auto-detect or us-central1)")
 	estimateNewCmd.Flags().StringVar(&flagEstNewAzureRegion, "azure-region", "", "Azure region for pricing (default: auto-detect or eastus)")
 	estimateNewCmd.Flags().StringArrayVar(&flagEstNewVarFile, "var-file", nil, "Terraform variable files")

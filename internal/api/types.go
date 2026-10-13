@@ -43,6 +43,9 @@ type CloudFormationInput struct {
 	ParameterFiles        map[string]string `json:"parameter_files,omitempty"`
 	SamconfigEnv          string            `json:"samconfig_env,omitempty"`
 	ExcludedResourceTypes []string          `json:"excluded_resource_types,omitempty"`
+	// Region is the --region flag. Without it each template is priced in its
+	// samconfig region.
+	Region string `json:"region,omitempty"`
 }
 
 type CloudFormationFiles struct {
