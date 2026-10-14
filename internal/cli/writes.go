@@ -21,9 +21,10 @@ var stdinReader io.Reader = os.Stdin
 // The answer arrives on stdin. isTerminal reads stdout, a different question.
 var canPrompt = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
 
-// For the two tags writes whose blast radius reaches months of already-evaluated spend.
-func requireApproval(prompt, unattended string) (bool, error) {
-	if flagTagsYes {
+// For the writes nothing takes back: the tags writes whose blast radius reaches months of
+// already-evaluated spend, and deleting an alert with its history.
+func requireApproval(yes bool, prompt, unattended string) (bool, error) {
+	if yes {
 		return true, nil
 	}
 	if !canPrompt() {
@@ -113,6 +114,18 @@ func decodeEnvelope(body []byte) (map[string]interface{}, error) {
 func envelopeData(envelope map[string]interface{}) map[string]interface{} {
 	data, _ := envelope["data"].(map[string]interface{})
 	return data
+}
+
+// Entries that are not objects are skipped, because the envelope decides the shape.
+func envelopeList(envelope map[string]interface{}) []map[string]interface{} {
+	raw, _ := envelope["data"].([]interface{})
+	items := make([]map[string]interface{}, 0, len(raw))
+	for _, entry := range raw {
+		if item, ok := entry.(map[string]interface{}); ok {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func dataString(data map[string]interface{}, key string) string {
