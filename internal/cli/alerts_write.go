@@ -214,6 +214,10 @@ func readAlertFile(path string) (map[string]interface{}, error) {
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return nil, fmt.Errorf("%s is not a JSON object: %w", path, err)
 	}
+	// JSON null decodes into a nil map without an error, and would be sent as a body of null.
+	if body == nil {
+		return nil, fmt.Errorf("%s is not a JSON object: it holds null", path)
+	}
 	return body, nil
 }
 

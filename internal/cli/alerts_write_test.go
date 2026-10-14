@@ -121,6 +121,13 @@ func TestAlertCreateFileProblems(t *testing.T) {
 		})
 	}
 
+	t.Run("a file that holds null", func(t *testing.T) {
+		_, _, err := executeCommand(t, "alerts", "create", "--file", ruleFile(t, "null"), "--yes")
+		if err == nil || !strings.Contains(err.Error(), "it holds null") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
 	t.Run("a file that is not a JSON object", func(t *testing.T) {
 		_, _, err := executeCommand(t, "alerts", "create", "--file", ruleFile(t, "[]"), "--yes")
 		if err == nil || !strings.Contains(err.Error(), "not a JSON object") {
