@@ -856,3 +856,28 @@ func TestNoticeStreamMovesOffStdoutUnderFormattingFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestProgressListGoesToStderr(t *testing.T) {
+	outBuf, errBuf := setupOutput(t)
+
+	ProgressList("Uploading 2 files:", []string{"a.yaml", "b.yaml"})
+
+	if outBuf.Len() != 0 {
+		t.Errorf("stdout = %q, want nothing", outBuf.String())
+	}
+	if errBuf.String() != "Uploading 2 files:\n  a.yaml\n  b.yaml\n" {
+		t.Errorf("stderr = %q", errBuf.String())
+	}
+}
+
+func TestProgressListQuiet(t *testing.T) {
+	_, errBuf := setupOutput(t)
+	QuietMode = true
+	defer func() { QuietMode = false }()
+
+	ProgressList("Uploading 1 file:", []string{"a.yaml"})
+
+	if errBuf.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing under --quiet", errBuf.String())
+	}
+}

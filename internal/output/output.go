@@ -41,7 +41,7 @@ func PrintJSON(v interface{}) {
 		return
 	}
 	data, _ := json.MarshalIndent(v, "", "  ")
-	fmt.Fprintln(Stdout, string(data))
+	fmt.Fprintln(Stdout, string(escapeFormatRunes(data)))
 }
 
 func PrintResult(v interface{}) error {
@@ -80,7 +80,7 @@ func printJQ(v interface{}) error {
 			return fmt.Errorf("jq error: %w", err)
 		}
 		out, _ := json.MarshalIndent(val, "", "  ")
-		fmt.Fprintln(Stdout, string(out))
+		fmt.Fprintln(Stdout, string(escapeFormatRunes(out)))
 	}
 	return nil
 }
@@ -299,7 +299,7 @@ func Error(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintf(Stderr, "%s %s\n", errorStyle.Render("Error:"), msg)
+	fmt.Fprintf(Stderr, "%s %s\n", errorStyle.Render("Error:"), SanitizeMultiline(msg))
 }
 
 // noticeStream is where prose meant for a person goes. Under --json, --jq or
@@ -317,21 +317,33 @@ func Success(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(noticeStream(), successStyle.Render("\u2713 "+msg))
+	fmt.Fprintln(noticeStream(), successStyle.Render("\u2713 "+SanitizeMultiline(msg)))
 }
 
 func Warning(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintf(Stderr, "%s %s\n", warnStyle.Render("Warning:"), msg)
+	fmt.Fprintf(Stderr, "%s %s\n", warnStyle.Render("Warning:"), Sanitize(msg))
+}
+
+// ProgressList writes a heading and one indented line per item to stderr,
+// where it stays out of JSON on stdout. --quiet silences it.
+func ProgressList(heading string, items []string) {
+	if QuietMode {
+		return
+	}
+	fmt.Fprintln(Stderr, Sanitize(heading))
+	for _, item := range items {
+		fmt.Fprintln(Stderr, "  "+Sanitize(item))
+	}
 }
 
 func Info(msg string) {
 	if QuietMode {
 		return
 	}
-	fmt.Fprintln(noticeStream(), msg)
+	fmt.Fprintln(noticeStream(), Sanitize(msg))
 }
 
 func InfoLabel(msg string) {
@@ -339,7 +351,7 @@ func InfoLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("114")).Render("INFO")
-	fmt.Fprintf(noticeStream(), "%s %s\n", label, msg)
+	fmt.Fprintf(noticeStream(), "%s %s\n", label, Sanitize(msg))
 }
 
 func WarnLabel(msg string) {
@@ -347,7 +359,7 @@ func WarnLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("173")).Render("WARNING")
-	fmt.Fprintf(Stderr, "%s %s\n", label, msg)
+	fmt.Fprintf(Stderr, "%s %s\n", label, SanitizeMultiline(msg))
 }
 
 func ErrorLabel(msg string) {
@@ -355,7 +367,7 @@ func ErrorLabel(msg string) {
 		return
 	}
 	label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("167")).Render("ERROR")
-	fmt.Fprintf(Stderr, "%s %s\n", label, msg)
+	fmt.Fprintf(Stderr, "%s %s\n", label, SanitizeMultiline(msg))
 }
 
 func Bold(s string) string {

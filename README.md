@@ -3,7 +3,7 @@
 [![CI](https://github.com/LevelFourAI/levelfour-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/LevelFourAI/levelfour-cli/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-The official command-line tool for [LevelFour](https://levelfour.ai). Surfaces cloud cost recommendations, integrations, and live spending from the terminal, plus terminal-only features like local Terraform cost estimation and an interactive TUI for browsing recommendations.
+The official command-line tool for [LevelFour](https://levelfour.ai). Surfaces cloud cost recommendations, integrations, and live spending from the terminal, plus terminal-only features like Terraform and CloudFormation cost estimation and an interactive TUI for browsing recommendations.
 
 > **Status: v0.x.** The CLI surface is still stabilizing. Minor versions may include breaking changes until v1.0. Pin to an exact version in CI and review the [release notes](https://github.com/LevelFourAI/levelfour-cli/releases) before upgrading.
 
@@ -35,7 +35,7 @@ l4 whoami                                      # confirm identity
 l4 costs summary                               # KPI overview
 l4 recommendations list --status available     # pending savings opportunities
 l4 rec accept REC-1234                         # accept one of them
-l4 estimate ./infra/                           # estimate Terraform costs locally
+l4 estimate ./infra/                           # estimate Terraform and CloudFormation costs
 ```
 
 The Homebrew cask and the release archives install two interchangeable binaries: `levelfour` (long form) and `l4` (short form, recommended for everyday use).
@@ -158,6 +158,30 @@ l4 alerts get <id> --json | jq '{params: (.data.params | .budget = 50000)}' | l4
 
 Every write needs a read-write API key and prompts for confirmation unless you pass `-y`/`--yes`. A rule piped in with `--file -` needs `--yes` at a terminal, since the prompt would read its answer from the same stdin. `delete` refuses to run outside a terminal without `--yes`, because nothing brings an alert or its history back.
 
+## Estimate infrastructure before you deploy
+
+`l4 estimate` prices Terraform and CloudFormation (YAML, JSON and SAM templates) before anything is created. `l4 diff` prices the change against the git merge-base, so a pull request shows what it adds to the monthly bill.
+
+```bash
+l4 estimate ./infra/                                  # every Terraform root and template under ./infra
+l4 estimate template.yaml --parameter Env=prod        # one template, with a parameter value
+l4 diff --parameters-file params/prod.json            # this branch against main, with prod parameters
+l4 diff ./stacks/ --config-env prod --fail-above 200  # samconfig's prod environment, fail CI over +$200/mo
+```
+
+A directory is read recursively. Each Terraform root module is priced once, with the modules it calls, and every CloudFormation template is found along with the nested stack templates, `AWS::Include` snippets and `samconfig` files it uses.
+
+Terraform is parsed on your machine and only the resources go to the API. **CloudFormation templates are uploaded to the LevelFour API**, which evaluates them (parameters, conditions, intrinsic functions, nested stacks) and prices them. The upload holds the templates, the files they reference, the `samconfig` beside them and the `--parameters-file`, and never anything outside the git repository (or, outside a repository, outside the directory you point at). A file a template references is uploaded only when git tracks it and it is not hidden, vendored or a package manifest, so an ignored `credentials.json` or a `.env.json` never leaves your machine; outside a git repository a referenced template is uploaded but an included snippet is not. Before the request goes out, the CLI lists every file it uploads on stderr.
+
+| Flag | What it does |
+|---|---|
+| `--parameter Key=Value` | A parameter value for the root templates that declare `Key`; a nested stack gets the values its parent passes. Repeatable |
+| `--parameters-file` | A parameters file for the root templates, in the AWS CLI JSON format (`[{"ParameterKey", "ParameterValue"}]`) or the CodePipeline format (`{"Parameters": {...}}`) |
+| `--config-env` | The `samconfig` environment whose parameters and region apply (default `default`) |
+| `--region` | The AWS region to price in, for Terraform and CloudFormation alike. Without it, `region_override` in `.levelfour/config.yml` pins both; without that, Terraform uses a provider block and a CloudFormation template its `samconfig` region, and either falls back to `us-east-1` |
+
+When an estimate rests on an assumption, such as a parameter priced at its default or a condition that could not be settled, the output lists it under **Assumptions**.
+
 ## Authentication
 
 `l4` resolves credentials in a fixed order:
@@ -230,7 +254,7 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 rec accept` / `reject` / `execute <id>` | Act on one, covered above |
 | `l4 commitments summary` | Coverage, utilization and what the commitments are earning |
 | `l4 commitments list` | Every commitment held, soonest to expire first |
-| `l4 commitments expiring` | What lapses soon, with an exit code for CI. Covered below |
+| `l4 commitments expiring` | What lapses soon, with an exit code for CI. Covered above |
 | `l4 commitments view` / `renewal <id>` | One commitment in full, and what to repurchase when it ends |
 | `l4 commitments utilization` | How much of what was bought is being used, per service |
 | `l4 commitments coverage` | How much of the eligible bill a commitment covers, per service |
@@ -239,7 +263,7 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 alerts list` / `get <id>` / `sources` / `events <id>` | Cost alerts, which are firing, what a rule can watch, and what one has said |
 | `l4 alerts create` / `update <id>` | Create a cost alert from a JSON rule file, or change the fields a file names |
 | `l4 alerts pause` / `resume` / `delete <id>` | Silence an alert, arm it again, or delete it with its history. Covered above |
-| `l4 estimate [path ...]` | Estimate Terraform costs locally |
+| `l4 estimate [path ...]` | Estimate Terraform and CloudFormation costs. Covered above |
 | `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |
 | `l4 tags list` / `show <key>` / `coverage` | Provider and virtual tag keys: spend, rules, and how much spend carries a tag |
 | `l4 tags resources <key>` / `costs <key>` | Resources a key covers, and spend per value |

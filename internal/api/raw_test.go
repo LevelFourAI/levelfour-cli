@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -413,5 +414,53 @@ func TestIntPtr(t *testing.T) {
 	p := IntPtr(42)
 	if p == nil || *p != 42 {
 		t.Errorf("IntPtr(42) = %v", p)
+	}
+}
+
+func TestAnalyzeIaC_RefusesABodyOverTheLimit(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+	client, _ := NewRawClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
+	big := strings.Repeat("x", MaxAnalyzeBodyBytes)
+	req := &AnalyzePrRequest{CloudFormation: &CloudFormationInput{Files: CloudFormationFiles{
+		Head: []TemplateFile{{Path: "template.yaml", Content: big}},
+	}}}
+
+	_, err := client.AnalyzeIaC(context.Background(), req)
+
+	if err == nil || !strings.Contains(err.Error(), "8 MiB") {
+		t.Errorf("err = %v, want the size limit", err)
+	}
+	if called {
+		t.Error("an oversized request was sent")
+	}
+}
+
+func TestAnalysisTransportWaitsForSlowAnalyses(t *testing.T) {
+	if got := analysisTransport().ResponseHeaderTimeout; got != analysisTimeout {
+		t.Errorf("ResponseHeaderTimeout = %v, want %v", got, analysisTimeout)
+	}
+}
+
+func TestAnalyzeIaC_ReturnsTheErrorResponseWhole(t *testing.T) {
+	body := `{"error": {"message": "Invalid request data", "details": [{"loc": ["body"], "msg": "bad"}]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(422)
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	client, _ := NewRawClient(srv.URL, "l4_test_testkey123456789a", "0.0.0-test")
+
+	_, err := client.AnalyzeIaC(context.Background(), &AnalyzePrRequest{})
+
+	var respErr *ResponseError
+	if !errors.As(err, &respErr) || string(respErr.Response.Body) != body {
+		t.Fatalf("err = %v, want a ResponseError carrying the body", err)
+	}
+	if err.Error() != "API error (422): Invalid request data" {
+		t.Errorf("Error() = %q", err.Error())
 	}
 }

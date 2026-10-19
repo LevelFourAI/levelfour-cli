@@ -19,6 +19,7 @@ const (
 	MaxResources   = 500
 	MaxFileSize    = 1 << 20
 	MaxDepth       = 10
+	tfExt          = ".tf"
 	blockModule    = "module"
 	providerAWS    = "aws"
 	providerGoogle = "google"
@@ -86,20 +87,9 @@ func parseDirectoryWithVisited(dir string, visited map[string]bool, depth int, e
 		maxFileSize = opts.MaxFileSize
 	}
 
-	matches, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+	allFiles, err := tfFilesIn(dir)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	subMatches, _ := filepath.Glob(filepath.Join(dir, "**", "*.tf"))
-	seen := make(map[string]bool)
-	var allFiles []string
-	for _, f := range append(matches, subMatches...) {
-		abs, _ := filepath.Abs(f)
-		if !seen[abs] {
-			seen[abs] = true
-			allFiles = append(allFiles, abs)
-		}
 	}
 
 	if len(allFiles) == 0 {
@@ -144,6 +134,23 @@ func parseDirectoryWithVisited(dir string, visited map[string]bool, depth int, e
 	return snapshots, warnings, nil
 }
 
+// tfFilesIn lists the .tf files of one module directory. Subdirectories are other
+// modules: a root reaches them through its module blocks (see DiscoverRoots).
+func tfFilesIn(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == tfExt {
+			abs, _ := filepath.Abs(filepath.Join(dir, e.Name()))
+			files = append(files, abs)
+		}
+	}
+	return files, nil
+}
+
 type fileGroup struct {
 	dir   string
 	files []string
@@ -161,7 +168,7 @@ func groupFilesByDir(files []string) ([]fileGroup, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot resolve path %s: %w", f, err)
 		}
-		if filepath.Ext(abs) != ".tf" {
+		if filepath.Ext(abs) != tfExt {
 			return nil, fmt.Errorf("not a .tf file: %s", f)
 		}
 		dir := filepath.Dir(abs)
@@ -271,25 +278,37 @@ func ParseGitRef(ref, path, tmpDir string) ([]api.ResourceSnapshot, []string, er
 	return ParseGitRefWithOpts(ref, path, tmpDir, ParseOptions{})
 }
 
+// ParseGitRefWithOpts parses the tree at path, run from the repository root, as
+// it was at ref (see ParseTree).
 func ParseGitRefWithOpts(ref, path, tmpDir string, opts ParseOptions) ([]api.ResourceSnapshot, []string, error) {
+	extracted, err := ExtractGitRef(ref, path, tmpDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ParseTree(extracted, opts)
+}
+
+// ExtractGitRef writes path, run from the repository root, as it was at ref
+// into tmpDir/<ref>/<path> and returns that directory.
+func ExtractGitRef(ref, path, tmpDir string) (string, error) {
 	cmd := exec.CommandContext(context.Background(), "git", "archive", "--format=tar", ref, "--", path)
 	archive, err := cmd.Output()
 	if err != nil {
-		return nil, nil, fmt.Errorf("git archive failed for %s: %w", ref, err)
+		return "", fmt.Errorf("git archive failed for %s: %w", ref, err)
 	}
 
 	extractDir := filepath.Join(tmpDir, ref)
 	if mkErr := os.MkdirAll(extractDir, 0o750); mkErr != nil {
-		return nil, nil, mkErr
+		return "", mkErr
 	}
 
 	tarCmd := exec.CommandContext(context.Background(), "tar", "xf", "-", "-C", extractDir)
 	tarCmd.Stdin = strings.NewReader(string(archive))
 	if tarErr := tarCmd.Run(); tarErr != nil {
-		return nil, nil, fmt.Errorf("tar extract failed: %w", tarErr)
+		return "", fmt.Errorf("tar extract failed: %w", tarErr)
 	}
 
-	return ParseDirectoryWithOpts(filepath.Join(extractDir, path), opts)
+	return filepath.Join(extractDir, path), nil
 }
 
 func ParseProviderRegion(dir string, opts ...ParseOptions) string {
@@ -464,6 +483,11 @@ func parseHCLContent(content []byte, filename string, visited map[string]bool, d
 	snapshots = append(snapshots, modSnapshots...)
 	warnings = append(warnings, modWarnings...)
 
+	for i := range snapshots {
+		if snapshots[i].File == "" {
+			snapshots[i].File = filename
+		}
+	}
 	return snapshots, warnings
 }
 
