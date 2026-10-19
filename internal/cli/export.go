@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	formatCSV  = "csv"
-	formatJSON = "json"
+	formatCSV           = "csv"
+	formatJSON          = "json"
+	formatTable         = "table"
+	formatGitHubComment = "github-comment"
 )
 
 var (

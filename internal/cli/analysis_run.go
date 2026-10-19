@@ -170,13 +170,19 @@ type renderOptions struct {
 	failAbove    float64
 }
 
+// writesDocument reports whether --format prints a document another program
+// reads, rather than the table a person reads.
+func writesDocument(format string) bool {
+	return format == formatJSON || format == formatGitHubComment
+}
+
 func renderAnalysis(data *api.AnalyzePrResponse, opts renderOptions) error {
 	switch {
 	case opts.format == formatJSON || output.HasFormattingFlags():
 		if err := printJSONResult(data); err != nil {
 			return err
 		}
-	case opts.format == "github-comment":
+	case opts.format == formatGitHubComment:
 		output.RenderMarkdown(output.Stdout, data, opts.isDiff)
 	case opts.isDiff:
 		output.RenderDiff(output.Stdout, data, opts.projectLabel)

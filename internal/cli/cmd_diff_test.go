@@ -178,12 +178,15 @@ func TestDiffFormatJSONWithoutGlobalFlag(t *testing.T) {
 	tfDir := t.TempDir()
 	writeTFFile(t, tfDir, "main.tf", basicTF)
 
-	out, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "json")
+	out, errOut, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out.String(), "resource_cost_estimates") {
-		t.Errorf("--format json alone printed no JSON, got: %s", out.String())
+	if !strings.Contains(out.String(), "resource_cost_estimates") || !json.Valid(out.Bytes()) {
+		t.Errorf("--format json alone should print only the JSON, got: %s", out.String())
+	}
+	if !strings.Contains(errOut.String(), "Found 1 resources") {
+		t.Errorf("the notice belongs on stderr, got: %s", errOut.String())
 	}
 }
 
@@ -197,6 +200,9 @@ func TestDiffFormatGithubComment(t *testing.T) {
 	out, _, err := executeCommand(t, "diff", tfDir, "--api", srv.URL, "--token", "l4_test_testkey123456789a", "--format", "github-comment")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(out.String(), "Found 1 resources") {
+		t.Errorf("a notice landed in the comment: %s", out.String())
 	}
 	got := out.String()
 	if !strings.Contains(got, "## Cost Estimate (diff)") {

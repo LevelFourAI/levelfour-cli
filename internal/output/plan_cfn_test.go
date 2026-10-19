@@ -138,3 +138,89 @@ func TestResourceLabel(t *testing.T) {
 		t.Errorf("cloudformation label = %q", got)
 	}
 }
+
+// componentIndents returns the column at which each component row starts.
+func componentIndents(out string, names ...string) []int {
+	var indents []int
+	for _, line := range strings.Split(out, "\n") {
+		for _, name := range names {
+			if strings.Contains(line, "─ "+name) {
+				indents = append(indents, strings.Index(line, "─")-len("└"))
+			}
+		}
+	}
+	return indents
+}
+
+func TestRenderBreakdown_ComponentsLineUpUnderEverySibling(t *testing.T) {
+	NoColor = true
+	defer func() { NoColor = false }()
+	var buf bytes.Buffer
+	first := cfnEstimate("AWS::EC2::Instance", "Web", "stacks/web.yaml", 70)
+	last := cfnEstimate("AWS::EC2::Instance", "Worker", "stacks/web.yaml", 140)
+	for _, e := range []*api.ResourceCostEstimate{first, last} {
+		e.Components = append(e.Components, &api.CostComponentEstimate{Name: "Storage", MonthlyCost: 4, Subresource: strp("root_block_device")})
+	}
+	data := &api.AnalyzePrResponse{
+		ResourceCostEstimates: []*api.ResourceCostEstimate{first, last, cfnEstimate("AWS::EC2::Instance", "Batch", "stacks/batch.yaml", 140)},
+		CostSummary:           &api.CostSummary{TotalNewMonthly: 350},
+	}
+
+	RenderBreakdown(&buf, data, ".")
+
+	out := buf.String()
+	usage := componentIndents(out, "Instance usage")
+	if len(usage) != 3 || usage[0] != usage[1] || usage[1] != usage[2] {
+		t.Errorf("instance usage rows start at %v, want one column:\n%s", usage, out)
+	}
+	if storage := componentIndents(out, "Storage"); len(storage) != 2 || storage[0] != storage[1] {
+		t.Errorf("storage rows start at %v, want one column:\n%s", storage, out)
+	}
+}
+
+func TestRenderDiff_ARemovedResourceTakesItsComponentsWithIt(t *testing.T) {
+	NoColor = true
+	defer func() { NoColor = false }()
+	var buf bytes.Buffer
+	data := &api.AnalyzePrResponse{
+		ResourceCostEstimates: []*api.ResourceCostEstimate{{
+			ResourceType: "AWS::EC2::Instance", ResourceName: "Web", ChangeType: "removed", Scope: strp("app.yaml"),
+			PreviousMonthlyCost: f64(80.08), MonthlyCostDifference: f64(-80.08),
+			Components: []*api.CostComponentEstimate{
+				{Name: "Instance usage", MonthlyCost: 70.08},
+				{Name: "Storage", MonthlyCost: 10, Subresource: strp("root_block_device")},
+				{Name: "IOPS", MonthlyCost: 0, Subresource: strp("root_block_device")},
+				{Name: "Throughput", MonthlyCost: 0, Subresource: strp("throughput_only")},
+			},
+		}},
+		CostSummary: &api.CostSummary{TotalPreviousMonthly: 80.08, TotalMonthlyDifference: -80.08},
+	}
+
+	RenderDiff(&buf, data, ".")
+
+	out := buf.String()
+	for _, want := range []string{"- Instance usage", "-$70.08", "- Storage", "-$10.00"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("diff missing %q:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"+ Instance usage", "+$70.08", "IOPS", "Throughput", "throughput_only"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("diff shows %q:\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestRenderDiff_AnAddedComponentThatCostsNothingIsLeftOut(t *testing.T) {
+	NoColor = true
+	defer func() { NoColor = false }()
+	var buf bytes.Buffer
+	added := cfnEstimate("AWS::EC2::Instance", "Batch", "crlf.yaml", 140)
+	added.Components = append(added.Components, &api.CostComponentEstimate{Name: "IOPS", MonthlyCost: 0, Subresource: strp("root_block_device")})
+
+	RenderDiff(&buf, &api.AnalyzePrResponse{ResourceCostEstimates: []*api.ResourceCostEstimate{added}}, ".")
+
+	if out := buf.String(); strings.Contains(out, "IOPS") || strings.Contains(out, "root_block_device") {
+		t.Errorf("diff shows a component that costs nothing:\n%s", out)
+	}
+}

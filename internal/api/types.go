@@ -51,6 +51,9 @@ type CloudFormationInput struct {
 type CloudFormationFiles struct {
 	Base []TemplateFile `json:"base"`
 	Head []TemplateFile `json:"head"`
+	// Renamed maps a renamed file's path at the base to its path at the head,
+	// so the resources in it keep one identity across the rename.
+	Renamed map[string]string `json:"renamed,omitempty"`
 }
 
 type TemplateFile struct {

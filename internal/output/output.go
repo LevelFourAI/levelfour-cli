@@ -22,8 +22,11 @@ var (
 	TemplateFmt  string
 	QuietMode    bool
 	NoColor      bool
-	Stdout       io.Writer = os.Stdout
-	Stderr       io.Writer = os.Stderr
+	// DocumentOnStdout is set by a command whose --format writes a document
+	// another program reads, such as JSON or a pull request comment.
+	DocumentOnStdout bool
+	Stdout           io.Writer = os.Stdout
+	Stderr           io.Writer = os.Stderr
 )
 
 var (
@@ -302,12 +305,13 @@ func Error(msg string) {
 	fmt.Fprintf(Stderr, "%s %s\n", errorStyle.Render("Error:"), SanitizeMultiline(msg))
 }
 
-// noticeStream is where prose meant for a person goes. Under --json, --jq or
-// --template, stdout belongs to the payload: a notice printed there lands ahead
-// of the JSON and the whole document stops parsing. The notice is still worth
-// showing, so it moves to stderr rather than being dropped.
+// noticeStream is where prose meant for a person goes. Under --json, --jq,
+// --template or a document --format, stdout belongs to the payload: a notice
+// printed there lands ahead of the JSON and the whole document stops parsing.
+// The notice is still worth showing, so it moves to stderr rather than being
+// dropped.
 func noticeStream() io.Writer {
-	if HasFormattingFlags() {
+	if HasFormattingFlags() || DocumentOnStdout {
 		return Stderr
 	}
 	return Stdout
