@@ -96,12 +96,8 @@ func treeConnector(i, total int) string {
 	return "├─"
 }
 
-func treeContinuation(i, total int) string {
-	if i == total-1 {
-		return "   "
-	}
-	return "│  "
-}
+// treeIndent is how far a tree level sits inside its parent, in columns.
+const treeIndent = 3
 
 func padRight(s string, width int) string {
 	if len(s) >= width {
@@ -117,13 +113,20 @@ func padLeft(s string, width int) string {
 	return strings.Repeat(" ", width-len(s)) + s
 }
 
+// The change types the API reports for a resource.
+const (
+	changeAdded    = "added"
+	changeRemoved  = "removed"
+	changeModified = "modified"
+)
+
 func symbolAndStyle(changeType string) (string, lipgloss.Style) {
 	switch changeType {
-	case "added":
+	case changeAdded:
 		return "+", planGreen
-	case "removed":
+	case changeRemoved:
 		return "-", planRed
-	case "modified":
+	case changeModified:
 		return "~", planYellow
 	default:
 		return " ", lipgloss.NewStyle()
@@ -355,10 +358,9 @@ func renderBreakdownResource(w io.Writer, e *api.ResourceCostEstimate, indent, c
 	}
 	for _, g := range subGroups {
 		conn := treeConnector(idx, total)
-		cont := treeContinuation(idx, total)
 		prefix := strings.Repeat(" ", indent)
 		fmt.Fprintf(w, " %s%s %s\n", prefix, applyStyle(planDim, conn), applyStyle(planBold, g.name))
-		subIndent := indent + len(cont) + 1
+		subIndent := indent + treeIndent + 1
 		for j, c := range g.components {
 			renderComponentRow(w, c, treeConnector(j, len(g.components)), subIndent, colName, colQty, colUnit, colCost)
 		}
@@ -388,14 +390,13 @@ func renderBreakdownNode(w io.Writer, node *moduleNode, depth int, parentConn st
 
 	for _, e := range visibleResources {
 		conn := treeConnector(itemIdx, totalItems)
-		cont := treeContinuation(itemIdx, totalItems)
 		if depth == 0 {
 			fmt.Fprintf(w, "\n %s\n", applyStyle(planBold, resourceLabel(e.ResourceType, e.ResourceName)))
 			renderBreakdownResource(w, e, 0, colName, colQty, colUnit, colCost)
 		} else {
 			resourceIndent := strings.Repeat("   ", depth)
 			fmt.Fprintf(w, " %s%s %s\n", resourceIndent, applyStyle(planDim, conn), applyStyle(planBold, resourceLabel(e.ResourceType, e.ResourceName)))
-			compIndent := len(resourceIndent) + len(cont) + 1
+			compIndent := len(resourceIndent) + treeIndent + 1
 			renderBreakdownResource(w, e, compIndent, colName, colQty, colUnit, colCost)
 		}
 		itemIdx++
@@ -643,7 +644,7 @@ func renderDiffResource(w io.Writer, e *api.ResourceCostEstimate, indent string)
 	}
 
 	diff := ptrF(e.MonthlyCostDifference)
-	if diff == 0 && e.ChangeType == "modified" {
+	if diff == 0 && e.ChangeType == changeModified {
 		return
 	}
 
@@ -655,42 +656,59 @@ func renderDiffResource(w io.Writer, e *api.ResourceCostEstimate, indent string)
 	rangeStr := applyStyle(planDim, fmt.Sprintf("(%s -> %s)", formatCost(prev), formatCost(cur)))
 	fmt.Fprintf(w, "%s  %s %s\n", indent, formatDeltaCost(diff), rangeStr)
 
-	topLevel, subGroups := groupBySubresource(e.Components)
+	topLevel, subGroups := groupBySubresource(changedComponents(e.Components, e.ChangeType))
 	for _, c := range topLevel {
-		renderDiffComponent(w, c, indent)
+		renderDiffComponent(w, c, e.ChangeType, indent)
 	}
 	for _, g := range subGroups {
 		fmt.Fprintf(w, "\n%s    %s\n", indent, applyStyle(planBold, g.name))
 		for _, c := range g.components {
-			renderDiffComponent(w, c, indent+"  ")
+			renderDiffComponent(w, c, e.ChangeType, indent+"  ")
 		}
 	}
 }
 
-func renderDiffComponent(w io.Writer, c *api.CostComponentEstimate, indent string) {
-	compPrev := ptrF(c.PreviousMonthlyCost)
-	compCur := c.MonthlyCost
-	compDiff := compCur - compPrev
+// componentChange is how one component of a resource changed, with what it
+// cost before and after. A removed resource's components carry the cost they
+// had as monthly_cost.
+func componentChange(c *api.CostComponentEstimate, resourceChange string) (change string, before, after float64) {
+	if resourceChange == changeRemoved {
+		return changeRemoved, c.MonthlyCost, 0
+	}
+	before = ptrF(c.PreviousMonthlyCost)
+	switch {
+	case c.PreviousMonthlyCost == nil:
+		return changeAdded, 0, c.MonthlyCost
+	case c.MonthlyCost == 0 && before > 0:
+		return changeRemoved, before, 0
+	}
+	return changeModified, before, c.MonthlyCost
+}
 
-	if compDiff == 0 && c.PreviousMonthlyCost != nil {
+// changedComponents leaves out the components whose cost did not move, such as
+// IOPS a volume type includes.
+func changedComponents(components []*api.CostComponentEstimate, resourceChange string) []*api.CostComponentEstimate {
+	var changed []*api.CostComponentEstimate
+	for _, c := range components {
+		if _, before, after := componentChange(c, resourceChange); before != after {
+			changed = append(changed, c)
+		}
+	}
+	return changed
+}
+
+func renderDiffComponent(w io.Writer, c *api.CostComponentEstimate, resourceChange, indent string) {
+	change, before, after := componentChange(c, resourceChange)
+	sym, style := symbolAndStyle(change)
+	fmt.Fprintf(w, "\n%s    %s %s\n", indent, applyStyle(style, sym), c.Name)
+
+	delta := formatDeltaCost(after - before)
+	if c.PreviousMonthlyCost != nil {
+		compRange := applyStyle(planDim, fmt.Sprintf("(%s -> %s)", formatCost(before), formatCost(after)))
+		fmt.Fprintf(w, "%s      %s %s\n", indent, delta, compRange)
 		return
 	}
-
-	csym, cstyle := symbolAndStyle("modified")
-	if c.PreviousMonthlyCost == nil {
-		csym, cstyle = symbolAndStyle("added")
-	} else if compCur == 0 && compPrev > 0 {
-		csym, cstyle = symbolAndStyle("removed")
-	}
-
-	fmt.Fprintf(w, "\n%s    %s %s\n", indent, applyStyle(cstyle, csym), c.Name)
-
-	if c.PreviousMonthlyCost != nil {
-		compRange := applyStyle(planDim, fmt.Sprintf("(%s -> %s)", formatCost(compPrev), formatCost(compCur)))
-		fmt.Fprintf(w, "%s      %s %s\n", indent, formatDeltaCost(compDiff), compRange)
-	} else {
-		fmt.Fprintf(w, "%s      %s\n", indent, formatDeltaCost(compDiff))
-	}
+	fmt.Fprintf(w, "%s      %s\n", indent, delta)
 }
 
 func renderDiffSummary(w io.Writer, data *api.AnalyzePrResponse, projectLabel string) {

@@ -295,6 +295,26 @@ func (gitTree) Tracking(string) cfn.Tracking {
 	return cfn.Tracked
 }
 
+// gitRenames maps each file under targets that git sees renamed between the
+// commit and the working tree to its path now, both relative to the
+// repository. A rename git cannot see, to a file it does not track yet, reads
+// as a removal and an addition. A variable so a test can make it fail.
+var gitRenames = func(repoRoot, sha string, targets []string) (map[string]string, error) {
+	args := append([]string{"--literal-pathspecs", "-C", repoRoot, "diff", "--no-color", "--no-ext-diff",
+		"--name-status", "-z", "-M", "--diff-filter=R", sha, "--"}, targets...)
+	out, err := exec.CommandContext(context.Background(), "git", args...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff failed for %s: %w", sha, err)
+	}
+	// Each rename is three fields: its similarity (R100), the old path, the new.
+	fields := strings.Split(string(out), "\x00")
+	renames := make(map[string]string)
+	for i := 0; i+2 < len(fields); i += 3 {
+		renames[fields[i+1]] = fields[i+2]
+	}
+	return renames, nil
+}
+
 // projectTree reads the project from disk and asks git which files it tracks.
 type projectTree struct {
 	cfn.DirTree

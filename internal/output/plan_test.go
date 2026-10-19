@@ -1101,15 +1101,6 @@ func TestRenderMarkdown_WithModulesResourceRows(t *testing.T) {
 	}
 }
 
-func TestTreeContinuation(t *testing.T) {
-	if got := treeContinuation(0, 2); got != "│  " {
-		t.Errorf("treeContinuation(0, 2) = %q, want %q", got, "│  ")
-	}
-	if got := treeContinuation(1, 2); got != "   " {
-		t.Errorf("treeContinuation(1, 2) = %q, want %q", got, "   ")
-	}
-}
-
 func TestIsZeroCostResource(t *testing.T) {
 	tests := []struct {
 		name string

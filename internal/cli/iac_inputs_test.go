@@ -945,12 +945,12 @@ func TestDiff_NothingAtBaseOrHeadIsReported(t *testing.T) {
 	writeAt(t, dir, "README.md", "nothing\n")
 	commitAll(t, dir)
 
-	out, _, err := executeCommand(t, "diff", dir, "--api", "http://localhost:9999", "--token", testToken)
+	out, errOut, err := executeCommand(t, "diff", dir, "--api", "http://localhost:9999", "--token", testToken)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "No Terraform or CloudFormation resources found.") {
-		t.Errorf("output:\n%s", out.String())
+		t.Errorf("output:\n%s\nstderr:\n%s", out.String(), errOut.String())
 	}
 }
 
@@ -1107,5 +1107,65 @@ func TestPostAnalysis_ShowsTheValidationDetailsOnSafeLines(t *testing.T) {
 	}
 	if strings.Contains(got, "\x1b") || strings.Contains(got, "\nforged") || strings.Contains(got, "secret template text") {
 		t.Errorf("error = %q, want sanitized detail lines without the echoed input", got)
+	}
+}
+
+func TestDiff_SendsTheTemplatesGitSeesRenamed(t *testing.T) {
+	srv, body := recordingAPI(t)
+	dir := resolvedDir(t)
+	initGitRepo(t, dir)
+	writeAt(t, dir, "stacks/app.yaml", appTemplate)
+	writeAt(t, dir, "stacks/nested/db.yaml", dbTemplate)
+	writeAt(t, dir, "stacks/old.yaml", dbTemplate+"# kept apart from db.yaml\n")
+	writeAt(t, dir, "main.tf", basicTF)
+	commitAll(t, dir)
+	gitRun(t, dir, "mv", "stacks/app.yaml", "stacks/web.yaml")
+	gitRun(t, dir, "mv", "main.tf", "infra.tf")
+	if err := os.Rename(filepath.Join(dir, "stacks", "old.yaml"), filepath.Join(dir, "stacks", "untracked.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+
+	if _, _, err := executeCommand(t, "diff", "--api", srv.URL, "--token", testToken); err != nil {
+		t.Fatal(err)
+	}
+
+	files := (*body)["cloudformation"].(map[string]interface{})["files"].(map[string]interface{})
+	want := map[string]interface{}{"stacks/app.yaml": "stacks/web.yaml"}
+	if !reflect.DeepEqual(files["renamed"], want) {
+		t.Errorf("renamed = %v, want %v", files["renamed"], want)
+	}
+}
+
+func TestDiff_ARenameLookupThatFailsIsAnError(t *testing.T) {
+	srv, _ := recordingAPI(t)
+	dir := resolvedDir(t)
+	initGitRepo(t, dir)
+	writeAt(t, dir, "app.yaml", dbTemplate)
+	commitAll(t, dir)
+	orig := gitRenames
+	gitRenames = func(string, string, []string) (map[string]string, error) { return nil, errors.New("no git") }
+	defer func() { gitRenames = orig }()
+
+	_, _, err := executeCommand(t, "diff", dir, "--api", srv.URL, "--token", testToken)
+	if err == nil || !strings.Contains(err.Error(), "failed to find renamed templates at") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestGitRenames_ReportsAFailingGit(t *testing.T) {
+	if _, err := gitRenames(resolvedDir(t), "0000000", []string{"."}); err == nil {
+		t.Error("git diff outside a repository should fail")
+	}
+}
+
+func TestUploadedRenames_KeepsOnlyFilesUploadedOnBothSides(t *testing.T) {
+	base := cfn.Result{Files: []api.TemplateFile{{Path: "a.yaml"}, {Path: "b.yaml"}}}
+	head := cfn.Result{Files: []api.TemplateFile{{Path: "c.yaml"}}}
+
+	got := uploadedRenames(map[string]string{"a.yaml": "c.yaml", "b.yaml": "skipped.yaml", "gone.yaml": "c.yaml"}, base, head)
+
+	if !reflect.DeepEqual(got, map[string]string{"a.yaml": "c.yaml"}) {
+		t.Errorf("renamed = %v", got)
 	}
 }

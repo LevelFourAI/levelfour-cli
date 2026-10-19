@@ -44,6 +44,7 @@ var rootCmd = &cobra.Command{
 		output.TemplateFmt = flagTemplate
 		output.QuietMode = flagQuiet
 		output.NoColor = flagNoColor || os.Getenv("NO_COLOR") != ""
+		output.DocumentOnStdout = false
 
 		if flagQuiet && (output.JSONMode || flagCSV || flagTemplate != "") {
 			return fmt.Errorf("--quiet is mutually exclusive with --json, --csv, --jq, --template")

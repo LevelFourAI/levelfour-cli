@@ -60,6 +60,7 @@ added.`,
   $ l4 diff baseline.json`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		output.DocumentOnStdout = writesDocument(flagDiffFormat)
 		baseline, paths, err := splitBaselineArg(args)
 		if err != nil {
 			return err
@@ -76,22 +77,24 @@ added.`,
 		}
 		// The baseline is read before deciding there is nothing to price: a
 		// branch that deletes every resource has an empty head and a full base.
-		changes, baseTemplates, err := diffAgainstBaseline(in, baseline, opts)
+		base, err := diffAgainstBaseline(in, baseline, opts)
 		if err != nil {
 			return err
 		}
-		if in.empty() && len(changes) == 0 && len(baseTemplates.Templates) == 0 {
+		changes := base.changes
+		if in.empty() && len(changes) == 0 && len(base.templates.Templates) == 0 {
 			output.Info("No Terraform or CloudFormation resources found.")
 			return nil
 		}
 		projectLabel := buildProjectLabel(paths)
 		output.InfoLabel(in.foundLabel(projectLabel))
-		cfnInput, err := buildCloudFormationInput(in.root, in.templates, baseTemplates, cfnOptions{
+		cfnInput, err := buildCloudFormationInput(in.root, in.templates, base.templates, cfnOptions{
 			parameters:     flagDiffParameter,
 			parametersFile: flagDiffParametersFile,
 			configEnv:      flagDiffConfigEnv,
 			region:         templateRegion(cmd, flagDiffRegion, in.config.RegionOverride),
 			excluded:       in.config.ExcludedResourceTypes,
+			renamed:        base.renamed,
 		})
 		if err != nil {
 			return err
@@ -134,41 +137,61 @@ func splitBaselineArg(args []string) (*[]api.ResourceSnapshot, []string, error) 
 	return baseline, paths, nil
 }
 
+// comparisonBase is what the working tree is compared against.
+type comparisonBase struct {
+	changes   []api.ResourceChange
+	templates cfn.Result
+	// renamed maps a template's path at the baseline commit to its path now.
+	renamed map[string]string
+}
+
 // diffAgainstBaseline returns the Terraform changes and the CloudFormation
 // templates as they were at the baseline: the snapshot when one is given, the
 // git merge-base otherwise. Without a baseline everything reads as added.
-func diffAgainstBaseline(in *analysisInputs, snapshot *[]api.ResourceSnapshot, opts tf.ParseOptions) ([]api.ResourceChange, cfn.Result, error) {
+func diffAgainstBaseline(in *analysisInputs, snapshot *[]api.ResourceSnapshot, opts tf.ParseOptions) (comparisonBase, error) {
 	if snapshot != nil {
-		return diffSnapshots(*snapshot, in.terraform), cfn.Result{}, nil
+		return comparisonBase{changes: diffSnapshots(*snapshot, in.terraform)}, nil
 	}
 
 	sha, err := resolveBaseCommit(in.root, flagDiffBase)
 	if err != nil {
-		return allAdded(in, err)
+		return allAdded(in, err), nil
 	}
 	baseline, err := gitBaseline(in.root, sha, in.targets, opts)
 	if err != nil {
-		return allAdded(in, err)
+		return allAdded(in, err), nil
 	}
 	templates, err := cfn.Collect(baseTree(in.root, sha), in.cfnTargets)
 	if err != nil {
-		return nil, cfn.Result{}, fmt.Errorf("failed to read CloudFormation templates at %s: %w", sha, err)
+		return comparisonBase{}, fmt.Errorf("failed to read CloudFormation templates at %s: %w", sha, err)
+	}
+	renamed, err := templateRenames(in.root, sha, in.cfnTargets)
+	if err != nil {
+		return comparisonBase{}, fmt.Errorf("failed to find renamed templates at %s: %w", sha, err)
 	}
 	baseline = filterExcludedResources(baseline, in.config.ExcludedResourceTypes)
-	return diffSnapshots(baseline, in.terraform), templates, nil
+	return comparisonBase{changes: diffSnapshots(baseline, in.terraform), templates: templates, renamed: renamed}, nil
+}
+
+// templateRenames asks git for renames only where templates are read.
+func templateRenames(root, sha string, cfnTargets []string) (map[string]string, error) {
+	if len(cfnTargets) == 0 {
+		return nil, nil
+	}
+	return gitRenames(root, sha, cfnTargets)
 }
 
 // baseTree reads the project at the baseline commit. A variable so a test can
 // make that read fail.
 var baseTree = func(root, sha string) cfn.Tree { return gitTree{repoRoot: root, sha: sha} }
 
-func allAdded(in *analysisInputs, cause error) ([]api.ResourceChange, cfn.Result, error) {
+func allAdded(in *analysisInputs, cause error) comparisonBase {
 	output.Info(fmt.Sprintf("Git baseline unavailable (%s), showing all resources as added.", cause))
-	return snapshotsToAddedChanges(in.terraform), cfn.Result{}, nil
+	return comparisonBase{changes: snapshotsToAddedChanges(in.terraform)}
 }
 
 func init() {
-	diffCmd.Flags().StringVar(&flagDiffFormat, "format", "table", "Output format: table, json, github-comment")
+	diffCmd.Flags().StringVar(&flagDiffFormat, "format", formatTable, "Output format: table, json, github-comment")
 	diffCmd.Flags().Float64Var(&flagDiffFailAbove, "fail-above", 0, "Exit code 2 if monthly delta exceeds this threshold")
 	diffCmd.Flags().StringVar(&flagDiffRegion, "region", "", "AWS region for pricing (default: the project config's region_override, then a Terraform provider block or a template's samconfig, then us-east-1)")
 	diffCmd.Flags().StringVar(&flagDiffGCPRegion, "gcp-region", "", "GCP region for pricing (default: auto-detect or us-central1)")

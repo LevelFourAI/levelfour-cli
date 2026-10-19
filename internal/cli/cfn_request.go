@@ -19,6 +19,8 @@ type cfnOptions struct {
 	configEnv      string
 	region         string
 	excluded       []string
+	// renamed maps a template's path at the base to its path at the head.
+	renamed map[string]string
 }
 
 // The API's limits on the fields below, refused or trimmed here so a run gets
@@ -55,7 +57,11 @@ func buildCloudFormationInput(root string, head, base cfn.Result, opts cfnOption
 		return nil, err
 	}
 	input := &api.CloudFormationInput{
-		Files:                 api.CloudFormationFiles{Base: nonNilFiles(base.Files), Head: nonNilFiles(head.Files)},
+		Files: api.CloudFormationFiles{
+			Base:    nonNilFiles(base.Files),
+			Head:    nonNilFiles(head.Files),
+			Renamed: uploadedRenames(opts.renamed, base, head),
+		},
 		Parameters:            declaredValues(values, head, base),
 		SamconfigEnv:          opts.configEnv,
 		ExcludedResourceTypes: limitExclusions(opts.excluded),
@@ -65,6 +71,27 @@ func buildCloudFormationInput(root string, head, base cfn.Result, opts cfnOption
 		return input, nil
 	}
 	return input, attachParametersFile(input, root, opts.parametersFile, allTemplates(head, base))
+}
+
+// uploadedRenames keeps the renames whose old path is uploaded at the base and
+// whose new path is uploaded at the head.
+func uploadedRenames(renamed map[string]string, base, head cfn.Result) map[string]string {
+	atBase, atHead := uploadedPaths(base), uploadedPaths(head)
+	kept := make(map[string]string)
+	for from, to := range renamed {
+		if atBase[from] && atHead[to] {
+			kept[from] = to
+		}
+	}
+	return kept
+}
+
+func uploadedPaths(side cfn.Result) map[string]bool {
+	paths := make(map[string]bool, len(side.Files))
+	for _, f := range side.Files {
+		paths[f.Path] = true
+	}
+	return paths
 }
 
 // attachParametersFile uploads the --parameters-file on each side that has

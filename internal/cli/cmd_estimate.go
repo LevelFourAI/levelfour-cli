@@ -68,6 +68,7 @@ pipeline step).`,
   $ l4 estimate --fail-above 500 -q`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		output.DocumentOnStdout = writesDocument(flagEstNewFormat)
 		opts := tf.ParseOptions{
 			VarFiles:        flagEstNewVarFile,
 			Vars:            flagEstNewVar,
@@ -117,7 +118,7 @@ pipeline step).`,
 }
 
 func init() {
-	estimateNewCmd.Flags().StringVar(&flagEstNewFormat, "format", "table", "Output format: table, json, github-comment")
+	estimateNewCmd.Flags().StringVar(&flagEstNewFormat, "format", formatTable, "Output format: table, json, github-comment")
 	estimateNewCmd.Flags().StringVar(&flagEstNewOutFile, "out-file", "", "Save the Terraform resource snapshot for later use with 'l4 diff'")
 	estimateNewCmd.Flags().Float64Var(&flagEstNewFailAbove, "fail-above", 0, "Exit code 2 if monthly cost exceeds this threshold")
 	estimateNewCmd.Flags().StringVar(&flagEstNewRegion, "region", "", "AWS region for pricing (default: the project config's region_override, then a Terraform provider block or a template's samconfig, then us-east-1)")
