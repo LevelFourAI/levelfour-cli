@@ -29,7 +29,7 @@ func runTagsDelete(ref string) error {
 		return fmt.Errorf("%s is a provider tag key: provider tags come from the bill and cannot be deleted", ref)
 	}
 	// Before the lookup, so an unattended run does not spend a request to fail on a flag.
-	approved, err := requireApproval(fmt.Sprintf("Delete virtual tag %s?", ref), "deleting "+ref)
+	approved, err := requireApproval(flagTagsYes, fmt.Sprintf("Delete virtual tag %s?", ref), "deleting "+ref)
 	if err != nil {
 		return err
 	}
