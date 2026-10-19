@@ -118,6 +118,46 @@ Without `--fail-within` it only reports and exits `0`. Durations take `d`, `w` o
 
 AWS and Google Cloud are both covered. Every command resolves one provider, which `--provider` overrides. Where a figure is not measured for a provider the command prints `not measured` rather than a zero, and where a whole command cannot answer for one it says so in a line and exits `0`. Google Cloud has no on-demand equivalent to compute a savings rate against and no Committed Use Discount lifecycle export, so expiry, renewal planning, purchase planning and contracts are AWS only today.
 
+## Manage cost alerts
+
+An alert watches an account or a saved cost view and notifies the people and Slack channels you name on it. `costalerts` and `alert` are aliases for `alerts`.
+
+```bash
+l4 alerts list                                  # what is configured, and what is firing
+l4 alerts sources                               # ids a rule can point at
+l4 alerts create --file rule.json               # confirms first; -y to skip
+l4 alerts update <id> --file change.json        # only the fields in the file change
+l4 alerts pause <id>                            # stop notifying, keep the history
+l4 alerts resume <id>
+l4 alerts events <id>                           # what this alert has said, newest first
+l4 alerts delete <id> --yes                     # the rule and its history, for good
+```
+
+A rule is a JSON file, so it can be reviewed in a pull request before it reaches the API:
+
+```json
+{
+  "name": "Production budget",
+  "params": {
+    "kind": "budget",
+    "budget": 40000,
+    "reset": "monthly",
+    "rules": [{ "amount": 80, "unit": "percent" }]
+  },
+  "source_id": "123456789012",
+  "recipients": [{ "name": "Ana", "email": "ana@example.com", "member": true }],
+  "slack_channel_ids": ["C0123ABCD"]
+}
+```
+
+`source_id` is an id from `l4 alerts sources`. `update` sends only the fields in its file, and `params` replaces the whole rule, so raise a threshold by sending the rule back with that figure changed:
+
+```bash
+l4 alerts get <id> --json | jq '{params: (.data.params | .budget = 50000)}' | l4 alerts update <id> --file - --yes
+```
+
+Every write needs a read-write API key and prompts for confirmation unless you pass `-y`/`--yes`. A rule piped in with `--file -` needs `--yes` at a terminal, since the prompt would read its answer from the same stdin. `delete` refuses to run outside a terminal without `--yes`, because nothing brings an alert or its history back.
+
 ## Estimate infrastructure before you deploy
 
 `l4 estimate` prices Terraform and CloudFormation (YAML, JSON and SAM templates) before anything is created. `l4 diff` prices the change against the git merge-base, so a pull request shows what it adds to the monthly bill.
@@ -198,7 +238,7 @@ After every command, `l4` asks GitHub for the latest published release and print
 
 ## Command reference
 
-Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`, and `cmt` for `commitments`.
+Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`, `cmt` for `commitments`, and `costalerts` for `alerts`.
 
 | Command | What it does |
 |---|---|
@@ -214,13 +254,16 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 rec accept` / `reject` / `execute <id>` | Act on one, covered above |
 | `l4 commitments summary` | Coverage, utilization and what the commitments are earning |
 | `l4 commitments list` | Every commitment held, soonest to expire first |
-| `l4 commitments expiring` | What lapses soon, with an exit code for CI. Covered below |
+| `l4 commitments expiring` | What lapses soon, with an exit code for CI. Covered above |
 | `l4 commitments view` / `renewal <id>` | One commitment in full, and what to repurchase when it ends |
 | `l4 commitments utilization` | How much of what was bought is being used, per service |
 | `l4 commitments coverage` | How much of the eligible bill a commitment covers, per service |
 | `l4 commitments plan` | The uncovered on-demand base and what buying would cover it |
 | `l4 commitments contracts` | Marketplace and private-pricing floors that bill like a commitment |
-| `l4 estimate [path ...]` | Estimate Terraform and CloudFormation costs. Covered below |
+| `l4 alerts list` / `get <id>` / `sources` / `events <id>` | Cost alerts, which are firing, what a rule can watch, and what one has said |
+| `l4 alerts create` / `update <id>` | Create a cost alert from a JSON rule file, or change the fields a file names |
+| `l4 alerts pause` / `resume` / `delete <id>` | Silence an alert, arm it again, or delete it with its history. Covered above |
+| `l4 estimate [path ...]` | Estimate Terraform and CloudFormation costs. Covered above |
 | `l4 diff [baseline.json] [path ...]` | Cost difference between current and baseline state |
 | `l4 tags list` / `show <key>` / `coverage` | Provider and virtual tag keys: spend, rules, and how much spend carries a tag |
 | `l4 tags resources <key>` / `costs <key>` | Resources a key covers, and spend per value |
