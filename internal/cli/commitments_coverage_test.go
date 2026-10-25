@@ -24,6 +24,12 @@ const (
 		`"coverage_pct":52,"measured_on":null}],"accounts":[],"uncovered_by_service":[],` +
 		`"totals":{"covered_monthly":null,"uncovered_monthly":8000,"coverage_pct":52}}}`
 
+	azureCoverageBody = `{"data":{"provider":"azure","measured":true,` +
+		`"services":[{"instrument":"ri","dimension":"reservation","dimension_label":"Reservations",` +
+		`"coverage_pct":61,"measured_on":null},{"instrument":"sp","dimension":"savings_plan",` +
+		`"dimension_label":"Savings Plans","coverage_pct":12,"measured_on":null}],"accounts":[],` +
+		`"uncovered_by_service":[],"totals":{"covered_monthly":900,"uncovered_monthly":500,"coverage_pct":64.3}}}`
+
 	unmeasuredCoverageBody = `{"data":{"provider":"aws","measured":false,"services":[],` +
 		`"accounts":[],"uncovered_by_service":[],"totals":null}}`
 )
@@ -102,6 +108,37 @@ func TestCommitmentsCoverageWillNotInventGoogleCloudCoveredSpend(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
+	}
+}
+
+// The payload calls every slot ri or sp, which name AWS products, so each row
+// carries its provider's own word for the instrument.
+func TestCommitmentsCoverageNamesEachInstrumentInItsProvidersWords(t *testing.T) {
+	cases := []struct {
+		provider, body string
+		want, absent   []string
+	}{
+		{providerAWS, coverageBody, []string{"RI", "SP"}, nil},
+		{providerAzure, azureCoverageBody, []string{labelAzureReservation, labelAzureSavingsPlan}, []string{"│RI", "│SP"}},
+		{providerGCP, gcpCoverageBody, []string{"CUD"}, []string{"│RI"}},
+	}
+	for _, tc := range cases {
+		coverageServer(t, tc.provider, tc.body)
+		out, _, err := executeCommand(t, "commitments", "coverage", "--provider", tc.provider)
+		if err != nil {
+			t.Fatalf("%s coverage error: %v", tc.provider, err)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("%s output missing %q:\n%s", tc.provider, want, out.String())
+			}
+		}
+		for _, absent := range tc.absent {
+			if strings.Contains(out.String(), absent) {
+				t.Errorf("%s output should not carry %q:\n%s", tc.provider, absent, out.String())
+			}
+		}
+		resetFlags()
 	}
 }
 

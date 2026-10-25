@@ -1339,6 +1339,7 @@ func TestBuildEvalCtxFromOpts_WithOpts(t *testing.T) {
 	ctx := buildEvalCtxFromOpts(dir, []ParseOptions{{VarFiles: nil, Vars: []string{"region=ap-south-1"}}})
 	if ctx == nil {
 		t.Fatal("expected non-nil context")
+		return // staticcheck SA5011 does not read t.Fatal as the end of the test
 	}
 	vars := ctx.Variables["var"]
 	if vars.IsNull() {

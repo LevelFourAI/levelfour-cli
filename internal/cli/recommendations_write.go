@@ -20,6 +20,8 @@ var (
 const (
 	decisionAccepted = "accepted"
 	decisionRejected = "rejected"
+	// The API names the field `decision` on a decision request and on a renewal plan alike.
+	fieldDecision = "decision"
 
 	defaultImplementationMethod = "one-click"
 )
@@ -86,7 +88,7 @@ func runDecision(id, decision string) error {
 		return nil
 	}
 
-	payload := map[string]string{"decision": decision}
+	payload := map[string]string{fieldDecision: decision}
 	if decision == decisionRejected {
 		if flagRecReason != "" {
 			payload["reason"] = flagRecReason

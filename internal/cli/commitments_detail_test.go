@@ -29,14 +29,52 @@ const (
 		`"holder_account_id":"111122223333","end_at":"2026-10-07T00:00:00Z",` +
 		`"buy_after_utc":"2026-10-07T00:00:00Z","expires_in_seconds":1555200,` +
 		`"units_held":40,"units_consumed":34,"units_recommended":36,` +
-		`"protects_monthly":12400,"rightsizing_monthly":620,` +
+		`"sizing_basis":"utilization","decision":"renew","protects_monthly":12400,"rightsizing_monthly":620,` +
 		`"pending_changes":[{"recommendation_id":"REC-1234","service":"ec2","account":"prod",` +
 		`"monthly_savings":210,"status":"available"}],"exchangeable":true,"cancellable":false}}`
+
+	// An Azure savings plan commits dollars an hour, so its amounts are fractional,
+	// and one nothing measured has no consumed amount at all.
+	renewalAzurePlanBody = `{"data":{"commitment_id":"azure::savings_plan::sp1","service":"Compute",` +
+		`"holder_account_id":"sub-1","end_at":"2026-11-10T00:00:00Z",` +
+		`"buy_after_utc":"2026-11-10T00:00:00Z","expires_in_seconds":1555200,` +
+		`"units_held":1.5,"units_consumed":null,"units_recommended":1.5,` +
+		`"sizing_basis":"unmeasured","decision":"renew",` +
+		`"protects_monthly":null,"rightsizing_monthly":null,"pending_changes":[],` +
+		`"exchangeable":null,"cancellable":null}}`
+
+	// A savings plan Azure bills in another currency: nothing sizes it, so both
+	// unit amounts arrive as zero.
+	renewalNotUSDPlanBody = `{"data":{"commitment_id":"azure::savings_plan::sp2","service":"Compute",` +
+		`"holder_account_id":"sub-1","end_at":"2026-11-10T00:00:00Z",` +
+		`"buy_after_utc":"2026-11-10T00:00:00Z","expires_in_seconds":1555200,` +
+		`"units_held":0,"units_consumed":null,"units_recommended":0,` +
+		`"sizing_basis":"not_usd","decision":"renew",` +
+		`"protects_monthly":null,"rightsizing_monthly":null,"pending_changes":[],` +
+		`"exchangeable":true,"cancellable":true}}`
+
+	// A reservation whose renewal Azure quotes in another currency: it still
+	// states the units it holds, while nothing sizes or prices the renewal.
+	renewalNotUSDReservationBody = `{"data":{"commitment_id":"azure::reservation::r2",` +
+		`"service":"Virtual Machines","holder_account_id":"sub-1","end_at":"2026-11-10T00:00:00Z",` +
+		`"buy_after_utc":"2026-11-10T00:00:00Z","expires_in_seconds":1555200,` +
+		`"units_held":4,"units_consumed":null,"units_recommended":0,` +
+		`"sizing_basis":"not_usd","decision":"renew",` +
+		`"protects_monthly":null,"rightsizing_monthly":null,"pending_changes":[],` +
+		`"exchangeable":true,"cancellable":true}}`
+
+	renewalLetExpireBody = `{"data":{"commitment_id":"azure::reservation::r1","service":"Virtual Machines",` +
+		`"holder_account_id":"sub-1","end_at":"2026-11-10T00:00:00Z",` +
+		`"buy_after_utc":"2026-11-10T00:00:00Z","expires_in_seconds":1555200,` +
+		`"units_held":3,"units_consumed":0,"units_recommended":0,` +
+		`"sizing_basis":"utilization","decision":"let_expire",` +
+		`"protects_monthly":null,"rightsizing_monthly":null,"pending_changes":[],` +
+		`"exchangeable":true,"cancellable":true}}`
 
 	renewalUndatedBody = `{"data":{"commitment_id":"cud-1","service":"compute",` +
 		`"holder_account_id":"proj-1","end_at":null,"buy_after_utc":null,` +
 		`"expires_in_seconds":null,"units_held":1,"units_consumed":1,"units_recommended":1,` +
-		`"protects_monthly":0,"rightsizing_monthly":0,"pending_changes":[],` +
+		`"sizing_basis":"unmeasured","decision":"renew","protects_monthly":0,"rightsizing_monthly":0,"pending_changes":[],` +
 		`"exchangeable":null,"cancellable":null}}`
 )
 
@@ -146,6 +184,94 @@ func TestCommitmentsRenewalSizesTheRepurchase(t *testing.T) {
 	}
 }
 
+func TestCommitmentsRenewalPlansAnAzureSavingsPlan(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/renewal-plan/": renewalAzurePlanBody,
+	}))
+
+	out, _, err := executeCommand(t, "commitments", "renewal", "azure::savings_plan::sp1")
+	if err != nil {
+		t.Fatalf("renewal error: %v", err)
+	}
+	for _, want := range []string{"1.5", notMeasured, "2026-11-10T00:00:00Z"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, out.String())
+		}
+	}
+	// Azure prices neither amount, so both read as unmeasured rather than $0.00.
+	if strings.Contains(out.String(), "$0.00") || strings.Count(out.String(), notMeasured) != 5 {
+		t.Errorf("consumed, both amounts and both unknown flags should read as unmeasured:\n%s", out.String())
+	}
+}
+
+func TestCommitmentsRenewalNamesWhyAPlanInAnotherCurrencyIsNotSized(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/renewal-plan/": renewalNotUSDPlanBody,
+	}))
+
+	out, _, err := executeCommand(t, "commitments", "renewal", "azure::savings_plan::sp2")
+	if err != nil {
+		t.Fatalf("renewal error: %v", err)
+	}
+	if strings.Count(out.String(), notMeasured) != 5 {
+		t.Errorf("held, consumed, recommended and both amounts should read as unmeasured:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "$0.00") {
+		t.Errorf("an unpriced plan should print no money:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "renew it in the Azure portal") {
+		t.Errorf("output should say why the plan is not sized:\n%s", out.String())
+	}
+}
+
+func TestCommitmentsRenewalKeepsTheUnitsAReservationQuotedInAnotherCurrencyHolds(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/renewal-plan/": renewalNotUSDReservationBody,
+	}))
+
+	out, _, err := executeCommand(t, "commitments", "renewal", "azure::reservation::r2")
+	if err != nil {
+		t.Fatalf("renewal error: %v", err)
+	}
+	if strings.Count(out.String(), notMeasured) != 4 {
+		t.Errorf("consumed, recommended and both amounts should read as unmeasured:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "│4 ") || !strings.Contains(out.String(), "bills or quotes") {
+		t.Errorf("output should keep the units held and name the currency:\n%s", out.String())
+	}
+}
+
+func TestCommitmentsRenewalAdvisesLettingAnUnusedTermExpire(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/renewal-plan/": renewalLetExpireBody,
+	}))
+
+	out, _, err := executeCommand(t, "commitments", "renewal", "azure::reservation::r1")
+	if err != nil {
+		t.Fatalf("renewal error: %v", err)
+	}
+	if !strings.Contains(out.String(), "let it expire on its end date") {
+		t.Errorf("a zero recommendation should say it means letting the term expire:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "Azure portal") {
+		t.Errorf("a measured plan is not a currency refusal:\n%s", out.String())
+	}
+}
+
+func TestCommitmentsRenewalCSVLeavesAnUnmeasuredAmountEmpty(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/renewal-plan/": renewalAzurePlanBody,
+	}))
+
+	out, _, err := executeCommand(t, "commitments", "renewal", "azure::savings_plan::sp1", "--format", "csv")
+	if err != nil {
+		t.Fatalf("renewal --format csv error: %v", err)
+	}
+	if !strings.Contains(out.String(), "azure::savings_plan::sp1,Compute,sub-1,2026-11-10T00:00:00Z,1.5,,1.5,renew,unmeasured,,") {
+		t.Errorf("an unmeasured amount should be an empty cell:\n%s", out.String())
+	}
+}
+
 func TestCommitmentsRenewalNamesAnUndatedPlan(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerAWS}, map[string]string{
 		"/renewal-plan/": renewalUndatedBody,
@@ -177,7 +303,7 @@ func TestCommitmentsRenewalCSVMatchesTheDashboard(t *testing.T) {
 	if strings.TrimSpace(lines[0]) != wantHeader {
 		t.Errorf("header = %q, want %q", lines[0], wantHeader)
 	}
-	if !strings.Contains(lines[1], "ri-a1b2,ec2,111122223333,2026-10-07T00:00:00Z,40,34,36,12400,620") {
+	if !strings.Contains(lines[1], "ri-a1b2,ec2,111122223333,2026-10-07T00:00:00Z,40,34,36,renew,utilization,12400,620") {
 		t.Errorf("row = %q", lines[1])
 	}
 }
@@ -191,7 +317,7 @@ func TestCommitmentsRenewalCSVLeavesAnAbsentInstantEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renewal --format csv error: %v", err)
 	}
-	if !strings.Contains(out.String(), "cud-1,compute,proj-1,,1,1,1,0,0") {
+	if !strings.Contains(out.String(), "cud-1,compute,proj-1,,1,1,1,renew,unmeasured,0,0") {
 		t.Errorf("an absent instant should be an empty cell:\n%s", out.String())
 	}
 }
@@ -244,5 +370,34 @@ func TestCommitmentsRenewalUnauthenticated(t *testing.T) {
 
 	if _, _, err := executeCommand(t, "commitments", "renewal", "ri-a1b2"); err == nil {
 		t.Error("expected an error when not authenticated")
+	}
+}
+
+// Azure sells a reservation, and "RI" names an AWS product, so the heading
+// carries Azure's own word.
+func TestCommitmentsViewNamesAnAzureReservationInAzureWords(t *testing.T) {
+	detailServer(t, strings.Replace(detailBody, `"provider":"aws"`, `"provider":"azure"`, 1))
+
+	out, _, err := executeCommand(t, "commitments", "view", "ri-a1b2")
+	if err != nil {
+		t.Fatalf("view error: %v", err)
+	}
+	if !strings.Contains(out.String(), "EC2 "+labelAzureReservation) {
+		t.Errorf("an Azure heading should say %q:\n%s", labelAzureReservation, out.String())
+	}
+}
+
+// An Azure commitment its bill and summary did not measure arrives with a null
+// utilization, which must not read as 0% used.
+func TestCommitmentsViewSaysWhenNothingMeasuredTheUtilization(t *testing.T) {
+	body := strings.Replace(detailBody, `"current_utilization_pct":98.2`, `"current_utilization_pct":null`, 1)
+	detailServer(t, strings.Replace(body, `"provider":"aws"`, `"provider":"azure"`, 1))
+
+	out, _, err := executeCommand(t, "commitments", "view", "ri-a1b2")
+	if err != nil {
+		t.Fatalf("view error: %v", err)
+	}
+	if !lineWith(out.String(), "Utilization", notMeasured) {
+		t.Errorf("an unmeasured utilization should say so:\n%s", out.String())
 	}
 }

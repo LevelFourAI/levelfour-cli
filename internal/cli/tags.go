@@ -16,9 +16,10 @@ var tagsCmd = &cobra.Command{
 	Short: "Provider tags and virtual tags: spend, coverage and rules",
 	Long: `Read provider tags and virtual tags, and manage virtual tags from a YAML file.
 
-A provider tag comes from the bill: AWS cost allocation tags and GCP labels. A
-virtual tag is a key LevelFour assigns to every cost line from an ordered list
-of rules, across AWS and GCP, without touching the bill.
+A provider tag comes from the bill, such as AWS cost allocation tags, Google
+Cloud labels or Azure tags. A virtual tag is a key LevelFour assigns to every
+cost line from an ordered list of rules, across every provider you connect,
+without touching the bill.
 
 A <key> argument takes a key id (vtk_... for a virtual key, ptk_... for a
 provider key) or a key name, matched case-insensitively. When a virtual key
@@ -49,8 +50,8 @@ const (
 
 var (
 	tagOrigins       = []string{tagOriginVirtual, tagOriginProvider}
-	tagProviders     = []string{"aws", "gcp"}
-	tagCostProviders = []string{"aws", "gcp", "all"}
+	tagProviders     = []string{providerAWS, providerGCP, providerAzure, providerDigitalOcean}
+	tagCostProviders = append(slices.Clone(tagProviders), "all")
 )
 
 // The tags subcommands share these: only one runs per invocation.

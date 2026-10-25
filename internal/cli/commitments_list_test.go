@@ -37,6 +37,27 @@ const (
 		`"protects_monthly":1200,"saturated":false,"status":"active"}]}}`
 )
 
+// Azure sells the same two instruments as AWS, stored under the same kinds.
+const azurePortfolioBody = `{"data":{"basis":"net","totals":{"commitment_count":2,` +
+	`"fee_monthly_list":700,"fee_monthly_net":700,"protects_monthly":700,` +
+	`"rightsizing_monthly":0,"expiring_within_30d":1,"organization_count":1},"rows":[` +
+	`{"id":"az-res-1","service":"virtual_machines","service_label":"Virtual Machines",` +
+	`"kind":"reserved_instance","holder_account_id":"00000000-1111-2222-3333-444444444444",` +
+	`"holder_account_name":"Production","expires_in_seconds":1555200,` +
+	`"end_at":"2026-10-07T00:00:00Z","utilization_pct":88.5,"coverage_pct":70,` +
+	`"protects_monthly":500,"saturated":false,"status":"active"},` +
+	`{"id":"az-sp-1","service":"compute","service_label":"Compute","kind":"savings_plan",` +
+	`"holder_account_id":"00000000-1111-2222-3333-444444444444","holder_account_name":"Production",` +
+	`"expires_in_seconds":8121600,"utilization_pct":100,"coverage_pct":0,"protects_monthly":200,` +
+	`"saturated":false,"status":"active"}]}}`
+
+func azurePortfolioServer(t *testing.T) {
+	t.Helper()
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/portfolio": azurePortfolioBody,
+	}))
+}
+
 func awsPortfolioServer(t *testing.T) {
 	t.Helper()
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerAWS}, map[string]string{
@@ -76,6 +97,34 @@ func TestCommitmentsListWillNotPrintASavingsPlanCoverage(t *testing.T) {
 	if !strings.Contains(out.String(), "saturated") {
 		t.Errorf("a saturated commitment should be named:\n%s", out.String())
 	}
+}
+
+func TestCommitmentsListSaysWhenNothingMeasuredAUtilization(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/portfolio": strings.Replace(azurePortfolioBody, `"utilization_pct":88.5`, `"utilization_pct":null`, 1),
+	}))
+
+	out, _, err := executeCommand(t, "commitments", "list")
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+	if !lineWith(out.String(), "az-res-1", notMeasured) || strings.Contains(out.String(), "88.5%") {
+		t.Errorf("an unmeasured utilization should read as unmeasured:\n%s", out.String())
+	}
+}
+
+// lineWith reports whether one line of out holds every one of parts.
+func lineWith(out string, parts ...string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		found := true
+		for _, part := range parts {
+			found = found && strings.Contains(line, part)
+		}
+		if found {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCommitmentsListNarrowsToAWindow(t *testing.T) {
@@ -195,6 +244,37 @@ func TestCommitmentsListFiltersGoogleCloudKinds(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"/portfolio": gcpPortfolioBody}))
 	if _, _, err = executeCommand(t, "commitments", "list", "--kind", "ri"); err == nil {
 		t.Error("--kind ri is not a Google Cloud kind and should be refused")
+	}
+}
+
+func TestCommitmentsListNamesAzureInstrumentsTheWayAzureDoes(t *testing.T) {
+	azurePortfolioServer(t)
+
+	out, _, err := executeCommand(t, "commitments", "list")
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+	for _, want := range []string{"az-res-1", labelAzureReservation, "az-sp-1", labelAzureSavingsPlan, "Production"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestCommitmentsListFiltersAzureKinds(t *testing.T) {
+	azurePortfolioServer(t)
+
+	out, _, err := executeCommand(t, "commitments", "list", "--kind", "ri")
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+	if !strings.Contains(out.String(), "az-res-1") || strings.Contains(out.String(), "az-sp-1") {
+		t.Errorf("--kind ri should keep only the reservation:\n%s", out.String())
+	}
+
+	azurePortfolioServer(t)
+	if _, _, err = executeCommand(t, "commitments", "list", "--kind", "cud"); err == nil {
+		t.Error("--kind cud is not an Azure kind and should be refused")
 	}
 }
 
@@ -394,6 +474,18 @@ func TestCommitmentsExpiringExitsCleanWhereExpiryIsUnmeasured(t *testing.T) {
 	}
 }
 
+func TestCommitmentsExpiringReadsAzure(t *testing.T) {
+	azurePortfolioServer(t)
+
+	out, _, err := executeCommand(t, "commitments", "expiring")
+	if err != nil {
+		t.Fatalf("expiring error: %v", err)
+	}
+	if !strings.Contains(out.String(), "az-res-1") || strings.Contains(out.String(), "not measured for Azure") {
+		t.Errorf("Azure lists end dates, so expiry should be read:\n%s", out.String())
+	}
+}
+
 // Asking for JSON must not disarm the gate. A build that keeps passing because
 // someone added --json is the failure this command exists to prevent.
 func TestCommitmentsExpiringStillGatesUnderAFormattingFlag(t *testing.T) {
@@ -488,6 +580,15 @@ func TestKindLabelFallsBackToTheStoredValue(t *testing.T) {
 	}
 	if got := kindLabel("mystery"); got != "mystery" {
 		t.Errorf("kindLabel() = %q, want the value back", got)
+	}
+}
+
+func TestProviderKindLabelFallsBackToTheKindLabel(t *testing.T) {
+	if got := providerKindLabel(providerAzure, kindReservedInstance); got != labelAzureReservation {
+		t.Errorf("providerKindLabel(azure) = %q, want %q", got, labelAzureReservation)
+	}
+	if got := providerKindLabel(providerAWS, kindReservedInstance); got != "RI" {
+		t.Errorf("providerKindLabel(aws) = %q, want RI", got)
 	}
 }
 

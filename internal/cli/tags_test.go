@@ -252,15 +252,15 @@ func TestTagsFlagValidation(t *testing.T) {
 		wantErr string
 	}{
 		{"list origin", []string{"tags", "list", "--origin", "billing"}, `invalid --origin "billing"`},
-		{"list provider", []string{"tags", "list", "--provider", "azure"}, `invalid --provider "azure"`},
+		{"list provider", []string{"tags", "list", "--provider", "k8s"}, `invalid --provider "k8s"`},
 		{"list start", []string{"tags", "list", "--start", "2026-13-01"}, `invalid --start "2026-13-01": use YYYY-MM-DD`},
 		{"list end", []string{"tags", "list", "--end", "yesterday"}, `invalid --end "yesterday"`},
 		{"list reversed window", []string{"tags", "list", "--start", "2026-08-31", "--end", "2026-08-01"}, "--end 2026-08-01 is before --start 2026-08-31"},
 		{"show window", []string{"tags", "show", "Teams", "--start", "bad"}, `invalid --start "bad"`},
-		{"coverage provider", []string{"tags", "coverage", "--provider", "azure"}, `invalid --provider "azure"`},
+		{"coverage provider", []string{"tags", "coverage", "--provider", "k8s"}, `invalid --provider "k8s"`},
 		{"coverage window", []string{"tags", "coverage", "--end", "bad"}, `invalid --end "bad"`},
 		{"resources provider", []string{"tags", "resources", "Teams", "--provider", "k8s"}, `invalid --provider "k8s"`},
-		{"costs provider", []string{"tags", "costs", "Teams", "--provider", "azure"}, "choose one of aws, gcp, all"},
+		{"costs provider", []string{"tags", "costs", "Teams", "--provider", "k8s"}, "choose one of aws, gcp, azure, digitalocean, all"},
 		{"costs window", []string{"tags", "costs", "Teams", "--start", "bad"}, `invalid --start "bad"`},
 		{"preview window", []string{"tags", "preview", "-f", "x.yaml", "--end", "bad"}, `invalid --end "bad"`},
 	}

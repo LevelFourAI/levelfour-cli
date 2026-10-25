@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -12,15 +13,19 @@ import (
 )
 
 const (
-	providerAWS   = "aws"
-	providerGCP   = "gcp"
-	providerAzure = "azure"
+	providerAWS          = "aws"
+	providerGCP          = "gcp"
+	providerAzure        = "azure"
+	providerDigitalOcean = "digitalocean"
 
 	// notMeasured is printed wherever the API returned no value. It is never
 	// abbreviated to a dash or to zero: an unmeasured coverage shown as 0%
 	// claims an entirely uncovered fleet, which is a different and alarming
 	// statement from "we did not measure this".
 	notMeasured = "not measured"
+
+	sizingBasisNotUSD = "not_usd"
+	decisionLetExpire = "let_expire"
 
 	instrumentRI = "ri"
 	instrumentSP = "sp"
@@ -33,14 +38,30 @@ const (
 // because landing a Google Cloud tenant on an empty AWS table reads as a broken
 // product rather than as an unsupported one.
 var commitmentProviderSupport = map[string]struct{}{
-	providerAWS: {},
-	providerGCP: {},
+	providerAWS:   {},
+	providerGCP:   {},
+	providerAzure: {},
 }
 
+// The providers each lifecycle view is measured for. Azure lists every
+// commitment's end date, so expiry reads for it as it does for AWS, and its
+// connection prices each expiring one's renewal, so the renewal plan does too;
+// Google Cloud needs a lifecycle export LevelFour does not collect. DigitalOcean
+// sells its terms as contracts, which the contracts view lists for every
+// provider at once.
+var (
+	planMeasuredFor    = []string{providerAWS, providerAzure}
+	expiryMeasuredFor  = []string{providerAWS, providerAzure}
+	renewalMeasuredFor = []string{providerAWS, providerAzure}
+)
+
+const labelAWS = "AWS"
+
 var providerLabels = map[string]string{
-	providerAWS:   "AWS",
-	providerGCP:   "Google Cloud",
-	providerAzure: "Azure",
+	providerAWS:          labelAWS,
+	providerGCP:          "Google Cloud",
+	providerAzure:        "Azure",
+	providerDigitalOcean: "DigitalOcean",
 }
 
 func providerLabel(id string) string {
@@ -84,8 +105,8 @@ func handleCommitmentsError(err error) error {
 // unavailableForProvider reports whether the caller should stop, printing why
 // first. Stopping with a sentence beats rendering an empty table, which a
 // Google Cloud tenant reads as "you hold no commitments".
-func unavailableForProvider(provider, message string) bool {
-	if provider == providerAWS {
+func unavailableForProvider(provider string, measuredFor []string, message string) bool {
+	if slices.Contains(measuredFor, provider) {
 		return false
 	}
 	output.Info(fmt.Sprintf(message, providerLabel(provider)))
@@ -125,6 +146,17 @@ func moneyOrNotMeasured(v *float64) string {
 		return notMeasured
 	}
 	return moneyValue(*v)
+}
+
+func unitsValue(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+func unitsOrNotMeasured(v *float64) string {
+	if v == nil {
+		return notMeasured
+	}
+	return unitsValue(*v)
 }
 
 func textOrNotMeasured(v *string) string {

@@ -37,8 +37,20 @@ var kindByFlag = map[string]string{
 }
 
 var kindsByProvider = map[string][]string{
-	providerAWS: {kindReservedInstance, kindSavingsPlan},
-	providerGCP: {kindCUD, kindSpendCommitment},
+	providerAWS:   {kindReservedInstance, kindSavingsPlan},
+	providerGCP:   {kindCUD, kindSpendCommitment},
+	providerAzure: {kindReservedInstance, kindSavingsPlan},
+}
+
+// Azure sells the same two instruments as AWS under its own names, and "RI"
+// names an AWS product, so a table that knows its provider says Azure's.
+const (
+	labelAzureReservation = "Reservation"
+	labelAzureSavingsPlan = "Savings plan"
+)
+
+var providerKindLabels = map[string]map[string]string{
+	providerAzure: {kindReservedInstance: labelAzureReservation, kindSavingsPlan: labelAzureSavingsPlan},
 }
 
 var (
@@ -94,7 +106,7 @@ reports, and always exits 0.`,
 		if flagWeb {
 			return openWeb(commitmentsWebPath(provider, instrumentRI, ""))
 		}
-		if unavailableForProvider(provider,
+		if unavailableForProvider(provider, expiryMeasuredFor,
 			"Commitment expiry is not measured for %s: the commitment lifecycle export is not enabled. Nothing checked.") {
 			return nil
 		}
@@ -139,7 +151,7 @@ func runPortfolioList(client *api.SDKClient, provider, kind string) error {
 		output.Info("No commitments match.")
 		return nil
 	}
-	renderPortfolioRows(rows)
+	renderPortfolioRows(rows, provider)
 	return nil
 }
 
@@ -174,13 +186,13 @@ func runCommitmentsExpiring(cmd *cobra.Command, client *api.SDKClient, provider 
 	if output.HasFormattingFlags() {
 		noteUnappliedFilters(map[string]string{"--within": windows.listLabel})
 	}
-	if err := reportExpiring(portfolio, body, windows); err != nil {
+	if err := reportExpiring(portfolio, body, windows, provider); err != nil {
 		return err
 	}
 	return expiryGate(portfolio, windows)
 }
 
-func reportExpiring(portfolio api.CommitmentPortfolio, body json.RawMessage, windows expiryWindowSet) error {
+func reportExpiring(portfolio api.CommitmentPortfolio, body json.RawMessage, windows expiryWindowSet, provider string) error {
 	if output.HasFormattingFlags() {
 		return output.PrintResult(body)
 	}
@@ -189,7 +201,7 @@ func reportExpiring(portfolio api.CommitmentPortfolio, body json.RawMessage, win
 		output.Info(fmt.Sprintf("No commitments lapse within %s.", windows.listLabel))
 		return nil
 	}
-	renderPortfolioRows(listed)
+	renderPortfolioRows(listed, provider)
 	return nil
 }
 
@@ -299,17 +311,17 @@ func portfolioFee(totals api.CommitmentPortfolioTotals, basis string) float64 {
 	return totals.FeeMonthlyNet
 }
 
-func renderPortfolioRows(rows []api.CommitmentPortfolioRow) {
+func renderPortfolioRows(rows []api.CommitmentPortfolioRow, provider string) {
 	headers := []string{"ID", columnService, "Kind", "Holder", "Expires", "Util", "Coverage", "Protects/mo", "Note"}
 	table := make([][]string, 0, len(rows))
 	for _, row := range rows {
 		table = append(table, []string{
 			row.ID,
 			row.ServiceLabel,
-			kindLabel(row.Kind),
+			providerKindLabel(provider, row.Kind),
 			row.HolderAccountName,
 			expiryCountdown(row.ExpiresInSeconds),
-			pctValue(row.UtilizationPct),
+			pctOrNotMeasured(row.UtilizationPct),
 			coverageCell(row.Kind, row.CoveragePct),
 			moneyOrNotMeasured(row.ProtectsMonthly),
 			saturationNote(row.Saturated),
@@ -334,6 +346,13 @@ func kindLabel(kind string) string {
 		return label
 	}
 	return kind
+}
+
+func providerKindLabel(provider, kind string) string {
+	if label, ok := providerKindLabels[provider][kind]; ok {
+		return label
+	}
+	return kindLabel(kind)
 }
 
 func init() {

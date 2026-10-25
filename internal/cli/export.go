@@ -204,7 +204,7 @@ func exportPortfolio(client *api.SDKClient, provider string) error {
 			row.HolderAccountID,
 			row.HolderAccountName,
 			csvText(row.EndAt),
-			csvFloat(row.UtilizationPct),
+			csvOptionalFloat(row.UtilizationPct),
 			csvCoverage(row.Kind, row.CoveragePct),
 			csvOptionalFloat(row.ProtectsMonthly),
 			csvOptionalFloat(row.RightsizingMonthly),
@@ -313,7 +313,7 @@ func init() {
 	}
 	exportCostsCmd.Flags().StringVar(&flagExportPeriod, "period", "", "Time period: 7d, 30d, 90d, 365d")
 	exportCommitmentsCmd.Flags().StringVar(&flagCommitmentsProvider, "provider", "",
-		"Provider ID (aws, gcp); auto-detected if omitted")
+		"Provider ID (aws, gcp, azure); auto-detected if omitted")
 
 	exportCmd.AddCommand(exportCostsCmd)
 	exportCmd.AddCommand(exportRecommendationsCmd)

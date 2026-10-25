@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
@@ -67,7 +66,7 @@ func runCommitmentsCoverage(client *api.SDKClient, provider string) error {
 	}
 
 	renderCoverageTotals(coverage.Totals)
-	renderCoverageServices(coverage.Services, flagCoverageInstrument)
+	renderCoverageServices(coverage.Services, flagCoverageInstrument, provider)
 	return nil
 }
 
@@ -82,7 +81,7 @@ func renderCoverageTotals(totals *api.CoverageRateTotals) {
 	})
 }
 
-func renderCoverageServices(services []api.CoverageRateService, instrument string) {
+func renderCoverageServices(services []api.CoverageRateService, instrument, provider string) {
 	shown := filterCoverageServices(services, instrument)
 	if len(shown) == 0 {
 		output.Info("No service has a measured coverage figure.")
@@ -90,16 +89,25 @@ func renderCoverageServices(services []api.CoverageRateService, instrument strin
 	}
 
 	output.Header("By service")
+	names := instrumentNames(provider)
 	rows := make([][]string, 0, len(shown))
 	for _, service := range shown {
 		rows = append(rows, []string{
-			strings.ToUpper(service.Instrument),
+			instrumentName(names, service.Instrument),
 			dimensionName(service),
 			pctValue(service.CoveragePct),
 			textOrNotMeasured(service.MeasuredOn),
 		})
 	}
 	output.Table([]string{"Kind", columnService, "Covered", "Measured on"}, rows)
+}
+
+// instrumentName reads a payload slot, always ri or sp, in the provider's words.
+func instrumentName(names [2]string, instrument string) string {
+	if instrument == instrumentSP {
+		return names[1]
+	}
+	return names[0]
 }
 
 // An API that predates the label still answers with the key, which names the
