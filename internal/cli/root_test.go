@@ -416,6 +416,7 @@ func TestCSVFlagDeprecated(t *testing.T) {
 	f := rootCmd.PersistentFlags().Lookup("csv")
 	if f == nil {
 		t.Fatal("--csv flag is missing")
+		return // staticcheck SA5011 does not read t.Fatal as the end of the test
 	}
 	if f.Deprecated == "" {
 		t.Error("--csv should be marked deprecated")

@@ -184,6 +184,7 @@ func TestBuildEvalContext_WithVars(t *testing.T) {
 	ctx := BuildEvalContext(vars)
 	if ctx == nil {
 		t.Fatal("expected non-nil context")
+		return // staticcheck SA5011 does not read t.Fatal as the end of the test
 	}
 
 	varObj := ctx.Variables["var"]
@@ -235,6 +236,7 @@ func TestBuildEvalContextWithLocals(t *testing.T) {
 	ctx := BuildEvalContextWithLocals(vars, locals)
 	if ctx == nil {
 		t.Fatal("expected non-nil context")
+		return // staticcheck SA5011 does not read t.Fatal as the end of the test
 	}
 
 	varObj := ctx.Variables["var"]
@@ -253,6 +255,7 @@ func TestBuildEvalContextWithLocals_NilLocals(t *testing.T) {
 	ctx := BuildEvalContextWithLocals(vars, nil)
 	if ctx == nil {
 		t.Fatal("expected non-nil context")
+		return // staticcheck SA5011 does not read t.Fatal as the end of the test
 	}
 	if _, ok := ctx.Variables["local"]; ok {
 		t.Error("expected no local namespace when locals is nil")

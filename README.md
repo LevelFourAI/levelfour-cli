@@ -116,7 +116,7 @@ l4 commitments plan                     # the uncovered base, sized against its 
 
 Without `--fail-within` it only reports and exits `0`. Durations take `d`, `w` or `m`, where a month is 30 days.
 
-AWS and Google Cloud are both covered. Every command resolves one provider, which `--provider` overrides. Where a figure is not measured for a provider the command prints `not measured` rather than a zero, and where a whole command cannot answer for one it says so in a line and exits `0`. Google Cloud has no on-demand equivalent to compute a savings rate against and no Committed Use Discount lifecycle export, so expiry, renewal planning, purchase planning and contracts are AWS only today.
+The commitments commands cover AWS, Google Cloud and Azure. Every command resolves one provider, which `--provider` overrides. Where a figure is not measured for a provider the command prints `not measured` rather than a zero, and where a whole command cannot answer for one it says so in a line and exits `0`. Expiry and renewal planning answer for AWS and Azure, because Google Cloud exports no Committed Use Discount lifecycle. Purchase planning answers for AWS and Azure too: on Azure it lists Azure's own reservation and savings plan recommendations, grounded on your bill. The summary's savings rate is measured for AWS only. Contracts list every connected provider's floors at once, DigitalOcean's reserved products included, since they bill as a contract.
 
 ## Manage cost alerts
 

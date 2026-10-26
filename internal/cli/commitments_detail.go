@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"net/url"
-	"strconv"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
 	"github.com/LevelFourAI/levelfour-cli/internal/output"
@@ -50,7 +49,7 @@ var commitmentsRenewalCmd = &cobra.Command{
 		if flagWeb {
 			return openWeb(commitmentsWebPath(provider, instrumentRI, args[0]))
 		}
-		if unavailableForProvider(provider,
+		if unavailableForProvider(provider, renewalMeasuredFor,
 			"Renewal planning is not measured for %s: the commitment lifecycle export is not enabled.") {
 			return nil
 		}
@@ -67,7 +66,7 @@ func runCommitmentView(client *api.SDKClient, id string) error {
 		return output.PrintResult(body)
 	}
 
-	output.Header(detail.ServiceLabel + " " + kindLabel(detail.Kind))
+	output.Header(detail.ServiceLabel + " " + providerKindLabel(detail.Provider, detail.Kind))
 	output.KeyValue("ID", detail.ID)
 	output.KeyValue("Account", detail.AccountName)
 	output.KeyValue("Region", detail.Region)
@@ -77,7 +76,7 @@ func runCommitmentView(client *api.SDKClient, id string) error {
 	output.KeyValue("Status", detail.Status)
 	output.KeyValue("Payment", textOrNotMeasured(detail.PaymentOption))
 	output.KeyValue("Committed", moneyValue(detail.MonthlyCommitmentUSD)+"/mo")
-	output.KeyValue("Utilization", pctValue(detail.CurrentUtilizationPct))
+	output.KeyValue("Utilization", pctOrNotMeasured(detail.CurrentUtilizationPct))
 	output.KeyValue("Coverage", coverageCell(detail.Kind, detail.CurrentCoveragePct))
 	output.KeyValue("Protects", monthlyOrNotMeasured(detail.ProtectsMonthly))
 	output.KeyValue("Exchangeable", boolOrNotMeasured(detail.Exchangeable))
@@ -87,8 +86,9 @@ func runCommitmentView(client *api.SDKClient, id string) error {
 	return nil
 }
 
-// termLabel reads zero months as unknown. Outside AWS the term arrives from an
-// export that is not enabled, so it is absent rather than instantaneous.
+// termLabel reads zero months as unknown: a term the provider's data did not
+// carry, such as one from a Google Cloud export that is not enabled, is absent
+// rather than instantaneous.
 func termLabel(detail api.CommitmentDetail) string {
 	if detail.TermMonths <= 0 {
 		return notMeasured
@@ -154,24 +154,41 @@ func runCommitmentRenewal(client *api.SDKClient, id string) error {
 	// bought, so buying on the right day at the wrong hour pays for both.
 	output.KeyValue("Buy after (UTC)", textOrNotMeasured(plan.BuyAfterUTC))
 
-	output.Header("Sizing")
-	output.Table(
-		[]string{"Units held", "Units consumed", "Units recommended"},
-		[][]string{{
-			strconv.Itoa(plan.UnitsHeld),
-			strconv.Itoa(plan.UnitsConsumed),
-			strconv.Itoa(plan.UnitsRecommended),
-		}},
-	)
+	renderRenewalSizing(plan)
 	// Two different amounts, never added: one is what lapsing would cost, the
 	// other is what buying less would save.
-	output.KeyValue("Renewal protects", moneyValue(plan.ProtectsMonthly)+"/mo")
-	output.KeyValue("Rightsizing recovers", moneyValue(plan.RightsizingMonthly)+"/mo")
+	output.KeyValue("Renewal protects", monthlyOrNotMeasured(plan.ProtectsMonthly))
+	output.KeyValue("Rightsizing recovers", monthlyOrNotMeasured(plan.RightsizingMonthly))
 	output.KeyValue("Exchangeable", boolOrNotMeasured(plan.Exchangeable))
 	output.KeyValue("Cancellable", boolOrNotMeasured(plan.Cancellable))
 
 	renderPendingChanges(plan.PendingChanges)
 	return nil
+}
+
+// renderRenewalSizing never prints the zeros a plan nothing could size arrives
+// with, since a zero reads as "renew none of it". A reservation still states
+// the units it holds; only a held amount that arrived as zero is blanked.
+func renderRenewalSizing(plan api.CommitmentRenewalPlan) {
+	held, recommended := unitsValue(plan.UnitsHeld), unitsValue(plan.UnitsRecommended)
+	notUSD := plan.SizingBasis == sizingBasisNotUSD
+	if notUSD {
+		recommended = notMeasured
+		if plan.UnitsHeld == 0 {
+			held = notMeasured
+		}
+	}
+	output.Header("Sizing")
+	output.Table(
+		[]string{"Units held", "Units consumed", "Units recommended"},
+		[][]string{{held, unitsOrNotMeasured(plan.UnitsConsumed), recommended}},
+	)
+	switch {
+	case notUSD:
+		output.Info("Azure bills or quotes this in a currency other than USD. LevelFour renews only commitments priced in USD, so renew it in the Azure portal.")
+	case plan.Decision == decisionLetExpire:
+		output.Info("Used too little over the measured window to pay for itself, so let it expire on its end date.")
+	}
 }
 
 // renderPendingChanges lists the changes that should land before the renewal.

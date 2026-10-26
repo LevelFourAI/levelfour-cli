@@ -93,6 +93,8 @@ const (
 	dashSymbol    = "—"
 	columnAccount = "Account"
 	columnService = "Service"
+	columnKind    = "Kind"
+	columnRegion  = "Region"
 )
 
 type recommendationsListModel struct {

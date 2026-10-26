@@ -151,6 +151,27 @@ func TestCommitmentsSummaryRefusesToInventAGoogleCloudRate(t *testing.T) {
 	}
 }
 
+// An Azure service whose commitments nothing measured yet arrives with a null
+// utilization, which must not read as 0% used.
+func TestCommitmentsSummarySaysWhenNothingMeasuredAServiceUtilization(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/overview": overviewBody,
+		"/by-service": strings.Replace(
+			strings.Replace(byServiceBody, `"provider":"aws"`, `"provider":"azure"`, 1),
+			`"utilization_pct":98.2`, `"utilization_pct":null`, 1),
+		"/esr":            esrBody,
+		"/coverage-rates": coverageBody,
+	}))
+
+	out, _, err := executeCommand(t, "commitments", "summary")
+	if err != nil {
+		t.Fatalf("summary error: %v", err)
+	}
+	if !lineWith(out.String(), "EC2", notMeasured) || strings.Contains(out.String(), "98.2%") {
+		t.Errorf("an unmeasured service utilization should read as unmeasured:\n%s", out.String())
+	}
+}
+
 // The coverage read is newer than the rest of summary, so an API serving the
 // others without it still produces a summary rather than nothing.
 func TestCommitmentsSummarySurvivesAMissingCoverageRoute(t *testing.T) {
@@ -260,7 +281,7 @@ func TestCommitmentsSummaryOpensTheWeb(t *testing.T) {
 }
 
 func TestResolveCommitmentProviderPrefersOneItCanAnswerFor(t *testing.T) {
-	srv := commitmentsServer(t, []string{"azure", providerGCP, providerAWS}, nil)
+	srv := commitmentsServer(t, []string{"k8s", providerGCP, providerAWS}, nil)
 	useCommitmentsServer(t, srv)
 
 	client, err := newSDKClient()
@@ -277,7 +298,7 @@ func TestResolveCommitmentProviderPrefersOneItCanAnswerFor(t *testing.T) {
 }
 
 func TestResolveCommitmentProviderFallsBackToTheFirstConnected(t *testing.T) {
-	useCommitmentsServer(t, commitmentsServer(t, []string{"azure"}, nil))
+	useCommitmentsServer(t, commitmentsServer(t, []string{"k8s"}, nil))
 
 	client, err := newSDKClient()
 	if err != nil {
@@ -287,8 +308,8 @@ func TestResolveCommitmentProviderFallsBackToTheFirstConnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveCommitmentProvider() error: %v", err)
 	}
-	if provider != "azure" {
-		t.Errorf("provider = %q, want azure", provider)
+	if provider != "k8s" {
+		t.Errorf("provider = %q, want k8s", provider)
 	}
 }
 
@@ -356,19 +377,41 @@ func TestProviderLabelFallsBackToTheID(t *testing.T) {
 	}
 }
 
+func TestInstrumentNamesUseAzureWords(t *testing.T) {
+	if got := instrumentNames(providerAzure); got != [2]string{labelAzureReservation, labelAzureSavingsPlan} {
+		t.Errorf("instrumentNames(azure) = %v", got)
+	}
+}
+
+func TestResolveCommitmentProviderLandsOnAzure(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{"k8s", providerAzure}, nil))
+
+	client, err := newSDKClient()
+	if err != nil {
+		t.Fatalf("newSDKClient() error: %v", err)
+	}
+	provider, err := resolveCommitmentProvider(t.Context(), client, "")
+	if err != nil {
+		t.Fatalf("resolveCommitmentProvider() error: %v", err)
+	}
+	if provider != providerAzure {
+		t.Errorf("provider = %q, want azure", provider)
+	}
+}
+
 func TestInstrumentNamesFallBackToTheAWSPair(t *testing.T) {
 	if got := instrumentNames("oracle"); got != [2]string{"RI", "SP"} {
 		t.Errorf("instrumentNames(oracle) = %v", got)
 	}
 }
 
-func TestUnavailableForProviderLetsAWSThrough(t *testing.T) {
+func TestUnavailableForProviderLetsAMeasuredProviderThrough(t *testing.T) {
 	captureOutput(t)
-	if unavailableForProvider(providerAWS, "should not print for %s") {
-		t.Error("AWS should never be refused")
+	if unavailableForProvider(providerAWS, expiryMeasuredFor, "should not print for %s") {
+		t.Error("a measured provider should never be refused")
 	}
-	if !unavailableForProvider(providerGCP, "not measured for %s") {
-		t.Error("a non-AWS provider should be refused")
+	if !unavailableForProvider(providerGCP, expiryMeasuredFor, "not measured for %s") {
+		t.Error("an unmeasured provider should be refused")
 	}
 }
 
@@ -396,5 +439,17 @@ func TestEffectiveRateNeverGuesses(t *testing.T) {
 				t.Errorf("effectiveRate() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// Azure's expiry is measured, so its count prints as a number, never as
+// unmeasured.
+func TestExpiringCountIsMeasuredOnAzure(t *testing.T) {
+	overview := api.CommitmentsOverview{ExpiringCount: 3}
+	if got := expiringCount(overview, providerAzure); got != "3" {
+		t.Errorf("expiringCount(azure) = %q, want 3", got)
+	}
+	if got := expiringCount(overview, providerGCP); got != notMeasured {
+		t.Errorf("expiringCount(gcp) = %q, want %q", got, notMeasured)
 	}
 }

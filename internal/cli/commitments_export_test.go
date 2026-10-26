@@ -61,6 +61,20 @@ func TestExportCommitmentsGoogleCloud(t *testing.T) {
 	}
 }
 
+func TestExportCommitmentsLeavesAnUnmeasuredUtilizationEmpty(t *testing.T) {
+	useCommitmentsServer(t, commitmentsServer(t, []string{providerAzure}, map[string]string{
+		"/portfolio": strings.Replace(azurePortfolioBody, `"utilization_pct":88.5`, `"utilization_pct":null`, 1),
+	}))
+
+	out, _, err := executeCommand(t, "export", "commitments", "--format", "csv")
+	if err != nil {
+		t.Fatalf("export error: %v", err)
+	}
+	if !strings.Contains(out.String(), "Production,2026-10-07T00:00:00Z,,70,500,,active") {
+		t.Errorf("an unmeasured utilization should be an empty cell:\n%s", out.String())
+	}
+}
+
 func TestExportCommitmentsGoogleCloudJSON(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{"/portfolio": gcpPortfolioBody}))
 

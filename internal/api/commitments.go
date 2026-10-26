@@ -43,12 +43,14 @@ type CommitmentsOverview struct {
 	Accounts                          []CommitmentAccountEsr `json:"accounts"`
 }
 
+// CommitmentInstrumentBreakdown's UtilizationPct is null where nothing measured
+// the instrument's commitments for the service.
 type CommitmentInstrumentBreakdown struct {
-	UtilizationPct   float64 `json:"utilization_pct"`
-	CoveragePct      float64 `json:"coverage_pct"`
-	UnusedMonthly    float64 `json:"unused_monthly"`
-	UncoveredMonthly float64 `json:"uncovered_monthly"`
-	CommitmentCount  int     `json:"commitment_count"`
+	UtilizationPct   *float64 `json:"utilization_pct"`
+	CoveragePct      float64  `json:"coverage_pct"`
+	UnusedMonthly    float64  `json:"unused_monthly"`
+	UncoveredMonthly float64  `json:"uncovered_monthly"`
+	CommitmentCount  int      `json:"commitment_count"`
 }
 
 type CommitmentServiceRow struct {
@@ -116,7 +118,7 @@ type CommitmentPortfolioRow struct {
 	FeeMonthlyNet         *float64             `json:"fee_monthly_net"`
 	EndAt                 *string              `json:"end_at"`
 	ExpiresInSeconds      *int64               `json:"expires_in_seconds"`
-	UtilizationPct        float64              `json:"utilization_pct"`
+	UtilizationPct        *float64             `json:"utilization_pct"`
 	CoveragePct           float64              `json:"coverage_pct"`
 	UtilizationSlopePp30d *float64             `json:"utilization_slope_pp_30d"`
 	Saturated             bool                 `json:"saturated"`
@@ -150,20 +152,20 @@ type CommitmentPortfolio struct {
 }
 
 type CommitmentListItem struct {
-	ID                    string  `json:"id"`
-	Provider              string  `json:"provider"`
-	Service               string  `json:"service"`
-	ServiceLabel          string  `json:"service_label"`
-	AccountID             string  `json:"account_id"`
-	AccountName           string  `json:"account_name"`
-	Region                string  `json:"region"`
-	Kind                  string  `json:"kind"`
-	StartDate             string  `json:"start_date"`
-	EndDate               string  `json:"end_date"`
-	Status                string  `json:"status"`
-	CurrentUtilizationPct float64 `json:"current_utilization_pct"`
-	CurrentCoveragePct    float64 `json:"current_coverage_pct"`
-	MonthlyCommitmentUSD  float64 `json:"monthly_commitment_usd"`
+	ID                    string   `json:"id"`
+	Provider              string   `json:"provider"`
+	Service               string   `json:"service"`
+	ServiceLabel          string   `json:"service_label"`
+	AccountID             string   `json:"account_id"`
+	AccountName           string   `json:"account_name"`
+	Region                string   `json:"region"`
+	Kind                  string   `json:"kind"`
+	StartDate             string   `json:"start_date"`
+	EndDate               string   `json:"end_date"`
+	Status                string   `json:"status"`
+	CurrentUtilizationPct *float64 `json:"current_utilization_pct"`
+	CurrentCoveragePct    float64  `json:"current_coverage_pct"`
+	MonthlyCommitmentUSD  float64  `json:"monthly_commitment_usd"`
 }
 
 type CommitmentListPagination struct {
@@ -215,6 +217,14 @@ type RenewalPendingChange struct {
 	Status           string  `json:"status"`
 }
 
+// CommitmentRenewalPlan states its units in the class held, or in a Savings
+// Plan's dollars an hour, which is fractional. UnitsConsumed is null where
+// nothing measured the commitment, and the two monthly amounts are null where
+// nothing priced them, as on every Azure commitment. SizingBasis names where
+// UnitsRecommended came from: "not_usd" is an Azure commitment billed or quoted
+// in another currency, which nothing sizes, so its recommendation arrives as zero
+// (a savings plan's held amount too, being dollars an hour). Decision is
+// "let_expire" when the commitment was used too little to pay for itself.
 type CommitmentRenewalPlan struct {
 	CommitmentID       string                 `json:"commitment_id"`
 	Service            string                 `json:"service"`
@@ -222,11 +232,13 @@ type CommitmentRenewalPlan struct {
 	EndAt              *string                `json:"end_at"`
 	BuyAfterUTC        *string                `json:"buy_after_utc"`
 	ExpiresInSeconds   *int64                 `json:"expires_in_seconds"`
-	UnitsHeld          int                    `json:"units_held"`
-	UnitsConsumed      int                    `json:"units_consumed"`
-	UnitsRecommended   int                    `json:"units_recommended"`
-	ProtectsMonthly    float64                `json:"protects_monthly"`
-	RightsizingMonthly float64                `json:"rightsizing_monthly"`
+	UnitsHeld          float64                `json:"units_held"`
+	UnitsConsumed      *float64               `json:"units_consumed"`
+	UnitsRecommended   float64                `json:"units_recommended"`
+	SizingBasis        string                 `json:"sizing_basis"`
+	Decision           string                 `json:"decision"`
+	ProtectsMonthly    *float64               `json:"protects_monthly"`
+	RightsizingMonthly *float64               `json:"rightsizing_monthly"`
 	PendingChanges     []RenewalPendingChange `json:"pending_changes"`
 	Exchangeable       *bool                  `json:"exchangeable"`
 	Cancellable        *bool                  `json:"cancellable"`
@@ -274,6 +286,31 @@ type ServiceUtilization struct {
 type CommitmentUtilization struct {
 	Instrument string               `json:"instrument"`
 	Services   []ServiceUtilization `json:"services"`
+}
+
+// AzurePurchasePlan is GET /commitments/azure/purchase-plan: Azure's own
+// recommendations, each saving applied to what the usage it covers cost on
+// demand on the bill over the last 30 days.
+type AzurePurchasePlan struct {
+	Provider  string                  `json:"provider"`
+	Proposals []AzurePurchaseProposal `json:"proposals"`
+}
+
+// AzurePurchaseProposal carries Quantity for a reservation and
+// HourlyCommitment for a savings plan. UnavailableReason is "no_bill" when the
+// usage cost nothing on demand, so no saving is claimed for it.
+type AzurePurchaseProposal struct {
+	ID                     string   `json:"id"`
+	Kind                   string   `json:"kind"`
+	SKU                    string   `json:"sku"`
+	Region                 *string  `json:"region"`
+	TermMonths             int      `json:"term_months"`
+	Quantity               *float64 `json:"quantity"`
+	HourlyCommitment       *float64 `json:"hourly_commitment"`
+	OnDemandMonthly        float64  `json:"on_demand_monthly"`
+	MonthlySavings         float64  `json:"monthly_savings"`
+	RaisedRecommendationID *string  `json:"raised_recommendation_id"`
+	UnavailableReason      *string  `json:"unavailable_reason"`
 }
 
 type UncoveredSlice struct {

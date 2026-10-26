@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/LevelFourAI/levelfour-cli/internal/api"
@@ -182,11 +183,11 @@ func effectiveRate(esr *api.CommitmentEsr) string {
 	return pctOrNotMeasured(esr.Totals.TotalRatePct)
 }
 
-// expiringCount refuses to print a zero it cannot stand behind. Outside AWS the
+// expiringCount refuses to print a zero it cannot stand behind. Google Cloud's
 // count needs a commitment lifecycle export that is not enabled, so it is always
-// zero, and a zero here reads as "nothing expires soon".
+// zero there, and a zero reads as "nothing expires soon".
 func expiringCount(overview api.CommitmentsOverview, provider string) string {
-	if provider != providerAWS {
+	if !slices.Contains(expiryMeasuredFor, provider) {
 		return notMeasured
 	}
 	return fmt.Sprintf("%d", overview.ExpiringCount)
@@ -201,20 +202,16 @@ func renderSummaryMeasuredShare(esr *api.CommitmentEsr) {
 		pctValue(esr.MeasuredSharePct)))
 }
 
-// instrumentLabels name the two slots per provider. The payload always calls
+// instrumentNames name the two slots per provider. The payload always calls
 // them ri and sp, but on Google Cloud they carry resource-based and spend-based
 // Committed Use Discounts, and printing "RI" there names a product that does
 // not exist.
-var instrumentLabels = map[string][2]string{
-	providerAWS: {"RI", "SP"},
-	providerGCP: {"CUD", "Spend"},
-}
-
 func instrumentNames(provider string) [2]string {
-	if names, ok := instrumentLabels[provider]; ok {
-		return names
+	kinds, ok := kindsByProvider[provider]
+	if !ok {
+		kinds = kindsByProvider[providerAWS]
 	}
-	return [2]string{"RI", "SP"}
+	return [2]string{providerKindLabel(provider, kinds[0]), providerKindLabel(provider, kinds[1])}
 }
 
 func renderByService(byService api.CommitmentsByService, provider string) {
@@ -261,7 +258,7 @@ func instrumentsInUse(byService api.CommitmentsByService) (ri bool, sp bool) {
 
 func breakdownCells(breakdown api.CommitmentInstrumentBreakdown) []string {
 	return []string{
-		pctValue(breakdown.UtilizationPct),
+		pctOrNotMeasured(breakdown.UtilizationPct),
 		pctValue(breakdown.CoveragePct),
 		moneyValue(breakdown.UnusedMonthly),
 	}
@@ -283,7 +280,7 @@ func commitmentClient() (*api.SDKClient, string, error) {
 
 func init() {
 	commitmentsCmd.PersistentFlags().StringVar(&flagCommitmentsProvider, "provider", "",
-		"Provider ID (aws, gcp); auto-detected if omitted")
+		"Provider ID (aws, gcp, azure); auto-detected if omitted")
 	commitmentsSummaryCmd.Flags().StringVar(&flagSummaryPeriod, "period", "",
 		"Month to measure the rate over (YYYY-MM); the latest complete month if omitted")
 	commitmentsSummaryCmd.Flags().StringVar(&flagSummaryScope, "scope", "eligible",
