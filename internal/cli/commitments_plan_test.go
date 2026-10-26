@@ -225,7 +225,7 @@ func TestCommitmentsContractsJSONAndWeb(t *testing.T) {
 	}
 }
 
-// Contracts are listed for the whole organization, so a tenant whose detected
+// Contracts are listed for the whole organization, so one whose detected
 // provider is Google Cloud still sees the floors another provider bills.
 func TestCommitmentsContractsListsEveryProviderWhicheverIsDetected(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerGCP}, map[string]string{
@@ -241,7 +241,7 @@ func TestCommitmentsContractsListsEveryProviderWhicheverIsDetected(t *testing.T)
 	}
 }
 
-// DigitalOcean sells reserved terms as contracts, so its tenants read them here.
+// DigitalOcean sells reserved terms as contracts, so its customers read them here.
 func TestCommitmentsContractsReadsDigitalOcean(t *testing.T) {
 	useCommitmentsServer(t, commitmentsServer(t, []string{providerDigitalOcean}, map[string]string{
 		"/contracts": `{"data":[{"id":"digitalocean::contract","vendor":"DigitalOcean",` +

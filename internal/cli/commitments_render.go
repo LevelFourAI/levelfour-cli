@@ -35,8 +35,8 @@ const (
 
 // commitmentProviderSupport is the set of providers the commitments routes read
 // for. Resolution prefers one of these over the first connected provider,
-// because landing a Google Cloud tenant on an empty AWS table reads as a broken
-// product rather than as an unsupported one.
+// because landing a Google Cloud organization on an empty AWS table reads as a
+// broken product rather than as an unsupported one.
 var commitmentProviderSupport = map[string]struct{}{
 	providerAWS:   {},
 	providerGCP:   {},
@@ -104,7 +104,7 @@ func handleCommitmentsError(err error) error {
 
 // unavailableForProvider reports whether the caller should stop, printing why
 // first. Stopping with a sentence beats rendering an empty table, which a
-// Google Cloud tenant reads as "you hold no commitments".
+// Google Cloud organization reads as "you hold no commitments".
 func unavailableForProvider(provider string, measuredFor []string, message string) bool {
 	if slices.Contains(measuredFor, provider) {
 		return false
