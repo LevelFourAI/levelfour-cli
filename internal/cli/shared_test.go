@@ -239,6 +239,19 @@ func TestSnapshotsToAddedChanges(t *testing.T) {
 	}
 }
 
+func TestSnapshotsToAddedChanges_KeepTheModuleCallEachCameFrom(t *testing.T) {
+	snaps := []api.ResourceSnapshot{
+		{Type: "aws_instance", Name: "this", ModulePath: "module.backend_api", Scope: "."},
+		{Type: "aws_instance", Name: "this", ModulePath: "module.worker_fleet", Scope: "."},
+	}
+
+	changes := snapshotsToAddedChanges(snaps)
+
+	if changes[0].ModulePath != "module.backend_api" || changes[1].ModulePath != "module.worker_fleet" {
+		t.Errorf("module paths = %q, %q, want each snapshot's own", changes[0].ModulePath, changes[1].ModulePath)
+	}
+}
+
 func TestSnapshotsToAddedChanges_Empty(t *testing.T) {
 	changes := snapshotsToAddedChanges(nil)
 	if len(changes) != 0 {
