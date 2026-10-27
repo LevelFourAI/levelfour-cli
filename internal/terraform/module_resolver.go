@@ -35,27 +35,9 @@ func resolveRemoteModule(name, source, version string, configMap map[string]inte
 
 	absModuleDir, _ := filepath.Abs(moduleDir)
 
-	defaults := ParseVariableDefaults(absModuleDir)
-	inputs := filterModuleInputs(configMap)
-
-	merged := make(map[string]cty.Value)
-	for k, v := range defaults {
-		merged[k] = v
-	}
-	for k, v := range inputs {
-		merged[k] = goToCty(v)
-	}
-
-	mergedEvalCtx := BuildEvalContext(merged)
-
-	locals := ParseLocals(absModuleDir, mergedEvalCtx)
-	if len(locals) > 0 {
-		mergedEvalCtx = BuildEvalContextWithLocals(merged, locals)
-	}
-
 	moduleVisited := make(map[string]bool)
 	moduleVisited[absModuleDir] = true
-	modSnapshots, modWarnings, modErr := parseDirectoryWithVisited(moduleDir, moduleVisited, depth+1, mergedEvalCtx, opts, downloader)
+	modSnapshots, modWarnings, modErr := parseDirectoryWithVisited(moduleDir, moduleVisited, depth+1, moduleEvalContext(absModuleDir, configMap), opts, downloader)
 	if modErr != nil {
 		return []api.ResourceSnapshot{{
 			Type:       blockModule,
@@ -80,6 +62,27 @@ func resolveRemoteModule(name, source, version string, configMap map[string]inte
 	return modSnapshots, modWarnings
 }
 
+// moduleEvalContext evaluates a module's own files: its variable defaults,
+// overridden by the inputs its call passes, and its locals.
+func moduleEvalContext(absModuleDir string, configMap map[string]interface{}) *hcl.EvalContext {
+	merged := make(map[string]cty.Value)
+	for k, v := range ParseVariableDefaults(absModuleDir) {
+		merged[k] = v
+	}
+	// An input the parser could not resolve keeps the module's default.
+	for k, v := range filterModuleInputs(configMap) {
+		if v != nil {
+			merged[k] = goToCty(v)
+		}
+	}
+
+	evalCtx := BuildEvalContext(merged)
+	if locals := ParseLocals(absModuleDir, evalCtx); len(locals) > 0 {
+		evalCtx = BuildEvalContextWithLocals(merged, locals)
+	}
+	return evalCtx
+}
+
 func filterModuleInputs(configMap map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
 	for k, v := range configMap {
@@ -92,7 +95,7 @@ func filterModuleInputs(configMap map[string]interface{}) map[string]interface{}
 
 func goToCty(v interface{}) cty.Value {
 	if v == nil {
-		return cty.NilVal
+		return cty.NullVal(cty.DynamicPseudoType)
 	}
 
 	switch val := v.(type) {

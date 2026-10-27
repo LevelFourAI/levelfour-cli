@@ -15,12 +15,16 @@ import (
 )
 
 const (
-	MaxFiles       = 50
-	MaxResources   = 500
-	MaxFileSize    = 1 << 20
-	MaxDepth       = 10
-	tfExt          = ".tf"
-	blockModule    = "module"
+	MaxFiles     = 50
+	MaxResources = 500
+	MaxFileSize  = 1 << 20
+	MaxDepth     = 10
+	tfExt        = ".tf"
+	blockModule  = "module"
+	blockDynamic = "dynamic"
+	// The attributes of a dynamic block's iterator.
+	iteratorKey    = "key"
+	iteratorValue  = "value"
 	providerAWS    = "aws"
 	providerGoogle = "google"
 	providerAzure  = "azurerm"
@@ -468,7 +472,7 @@ func parseHCLContent(content []byte, filename string, visited map[string]bool, d
 	}
 
 	body := file.Body.(*hclsyntax.Body)
-	resources, modules := classifyBlocks(body, content, evalCtx)
+	resources, modules := classifyBlocks(body, content, withFunctions(evalCtx))
 
 	parsed := make(map[string]interface{})
 	if len(resources) > 0 {
@@ -547,11 +551,75 @@ func bodyToMap(body *hclsyntax.Body, src []byte, evalCtx *hcl.EvalContext) map[s
 	}
 
 	for _, block := range body.Blocks {
-		existing, _ := result[block.Type].([]interface{})
-		result[block.Type] = append(existing, bodyToMap(block.Body, src, evalCtx))
+		name, blocks := generatedBlocks(block, src, evalCtx)
+		if len(blocks) > 0 {
+			existing, _ := result[name].([]interface{})
+			result[name] = append(existing, blocks...)
+		}
 	}
 
 	return result
+}
+
+// generatedBlocks names a block and lists what it stands for: itself, or for
+// a dynamic block, the blocks it generates.
+func generatedBlocks(block *hclsyntax.Block, src []byte, evalCtx *hcl.EvalContext) (string, []interface{}) {
+	if block.Type == blockDynamic && len(block.Labels) == 1 {
+		return block.Labels[0], expandDynamic(block, src, evalCtx)
+	}
+	return block.Type, []interface{}{bodyToMap(block.Body, src, evalCtx)}
+}
+
+// expandDynamic turns a `dynamic "x"` block into the x blocks Terraform
+// generates: one per element of for_each, with the iterator (named by
+// `iterator`, else x) holding the element's key and value. A for_each that
+// cannot be evaluated generates none.
+func expandDynamic(block *hclsyntax.Block, src []byte, evalCtx *hcl.EvalContext) []interface{} {
+	forEach, hasForEach := block.Body.Attributes["for_each"]
+	content := contentOf(block.Body)
+	if !hasForEach || content == nil {
+		return nil
+	}
+	collection, diags := forEach.Expr.Value(evalCtx)
+	if diags.HasErrors() || collection.IsNull() || !collection.IsWhollyKnown() || !collection.CanIterateElements() {
+		return nil
+	}
+	iterator := iteratorName(block)
+	var blocks []interface{}
+	for it := collection.ElementIterator(); it.Next(); {
+		key, value := it.Element()
+		child := evalCtx.NewChild()
+		child.Variables = map[string]cty.Value{iterator: cty.ObjectVal(map[string]cty.Value{iteratorKey: key, iteratorValue: value})}
+		blocks = append(blocks, bodyToMap(content.Body, src, child))
+	}
+	return blocks
+}
+
+func contentOf(body *hclsyntax.Body) *hclsyntax.Block {
+	for _, block := range body.Blocks {
+		if block.Type == "content" {
+			return block
+		}
+	}
+	return nil
+}
+
+func iteratorName(block *hclsyntax.Block) string {
+	if attr, ok := block.Body.Attributes["iterator"]; ok {
+		if name := hcl.ExprAsKeyword(attr.Expr); name != "" {
+			return name
+		}
+	}
+	return block.Labels[0]
+}
+
+// withFunctions is evalCtx, or a context with the functions alone when a
+// file has no variables or locals to evaluate against.
+func withFunctions(evalCtx *hcl.EvalContext) *hcl.EvalContext {
+	if evalCtx != nil {
+		return evalCtx
+	}
+	return &hcl.EvalContext{Functions: evalFunctions()}
 }
 
 func ctyToGo(val cty.Value) interface{} {
@@ -701,7 +769,7 @@ func extractModules(parsed map[string]interface{}, filename string, visited map[
 			}
 
 			if isLocalSource(source) {
-				s, w := resolveLocalModule(name, source, filename, visited, depth, evalCtx, opts, "", downloader)
+				s, w := resolveLocalModule(name, source, filename, configMap, visited, depth, opts, "", downloader)
 				snapshots = append(snapshots, s...)
 				warnings = append(warnings, w...)
 			}
@@ -719,7 +787,7 @@ func isLocalSource(source string) bool {
 	return source != "" && (strings.HasPrefix(source, ".") || strings.HasPrefix(source, "/"))
 }
 
-func resolveLocalModule(name, source, filename string, visited map[string]bool, depth int, evalCtx *hcl.EvalContext, opts ParseOptions, parentModulePath string, downloader *ModuleDownloader) ([]api.ResourceSnapshot, []string) {
+func resolveLocalModule(name, source, filename string, configMap map[string]interface{}, visited map[string]bool, depth int, opts ParseOptions, parentModulePath string, downloader *ModuleDownloader) ([]api.ResourceSnapshot, []string) {
 	moduleDir := filepath.Join(filepath.Dir(filename), source)
 	absModuleDir, _ := filepath.Abs(moduleDir)
 
@@ -732,7 +800,7 @@ func resolveLocalModule(name, source, filename string, visited map[string]bool, 
 	}
 
 	visited[absModuleDir] = true
-	modSnapshots, modWarnings, modErr := parseDirectoryWithVisited(moduleDir, visited, depth+1, evalCtx, opts, downloader)
+	modSnapshots, modWarnings, modErr := parseDirectoryWithVisited(moduleDir, visited, depth+1, moduleEvalContext(absModuleDir, configMap), opts, downloader)
 	if modErr != nil {
 		return nil, []string{fmt.Sprintf("module.%s: failed to parse local module %s: %v", name, source, modErr)}
 	}
