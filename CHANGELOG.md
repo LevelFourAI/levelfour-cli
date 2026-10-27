@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.3...v0.2.4) (2026-10-27)
+
+
+### Bug Fixes
+
+* **estimate:** read dynamic blocks and local module inputs ([#60](https://github.com/LevelFourAI/levelfour-cli/issues/60)) ([dc819f3](https://github.com/LevelFourAI/levelfour-cli/commit/dc819f3bf8649d15b78bb426e72cf7cb7ba01918))
+
 ## [0.2.3](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.2...v0.2.3) (2026-10-27)
 
 
