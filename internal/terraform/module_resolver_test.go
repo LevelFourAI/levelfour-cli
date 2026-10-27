@@ -52,8 +52,8 @@ func TestGoToCty_Bool(t *testing.T) {
 
 func TestGoToCty_Nil(t *testing.T) {
 	val := goToCty(nil)
-	if val != cty.NilVal {
-		t.Errorf("expected NilVal, got %v", val)
+	if !val.IsNull() || val.Type() != cty.DynamicPseudoType {
+		t.Errorf("expected a null of any type, got %#v", val)
 	}
 }
 

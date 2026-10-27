@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/ext/tryfunc"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -128,22 +129,7 @@ func BuildEvalContextWithLocals(vars map[string]cty.Value, locals map[string]cty
 
 	ctx := &hcl.EvalContext{
 		Variables: map[string]cty.Value{},
-		Functions: map[string]function.Function{
-			"join":       stdlib.JoinFunc,
-			"lower":      stdlib.LowerFunc,
-			"upper":      stdlib.UpperFunc,
-			"trimspace":  stdlib.TrimSpaceFunc,
-			"format":     stdlib.FormatFunc,
-			"coalesce":   stdlib.CoalesceFunc,
-			"concat":     stdlib.ConcatFunc,
-			"length":     stdlib.LengthFunc,
-			"replace":    stdlib.ReplaceFunc,
-			"split":      stdlib.SplitFunc,
-			"substr":     stdlib.SubstrFunc,
-			"trim":       stdlib.TrimFunc,
-			"trimprefix": stdlib.TrimPrefixFunc,
-			"trimsuffix": stdlib.TrimSuffixFunc,
-		},
+		Functions: evalFunctions(),
 	}
 
 	if len(vars) > 0 {
@@ -154,6 +140,58 @@ func BuildEvalContextWithLocals(vars map[string]cty.Value, locals map[string]cty
 	}
 
 	return ctx
+}
+
+// evalFunctions are the Terraform functions an expression can call here.
+// Registry modules wrap nearly every optional input in try() or lookup().
+func evalFunctions() map[string]function.Function {
+	return map[string]function.Function{
+		"join":       stdlib.JoinFunc,
+		"lower":      stdlib.LowerFunc,
+		"upper":      stdlib.UpperFunc,
+		"trimspace":  stdlib.TrimSpaceFunc,
+		"format":     stdlib.FormatFunc,
+		"coalesce":   stdlib.CoalesceFunc,
+		"concat":     stdlib.ConcatFunc,
+		"length":     stdlib.LengthFunc,
+		"replace":    stdlib.ReplaceFunc,
+		"split":      stdlib.SplitFunc,
+		"substr":     stdlib.SubstrFunc,
+		"trim":       stdlib.TrimFunc,
+		"trimprefix": stdlib.TrimPrefixFunc,
+		"trimsuffix": stdlib.TrimSuffixFunc,
+		"lookup":     lookupFunc,
+		"try":        tryfunc.TryFunc,
+	}
+}
+
+// lookupFunc is Terraform's lookup(), whose default may be null. go-cty's
+// refuses a null default, and registry modules pass one throughout.
+var lookupFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "inputMap", Type: cty.DynamicPseudoType},
+		{Name: "key", Type: cty.String},
+		{Name: "default", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
+	},
+	Type: function.StaticReturnType(cty.DynamicPseudoType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		if !args[2].IsNull() {
+			return stdlib.LookupFunc.Call(args)
+		}
+		return valueAt(args[0], args[1]), nil
+	},
+})
+
+// valueAt is the element of a map or object at key, or null when there is none.
+func valueAt(collection, key cty.Value) cty.Value {
+	ty := collection.Type()
+	switch {
+	case ty.IsObjectType() && ty.HasAttribute(key.AsString()):
+		return collection.GetAttr(key.AsString())
+	case ty.IsMapType() && collection.HasIndex(key).True():
+		return collection.Index(key)
+	}
+	return cty.NullVal(cty.DynamicPseudoType)
 }
 
 func ParseLocals(dir string, evalCtx *hcl.EvalContext) map[string]cty.Value {

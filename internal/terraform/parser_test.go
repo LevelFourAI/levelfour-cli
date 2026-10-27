@@ -236,6 +236,29 @@ func TestParseHCLContent_ModuleLocal(t *testing.T) {
 	}
 }
 
+func TestParseHCLContent_ModuleLocalTakesItsInputs(t *testing.T) {
+	parentDir := t.TempDir()
+	moduleDir := filepath.Join(parentDir, "worker")
+	os.MkdirAll(moduleDir, 0o755)
+	writeTF(t, moduleDir, "main.tf", `
+variable "instance_type" {
+  default = "t3.micro"
+}
+
+resource "aws_instance" "this" {
+  instance_type = var.instance_type
+}
+`)
+	writeTF(t, parentDir, "main.tf", "module \"worker\" {\n  source        = \"./worker\"\n  instance_type = \"c5.2xlarge\"\n}\n")
+
+	content, _ := os.ReadFile(filepath.Join(parentDir, "main.tf"))
+	snapshots, _ := parseHCLContent(content, filepath.Join(parentDir, "main.tf"), make(map[string]bool), 0, nil, ParseOptions{}, nil)
+
+	if len(snapshots) != 1 || snapshots[0].Attributes["instance_type"] != "c5.2xlarge" {
+		t.Errorf("expected the module's aws_instance.this with the input c5.2xlarge, got %+v", snapshots)
+	}
+}
+
 func TestParseHCLContent_ModuleRemote(t *testing.T) {
 	content := []byte(`
 module "vpc" {
@@ -392,7 +415,8 @@ resource "aws_instance" "web" {
 func TestParseHCLContent_FunctionCall(t *testing.T) {
 	content := []byte(`
 resource "aws_instance" "web" {
-  ami = join("-", ["ami", "123"])
+  ami    = join("-", ["ami", "123"])
+  subnet = cidrsubnet("10.0.0.0/16", 8, 1)
 }
 `)
 
@@ -400,12 +424,12 @@ resource "aws_instance" "web" {
 	if len(snapshots) != 1 {
 		t.Fatalf("expected 1 snapshot, got %d", len(snapshots))
 	}
-	val, ok := snapshots[0].Attributes["ami"].(string)
-	if !ok {
-		t.Fatalf("expected string fallback, got %T", snapshots[0].Attributes["ami"])
+	if ami := snapshots[0].Attributes["ami"]; ami != "ami-123" {
+		t.Errorf("expected a known function to evaluate without variables, got %#v", ami)
 	}
-	if !strings.Contains(val, "join") {
-		t.Errorf("expected raw source containing join, got %q", val)
+	subnet, ok := snapshots[0].Attributes["subnet"].(string)
+	if !ok || !strings.Contains(subnet, "cidrsubnet") {
+		t.Errorf("expected raw source for a function the parser does not know, got %#v", snapshots[0].Attributes["subnet"])
 	}
 }
 
@@ -1436,7 +1460,7 @@ func TestResolveLocalModule_MaxDepth(t *testing.T) {
 	writeTF(t, modDir, "main.tf", `resource "null_resource" "x" {}`)
 
 	visited := make(map[string]bool)
-	_, warnings := resolveLocalModule("deep", "./mod", filepath.Join(dir, "main.tf"), visited, MaxDepth, nil, ParseOptions{}, "", nil)
+	_, warnings := resolveLocalModule("deep", "./mod", filepath.Join(dir, "main.tf"), nil, visited, MaxDepth, ParseOptions{}, "", nil)
 	if len(warnings) == 0 {
 		t.Fatal("expected depth warning")
 	}
@@ -1452,7 +1476,7 @@ func TestResolveLocalModule_NestedModulePath(t *testing.T) {
 	writeTF(t, modDir, "main.tf", `resource "aws_instance" "x" { ami = "test" }`)
 
 	visited := make(map[string]bool)
-	snapshots, _ := resolveLocalModule("child", "./child", filepath.Join(dir, "main.tf"), visited, 0, nil, ParseOptions{}, "module.parent", nil)
+	snapshots, _ := resolveLocalModule("child", "./child", filepath.Join(dir, "main.tf"), nil, visited, 0, ParseOptions{}, "module.parent", nil)
 	if len(snapshots) == 0 {
 		t.Fatal("expected snapshots")
 	}
@@ -1489,7 +1513,7 @@ func TestResolveLocalModule_NestedExistingPath(t *testing.T) {
 	writeTF(t, innerDir, "main.tf", `module "sub" { source = "./sub" }`)
 
 	visited := make(map[string]bool)
-	snapshots, _ := resolveLocalModule("inner", "./inner", filepath.Join(dir, "main.tf"), visited, 0, nil, ParseOptions{}, "", nil)
+	snapshots, _ := resolveLocalModule("inner", "./inner", filepath.Join(dir, "main.tf"), nil, visited, 0, ParseOptions{}, "", nil)
 	for _, s := range snapshots {
 		if s.Type == "null_resource" && strings.Contains(s.ModulePath, "module.inner.module.sub") {
 			return
