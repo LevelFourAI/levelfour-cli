@@ -189,6 +189,7 @@ func changeOf(s api.ResourceSnapshot, changeType string, attributes map[string]i
 		ChangeType:        changeType,
 		File:              s.File,
 		Scope:             s.Scope,
+		ModulePath:        s.ModulePath,
 		AttributesChanged: attributes,
 	}
 }

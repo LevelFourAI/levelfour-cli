@@ -22,6 +22,9 @@ type ResourceChange struct {
 	File              string                 `json:"file"`
 	AttributesChanged map[string]interface{} `json:"attributes_changed"`
 	Scope             string                 `json:"scope,omitempty"`
+	// ModulePath names the module call the resource is declared in, so two
+	// calls of one module, which declare the same address, stay apart.
+	ModulePath string `json:"module_path,omitempty"`
 }
 
 type AnalyzePrRequest struct {
