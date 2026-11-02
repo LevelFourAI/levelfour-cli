@@ -197,8 +197,11 @@ func sourceText(s *tagSource, names keyNames) string {
 	if s == nil {
 		return "no source"
 	}
-	if s.Origin == tagOriginVirtual {
+	switch s.Origin {
+	case tagOriginVirtual:
 		return "virtual key " + names.of(s.Key)
+	case tagOriginDimension:
+		return "dimension " + s.Key
 	}
 	return s.Origin + " key " + s.Key
 }
@@ -231,11 +234,22 @@ func assignText(a tagAssign, names keyNames) string {
 	case assignPercent:
 		parts := make([]string, 0, len(a.Splits))
 		for _, s := range a.Splits {
-			parts = append(parts, valueText(s.Value)+" "+strconv.FormatFloat(s.Pct, 'f', -1, 64)+"%")
+			if a.Even {
+				parts = append(parts, valueText(s.Value))
+			} else {
+				parts = append(parts, valueText(s.Value)+" "+strconv.FormatFloat(s.Pct, 'f', -1, 64)+"%")
+			}
+		}
+		if a.Even {
+			return strings.Join(parts, ", ") + " evenly"
 		}
 		return strings.Join(parts, ", ")
 	case assignCostBased:
 		return "split by " + sourceText(a.Source, names)
+	case assignKey:
+		return "value of " + sourceText(a.Source, names)
+	case assignTelemetry:
+		return "split by " + a.Key + " in usage dataset " + a.Dataset
 	}
 	return a.Type
 }

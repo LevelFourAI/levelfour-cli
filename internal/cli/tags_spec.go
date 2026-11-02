@@ -15,6 +15,8 @@ const (
 	assignValue     = "value"
 	assignPercent   = "percent"
 	assignCostBased = "cost_based"
+	assignKey       = "key"
+	assignTelemetry = "telemetry"
 
 	opIs    = "is"
 	opIsNot = "is_not"
@@ -48,12 +50,20 @@ type costBasedSpec struct {
 	Input  []ruleSpec `yaml:"input"`
 }
 
+type telemetrySpec struct {
+	Dataset string `yaml:"dataset"`
+	Key     string `yaml:"key"`
+}
+
 type configSpec struct {
-	Value     *string        `yaml:"value"`
-	Split     []tagSplit     `yaml:"split"`
-	CostBased *costBasedSpec `yaml:"cost_based"`
-	Rules     []ruleSpec     `yaml:"rules"`
-	TimeFrame *tagTimeFrame  `yaml:"time_frame"`
+	Value       *string        `yaml:"value"`
+	ValueFrom   *tagSource     `yaml:"value_from"`
+	Split       []tagSplit     `yaml:"split"`
+	SplitEvenly []string       `yaml:"split_evenly"`
+	CostBased   *costBasedSpec `yaml:"cost_based"`
+	Telemetry   *telemetrySpec `yaml:"telemetry"`
+	Rules       []ruleSpec     `yaml:"rules"`
+	TimeFrame   *tagTimeFrame  `yaml:"time_frame"`
 }
 
 type tagSource struct {
@@ -100,9 +110,12 @@ type tagFilter struct {
 type tagAssign struct {
 	Type        string     `json:"type"`
 	Value       *string    `json:"value,omitempty"`
+	Even        bool       `json:"even,omitempty"`
 	Splits      []tagSplit `json:"splits,omitempty"`
 	InputFilter *tagFilter `json:"input_filter,omitempty"`
 	Source      *tagSource `json:"source,omitempty"`
+	Dataset     string     `json:"dataset,omitempty"`
+	Key         string     `json:"key,omitempty"`
 }
 
 type tagConfig struct {
@@ -172,26 +185,45 @@ func (f tagSpecFile) definition() (tagDefinition, error) {
 	return def, nil
 }
 
+const assignFields = "value, value_from, split, split_evenly, cost_based or telemetry"
+
 func (c configSpec) assign() (tagAssign, error) {
 	var named []string
-	if c.Value != nil {
-		named = append(named, assignValue)
-	}
-	if c.Split != nil {
-		named = append(named, "split")
-	}
-	if c.CostBased != nil {
-		named = append(named, assignCostBased)
+	for _, field := range []struct {
+		name string
+		set  bool
+	}{
+		{"value", c.Value != nil},
+		{"value_from", c.ValueFrom != nil},
+		{"split", c.Split != nil},
+		{"split_evenly", c.SplitEvenly != nil},
+		{"cost_based", c.CostBased != nil},
+		{"telemetry", c.Telemetry != nil},
+	} {
+		if field.set {
+			named = append(named, field.name)
+		}
 	}
 	switch {
 	case len(named) == 0:
-		return tagAssign{}, errors.New("sets none of value, split or cost_based: give it exactly one")
+		return tagAssign{}, errors.New("sets none of " + assignFields + ": give it exactly one")
 	case len(named) > 1:
-		return tagAssign{}, fmt.Errorf("sets %s: keep exactly one of value, split or cost_based", strings.Join(named, " and "))
+		return tagAssign{}, fmt.Errorf("sets %s: keep exactly one of %s", strings.Join(named, " and "), assignFields)
 	case c.Value != nil:
 		return tagAssign{Type: assignValue, Value: c.Value}, nil
+	case c.ValueFrom != nil:
+		return tagAssign{Type: assignKey, Source: c.ValueFrom}, nil
 	case c.Split != nil:
 		return tagAssign{Type: assignPercent, Splits: c.Split}, nil
+	case c.SplitEvenly != nil:
+		// The API ignores pct on an even split, so each value goes with none.
+		splits := make([]tagSplit, 0, len(c.SplitEvenly))
+		for _, value := range c.SplitEvenly {
+			splits = append(splits, tagSplit{Value: value})
+		}
+		return tagAssign{Type: assignPercent, Even: true, Splits: splits}, nil
+	case c.Telemetry != nil:
+		return tagAssign{Type: assignTelemetry, Dataset: c.Telemetry.Dataset, Key: c.Telemetry.Key}, nil
 	}
 	input := filterOf(c.CostBased.Input)
 	source := c.CostBased.Source
