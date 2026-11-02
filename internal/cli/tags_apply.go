@@ -34,7 +34,19 @@ A file with one config:
       rules:
         - providers: [aws, gcp]
           where:
-            - {dimension: service, operator: is, values: [Amazon Redshift, BigQuery]}`,
+            - {dimension: service, operator: is, values: [Amazon Redshift, BigQuery]}
+
+Each config sets exactly one of these:
+
+  value: data                                    # one value
+  value_from: {origin: provider, key: team}      # each line's value of a key or dimension
+  split: [{value: infra, pct: 60}, {value: mobile, pct: 40}]
+  split_evenly: [infra, mobile]                  # equal shares
+  cost_based: {source: {origin: provider, key: team}, input: [...]}
+  telemetry: {dataset: ai_usage, key: team}      # shares of a usage dataset
+
+value_from takes origin provider, virtual or dimension. A line with no value
+there falls through to the next config.`,
 	Args: cobra.NoArgs,
 	Example: `  l4 tags apply -f teams.yaml
   l4 tags apply -f teams.yaml --dry-run

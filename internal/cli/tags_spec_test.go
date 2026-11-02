@@ -45,6 +45,42 @@ func TestLoadTagDefinitionMapsTheDocumentedFile(t *testing.T) {
 	}
 }
 
+func TestLoadTagDefinitionMapsTheNewerAssigns(t *testing.T) {
+	const spec = `name: Owner
+configs:
+  - value_from: {origin: dimension, key: account_name}
+    rules:
+      - providers: [aws]
+  - split_evenly: [infra, mobile]
+    rules:
+      - providers: [gcp]
+  - telemetry: {dataset: ai_usage, key: team}
+    rules:
+      - providers: [anthropic]
+`
+	def, err := loadTagDefinition(writeSpecFile(t, spec))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	const want = `[
+    {"type":"key","source":{"origin":"dimension","key":"account_name"}},
+    {"type":"percent","even":true,"splits":[{"value":"infra","pct":0},{"value":"mobile","pct":0}]},
+    {"type":"telemetry","dataset":"ai_usage","key":"team"}
+  ]`
+	var wantJSON interface{}
+	if err := json.Unmarshal([]byte(want), &wantJSON); err != nil {
+		t.Fatalf("bad fixture: %v", err)
+	}
+	var got []interface{}
+	for _, config := range definitionJSON(t, def).(map[string]interface{})["configs"].([]interface{}) {
+		got = append(got, config.(map[string]interface{})["assign"])
+	}
+	if !reflect.DeepEqual(interface{}(got), wantJSON) {
+		gotRaw, _ := json.Marshal(got)
+		t.Errorf("assigns =\n%s\nwant\n%s", gotRaw, want)
+	}
+}
+
 func TestLoadTagDefinitionDefaults(t *testing.T) {
 	const spec = `name: environment
 collapsed_keys:
@@ -102,8 +138,9 @@ func TestLoadTagDefinitionErrors(t *testing.T) {
 		{"missing file", missing, "no such file"},
 		{"empty file", writeSpecFile(t, "# nothing yet\n"), "is empty"},
 		{"typo", writeSpecFile(t, "name: Teams\nconfigs:\n  - valu: data\n"), "line 3: field valu not found"},
-		{"two assignments", writeSpecFile(t, "name: Teams\nconfigs:\n  - value: data\n    split: [{value: a, pct: 100}]\n"), "config 1 sets value and split: keep exactly one of value, split or cost_based"},
-		{"no assignment", writeSpecFile(t, "name: Teams\nconfigs:\n  - value: data\n  - rules: []\n"), "config 2 sets none of value, split or cost_based"},
+		{"two assignments", writeSpecFile(t, "name: Teams\nconfigs:\n  - value: data\n    split: [{value: a, pct: 100}]\n"), "config 1 sets value and split: keep exactly one of value, value_from, split, split_evenly, cost_based or telemetry"},
+		{"no assignment", writeSpecFile(t, "name: Teams\nconfigs:\n  - value: data\n  - rules: []\n"), "config 2 sets none of value, value_from, split, split_evenly, cost_based or telemetry"},
+		{"an even split beside a key", writeSpecFile(t, "name: Teams\nconfigs:\n  - split_evenly: [a, b]\n    value_from: {origin: provider, key: team}\n"), "config 1 sets value_from and split_evenly"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

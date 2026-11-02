@@ -28,8 +28,9 @@ key stays reachable by its id.`,
 }
 
 const (
-	tagOriginVirtual  = "virtual"
-	tagOriginProvider = "provider"
+	tagOriginVirtual   = "virtual"
+	tagOriginProvider  = "provider"
+	tagOriginDimension = "dimension"
 
 	labelUnallocated  = "Unallocated"
 	virtualKeyPrefix  = "vtk_"
