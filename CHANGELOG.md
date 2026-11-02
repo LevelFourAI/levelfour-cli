@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.4...v0.2.5) (2026-11-02)
+
+
+### Features
+
+* **tags:** apply and show a value from a key, an even split and a usage split ([#64](https://github.com/LevelFourAI/levelfour-cli/issues/64)) ([0449189](https://github.com/LevelFourAI/levelfour-cli/commit/0449189f22574d09f1929217d5b9c3b19157b0d5))
+
+
+### Bug Fixes
+
+* **license:** name the copyright holder by its legal name, LevelFour Inc. ([#62](https://github.com/LevelFourAI/levelfour-cli/issues/62)) ([ff7a323](https://github.com/LevelFourAI/levelfour-cli/commit/ff7a3234303adfe3c833e82bcfbe7e0523a584a7))
+
 ## [0.2.4](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.3...v0.2.4) (2026-10-27)
 
 
