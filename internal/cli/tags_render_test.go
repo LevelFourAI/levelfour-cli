@@ -116,6 +116,28 @@ func TestAssignTextEdges(t *testing.T) {
 	}
 }
 
+func TestAssignTextOfTheNewerAssigns(t *testing.T) {
+	names := keyNames{"vtk_apps02": "Applications"}
+	tests := []struct {
+		name   string
+		assign tagAssign
+		want   string
+	}{
+		{"an even split", tagAssign{Type: assignPercent, Even: true, Splits: []tagSplit{{Value: "infra"}, {Value: "a, b"}}}, `infra, "a, b" evenly`},
+		{"a provider key's value", tagAssign{Type: assignKey, Source: &tagSource{Origin: tagOriginProvider, Key: "team"}}, "value of provider key team"},
+		{"a virtual key's value", tagAssign{Type: assignKey, Source: &tagSource{Origin: tagOriginVirtual, Key: "vtk_apps02"}}, "value of virtual key Applications"},
+		{"a dimension's value", tagAssign{Type: assignKey, Source: &tagSource{Origin: tagOriginDimension, Key: "account_name"}}, "value of dimension account_name"},
+		{"a usage dataset", tagAssign{Type: assignTelemetry, Dataset: "ai_usage", Key: "team"}, "split by team in usage dataset ai_usage"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := assignText(tt.assign, names); got != tt.want {
+				t.Errorf("assignText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEffectiveFromLabel(t *testing.T) {
 	if got := effectiveFromLabel(nil); got != "current month" {
 		t.Errorf("nil = %q", got)
