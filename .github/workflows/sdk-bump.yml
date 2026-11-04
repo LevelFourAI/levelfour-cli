@@ -1,0 +1,69 @@
+name: Update the SDK
+
+# The CLI follows levelfour-go once a week rather than at each of its releases, so a release of the
+# CLI always carries a week's worth of change. Dependabot ignores this module so the two do not race.
+on:
+  schedule:
+    - cron: '0 10 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BRANCH: sdk-bump/main
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Move to the latest levelfour-go
+        id: bump
+        run: |
+          go get github.com/LevelFourAI/levelfour-go@latest
+          go mod tidy
+          version="$(go list -m -f '{{.Version}}' github.com/LevelFourAI/levelfour-go)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      # The required checks decide. A release that changes what the CLI calls leaves this pull request
+      # red and open, and the SDK health check reports it after two days.
+      - name: Open or update the pull request
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          if git diff --quiet -- go.mod go.sum; then
+            echo "Already on ${VERSION}"
+            exit 0
+          fi
+          gh auth setup-git
+          git config user.name "levelfour-automation"
+          git config user.email "automation@levelfour.ai"
+          git add go.mod go.sum
+          git commit --quiet -m "fix: move to levelfour-go ${VERSION}"
+          git push --quiet --force "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --head "$BRANCH" \
+            --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
+          if [ -z "$number" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+              --title "fix: move to levelfour-go ${VERSION}" \
+              --body "Moves to the latest SDK. It merges itself once the required checks pass."
+            number=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --head "$BRANCH" \
+              --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
+          else
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "fix: move to levelfour-go ${VERSION}"
+          fi
+          gh pr merge "$number" --repo "$GITHUB_REPOSITORY" --auto --squash

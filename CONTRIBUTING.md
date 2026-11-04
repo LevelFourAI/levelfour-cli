@@ -90,7 +90,7 @@ Authentication and most API surface goes through the [LevelFour Go SDK](https://
 
 Releases are automated with [Release Please](https://github.com/googleapis/release-please).
 
-Conventional commits merged to `main` accumulate into a release pull request titled `chore(main): release X.Y.Z`, which updates [CHANGELOG.md](CHANGELOG.md) and `.release-please-manifest.json`. Merging that pull request tags the commit, and goreleaser then publishes the archives and updates the Homebrew cask.
+Conventional commits merged to `main` open a release pull request titled `chore(main): release X.Y.Z`, which updates [CHANGELOG.md](CHANGELOG.md) and `.release-please-manifest.json`. It merges itself once the required checks pass, so a `feat` or `fix` on `main` ships without anyone cutting a release. That merge tags the commit, and goreleaser then publishes the archives and updates the Homebrew cask.
 
 Do not push version tags by hand. A hand-pushed tag bypasses release-please's bookkeeping and strands the release it had already prepared.
 
