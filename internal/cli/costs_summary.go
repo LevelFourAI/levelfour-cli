@@ -50,7 +50,7 @@ var costsSummaryCmd = &cobra.Command{
 
 		go func() {
 			defer wg.Done()
-			data, err := client.SDK().Costs.GetProviderSummary(ctx, providerID)
+			data, err := client.SDK().Costs.GetProviderSummary(ctx, providerID, &levelfourgo.GetProviderSummaryCostsRequest{})
 			prov = provResult{data, err}
 		}()
 		go func() {
