@@ -6,6 +6,9 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # sdk-bump.yml moves this one, without the cooldown, since it is our own release.
+    ignore:
+      - dependency-name: github.com/LevelFourAI/levelfour-go
     groups:
       go-modules:
         patterns:
