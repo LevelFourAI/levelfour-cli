@@ -39,8 +39,8 @@ jobs:
           module=github.com/LevelFourAI/levelfour-go
           cutoff="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
           current="$(go list -m -f '{{.Version}}' "$module")"
-          for candidate in $(go list -m -versions "$module" | cut -d' ' -f2- | tr ' ' '\n' | sort -rV); do
-            published="$(go list -m -json "${module}@${candidate}" | jq -r .Time)"
+          for candidate in $(go list -m -versions "$module" | cut -d' ' -f2- | tr ' ' '\n' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV); do
+            published="$(go list -m -json "${module}@${candidate}" | jq -er .Time)"
             if [[ "$published" < "$cutoff" ]]; then
               if [ "$(printf '%s\n%s\n' "$current" "$candidate" | sort -V | tail -1)" != "$current" ]; then
                 go get "${module}@${candidate}"
