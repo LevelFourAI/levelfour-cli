@@ -1,0 +1,79 @@
+name: Update the SDK
+
+# The CLI follows levelfour-go once a week rather than at each of its releases, so a release of the
+# CLI always carries a week's worth of change. Dependabot ignores this module so the two do not race.
+on:
+  schedule:
+    - cron: '0 10 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BRANCH: sdk-bump/main
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # The newest release at least three days old, so a bad one has time to be caught before it
+      # reaches a binary customers install. The SDK may release daily, so @latest would never settle.
+      - name: Move to the newest settled levelfour-go
+        id: bump
+        run: |
+          module=github.com/LevelFourAI/levelfour-go
+          cutoff="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+          current="$(go list -m -f '{{.Version}}' "$module")"
+          for candidate in $(go list -m -versions "$module" | cut -d' ' -f2- | tr ' ' '\n' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV); do
+            published="$(go list -m -json "${module}@${candidate}" | jq -er .Time)"
+            if [[ "$published" < "$cutoff" ]]; then
+              if [ "$(printf '%s\n%s\n' "$current" "$candidate" | sort -V | tail -1)" != "$current" ]; then
+                go get "${module}@${candidate}"
+                go mod tidy
+                echo "version=${candidate}" >> "$GITHUB_OUTPUT"
+              fi
+              break
+            fi
+          done
+
+      # The required checks decide. A release that changes what the CLI calls leaves this pull request
+      # red and open, and the SDK health check reports it after two days.
+      - name: Open or update the pull request
+        if: steps.bump.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          gh auth setup-git
+          git config user.name "levelfour-automation"
+          git config user.email "automation@levelfour.ai"
+          git add go.mod go.sum
+          git commit --quiet -m "fix: move to levelfour-go ${VERSION}"
+          git push --quiet --force "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --head "$BRANCH" \
+            --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
+          if [ -z "$number" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+              --title "fix: move to levelfour-go ${VERSION}" \
+              --body "Moves to the latest SDK. It merges itself once the required checks pass."
+            number=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --head "$BRANCH" \
+              --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
+          else
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "fix: move to levelfour-go ${VERSION}"
+          fi
+          gh pr merge "$number" --repo "$GITHUB_REPOSITORY" --auto --squash
