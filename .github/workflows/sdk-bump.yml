@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   bump:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -30,25 +31,34 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Move to the latest levelfour-go
+      # The newest release at least three days old, so a bad one has time to be caught before it
+      # reaches a binary customers install. The SDK may release daily, so @latest would never settle.
+      - name: Move to the newest settled levelfour-go
         id: bump
         run: |
-          go get github.com/LevelFourAI/levelfour-go@latest
-          go mod tidy
-          version="$(go list -m -f '{{.Version}}' github.com/LevelFourAI/levelfour-go)"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          module=github.com/LevelFourAI/levelfour-go
+          cutoff="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+          current="$(go list -m -f '{{.Version}}' "$module")"
+          for candidate in $(go list -m -versions "$module" | cut -d' ' -f2- | tr ' ' '\n' | sort -rV); do
+            published="$(go list -m -json "${module}@${candidate}" | jq -r .Time)"
+            if [[ "$published" < "$cutoff" ]]; then
+              if [ "$(printf '%s\n%s\n' "$current" "$candidate" | sort -V | tail -1)" != "$current" ]; then
+                go get "${module}@${candidate}"
+                go mod tidy
+                echo "version=${candidate}" >> "$GITHUB_OUTPUT"
+              fi
+              break
+            fi
+          done
 
       # The required checks decide. A release that changes what the CLI calls leaves this pull request
       # red and open, and the SDK health check reports it after two days.
       - name: Open or update the pull request
+        if: steps.bump.outputs.version != ''
         env:
           GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          if git diff --quiet -- go.mod go.sum; then
-            echo "Already on ${VERSION}"
-            exit 0
-          fi
           gh auth setup-git
           git config user.name "levelfour-automation"
           git config user.email "automation@levelfour.ai"
