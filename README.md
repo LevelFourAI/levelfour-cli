@@ -238,14 +238,14 @@ After every command, `l4` asks GitHub for the latest published release and print
 
 ## Command reference
 
-Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`, `cmt` for `commitments`, and `costalerts` for `alerts`.
+Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs.levelfour.ai/cli). `rec` and `recs` are aliases for `recommendations`, `cmt` for `commitments`, `integrations` for `providers`, and `costalerts` for `alerts`.
 
 | Command | What it does |
 |---|---|
 | `l4 auth login` / `status` / `logout` | Authenticate, inspect the stored credential, remove it. `l4 login` is a shortcut |
 | `l4 whoami` | Identity and scope of the credential in use |
 | `l4 status` | API health and the base URL in use |
-| `l4 integrations list` | Connected cloud providers |
+| `l4 providers list` / `view <id>` | Connected providers, and what one costs, could save and bills most for |
 | `l4 costs summary` | Spending and savings overview with KPIs and top services |
 | `l4 costs breakdown` | Per-service breakdown with filters, grouping and pagination. Groups and filters by a virtual tag with `--virtual-tag-key` |
 | `l4 costs daily` / `monthly` | Spending aggregated per day or per month |
@@ -260,6 +260,9 @@ Full detail, including every flag, lives at [docs.levelfour.ai/cli](https://docs
 | `l4 commitments coverage` | How much of the eligible bill a commitment covers, per service |
 | `l4 commitments plan` | The uncovered on-demand base and what buying would cover it |
 | `l4 commitments contracts` | Marketplace and private-pricing floors that bill like a commitment |
+| `l4 providers datadog renewal` / `plan` | What to ask for at the Datadog renewal, the largest products first, and where it can cost less |
+| `l4 providers datadog contract` / `months` / `hygiene` / `aws-reconciliation` | Contract lines against this month, every product month by month, the hygiene score, and what AWS billed for Datadog |
+| `l4 providers datadog <kind> list` / `view <id>` | The hosts, metrics, log indexes and other items behind the bill, with filters and pages, and one in full |
 | `l4 alerts list` / `get <id>` / `sources` / `events <id>` | Cost alerts, which are firing, what a rule can watch, and what one has said |
 | `l4 alerts create` / `update <id>` | Create a cost alert from a JSON rule file, or change the fields a file names |
 | `l4 alerts pause` / `resume` / `delete <id>` | Silence an alert, arm it again, or delete it with its history. Covered above |
