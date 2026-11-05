@@ -331,15 +331,15 @@ func (kind datadogKind) renderList(resp any) error {
 func (kind datadogKind) renderItem(resp any) error {
 	item := datadogDataOf[map[string]any](resp)
 	for _, column := range kind.columns {
-		output.KeyValue(column.title, column.cell(item[column.field]))
+		datadogKeyValue(column.title, column.cell(item[column.field]))
 	}
 	if savings := datadogRowsOf(item["recommendations"]); len(savings) > 0 {
-		output.Header("Open savings")
+		datadogHeader("Open savings")
 		renderDatadogTable(datadogSavingColumns, savings)
 	}
 	detail, _ := item["detail"].(map[string]any)
 	if changes := datadogRowsOf(detail["changes"]); len(changes) > 0 {
-		output.Header("Changes, last 30 days")
+		datadogHeader("Changes, last 30 days")
 		renderDatadogTable(datadogChangeColumns, changes)
 	}
 	output.Info("--json shows everything else this item holds.")
@@ -359,7 +359,7 @@ func renderDatadogTable(columns []datadogColumn, items []map[string]any) {
 		}
 		rows = append(rows, row)
 	}
-	output.Table(headers, rows)
+	datadogTable(headers, rows)
 }
 
 // A row inside an item arrives as a generic JSON list, and each table reads it

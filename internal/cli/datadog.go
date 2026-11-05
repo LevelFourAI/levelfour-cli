@@ -195,8 +195,42 @@ func printDatadogRenewalCSV() error {
 	if raw.StatusCode >= http.StatusBadRequest {
 		return handleDatadogError(fmt.Errorf("API error (%d): %s", raw.StatusCode, strings.TrimSpace(string(raw.Body))))
 	}
-	output.PrintRaw(string(raw.Body))
+	output.PrintRaw(datadogCSVFor(string(raw.Body)))
 	return nil
+}
+
+// A pipe gets the API's bytes. A terminal gets rows that cannot make it act.
+func datadogCSVFor(body string) string {
+	if !output.IsTTY() {
+		return body
+	}
+	return output.SanitizeMultiline(strings.ReplaceAll(body, "\r\n", "\n"))
+}
+
+// Anyone who can send a metric or register a host in a Datadog account picks its
+// name, so every renderer here prints through these three.
+func datadogTable(headers []string, rows [][]string) {
+	cleanRows := make([][]string, len(rows))
+	for index, row := range rows {
+		cleanRows[index] = datadogCleanCells(row)
+	}
+	output.Table(datadogCleanCells(headers), cleanRows)
+}
+
+func datadogCleanCells(cells []string) []string {
+	clean := make([]string, len(cells))
+	for index, cell := range cells {
+		clean[index] = output.Sanitize(cell)
+	}
+	return clean
+}
+
+func datadogKeyValue(key, value string) {
+	output.KeyValue(key, output.Sanitize(value))
+}
+
+func datadogHeader(title string) {
+	output.Header(output.Sanitize(title))
 }
 
 func renderDatadogRenewal(renewal *levelfourgo.DatadogRenewalData, name string) error {
@@ -224,7 +258,7 @@ func renderDatadogRenewal(renewal *levelfourgo.DatadogRenewalData, name string) 
 			commitmentAnnual(product.GetRecommended()),
 		})
 	}
-	output.Table([]string{columnProduct, "Paid, 12 mo", "On demand", "Vs list", "Open savings/mo", "Ask for", "Next year"}, rows)
+	datadogTable([]string{columnProduct, "Paid, 12 mo", "On demand", "Vs list", "Open savings/mo", "Ask for", "Next year"}, rows)
 	output.Info(potentialSaving)
 	return nil
 }
@@ -243,28 +277,28 @@ func renderDatadogRenewalProduct(products []*levelfourgo.DatadogRenewalProduct, 
 }
 
 func renderDatadogRenewalRow(product *levelfourgo.DatadogRenewalProduct) {
-	output.Header(product.GetLabel())
-	output.KeyValue("Unit", product.GetUnit())
+	datadogHeader(product.GetLabel())
+	datadogKeyValue("Unit", product.GetUnit())
 	if usage := product.GetUsage(); usage != nil {
-		output.KeyValue("Usage, median month", unitsValue(usage.GetMedian()))
-		output.KeyValue("Usage, p95 month", unitsValue(usage.GetP95()))
-		output.KeyValue("Usage, latest month", unitsValue(usage.GetLatest()))
+		datadogKeyValue("Usage, median month", unitsValue(usage.GetMedian()))
+		datadogKeyValue("Usage, p95 month", unitsValue(usage.GetP95()))
+		datadogKeyValue("Usage, latest month", unitsValue(usage.GetLatest()))
 	}
-	output.KeyValue("Usage trend", pctOrNotMeasured(product.GetUsageTrendPct()))
-	output.KeyValue("Committed quantity", unitsOrNotMeasured(product.GetCommittedQuantity()))
-	output.KeyValue("Commitment used", pctOrNotMeasured(product.GetUsedPct()))
-	output.KeyValue("Unused commitment", moneyOrNotMeasured(product.GetUnusedCommitmentUsd()))
-	output.KeyValue("On demand, 12 mo", moneyValue(product.GetOnDemandUsd()))
-	output.KeyValue("Paid, 12 mo", moneyValue(product.GetPaidUsd()))
-	output.KeyValue("Effective rate", ratePer(product.GetEffectiveRateUsd(), product.GetRatePer()))
-	output.KeyValue("List rate", ratePer(product.GetListRateUsd(), product.GetRatePer()))
-	output.KeyValue("List tier", textOrNotMeasured(product.GetListTier()))
-	output.KeyValue("Rate vs list", pctOrNotMeasured(product.GetRateVsListPct()))
-	output.KeyValue("Open savings", moneyValue(product.GetOpenSavingsMonthlyUsd())+"/mo")
-	output.KeyValue("Ask for", commitmentQuantity(product.GetRecommended(), product.GetUnit()))
-	output.KeyValue("Next year", commitmentAnnual(product.GetRecommended()))
-	output.KeyValue("Ask for, savings applied", commitmentQuantity(product.GetRecommendedAfterFindings(), product.GetUnit()))
-	output.KeyValue("Next year, savings applied", commitmentAnnual(product.GetRecommendedAfterFindings()))
+	datadogKeyValue("Usage trend", pctOrNotMeasured(product.GetUsageTrendPct()))
+	datadogKeyValue("Committed quantity", unitsOrNotMeasured(product.GetCommittedQuantity()))
+	datadogKeyValue("Commitment used", pctOrNotMeasured(product.GetUsedPct()))
+	datadogKeyValue("Unused commitment", moneyOrNotMeasured(product.GetUnusedCommitmentUsd()))
+	datadogKeyValue("On demand, 12 mo", moneyValue(product.GetOnDemandUsd()))
+	datadogKeyValue("Paid, 12 mo", moneyValue(product.GetPaidUsd()))
+	datadogKeyValue("Effective rate", ratePer(product.GetEffectiveRateUsd(), product.GetRatePer()))
+	datadogKeyValue("List rate", ratePer(product.GetListRateUsd(), product.GetRatePer()))
+	datadogKeyValue("List tier", textOrNotMeasured(product.GetListTier()))
+	datadogKeyValue("Rate vs list", pctOrNotMeasured(product.GetRateVsListPct()))
+	datadogKeyValue("Open savings", moneyValue(product.GetOpenSavingsMonthlyUsd())+"/mo")
+	datadogKeyValue("Ask for", commitmentQuantity(product.GetRecommended(), product.GetUnit()))
+	datadogKeyValue("Next year", commitmentAnnual(product.GetRecommended()))
+	datadogKeyValue("Ask for, savings applied", commitmentQuantity(product.GetRecommendedAfterFindings(), product.GetUnit()))
+	datadogKeyValue("Next year, savings applied", commitmentAnnual(product.GetRecommendedAfterFindings()))
 	if note := product.GetQuantityNote(); note != nil {
 		output.Info(*note)
 	}
@@ -317,8 +351,8 @@ func renderDatadogPlan(resp *levelfourgo.DatadogRenewalPlanResponse) error {
 			moneyValue(point.GetTermUsd()),
 		})
 	}
-	output.Header("Where the renewal can cost less")
-	output.Table([]string{columnProduct, "Why", "Median month", "Today", columnSavesMo, "Over the term"}, rows)
+	datadogHeader("Where the renewal can cost less")
+	datadogTable([]string{columnProduct, "Why", "Median month", "Today", columnSavesMo, "Over the term"}, rows)
 	output.Info(potentialSaving)
 	return nil
 }
@@ -342,8 +376,8 @@ func renderDatadogContract(resp *levelfourgo.DatadogContractResponse) error {
 		return nil
 	}
 	for _, contract := range data.GetContracts() {
-		output.Header("Contract " + contract.GetID() + ", month of " + datadogDay(data.GetMonth()))
-		output.Table(
+		datadogHeader("Contract " + contract.GetID() + ", month of " + datadogDay(data.GetMonth()))
+		datadogTable(
 			[]string{"Line", "Unit", "Committed", "Month to date", "Month end", "On demand past it", "Crosses on"},
 			contractLineRows(contract.GetLines()),
 		)
@@ -388,7 +422,7 @@ func renderDatadogHygiene(resp *levelfourgo.DatadogHygieneResponse) error {
 			rule.GetLabel(), state, string(rule.GetBill()), strconv.Itoa(rule.GetFindingCount()), moneyValue(rule.GetMonthlySavings()),
 		})
 	}
-	output.Table([]string{"Rule", "State", "Bill", "Findings", columnSavesMo}, rows)
+	datadogTable([]string{"Rule", "State", "Bill", "Findings", columnSavesMo}, rows)
 	output.Info(potentialSaving)
 	return nil
 }
@@ -417,7 +451,7 @@ func renderDatadogMonths(months *levelfourgo.DatadogMonthsData, name string) err
 		}
 		rows = append(rows, row)
 	}
-	output.Table(headers, rows)
+	datadogTable(headers, rows)
 	return nil
 }
 
@@ -428,7 +462,7 @@ func renderDatadogProductMonths(months *levelfourgo.DatadogMonthsData, name stri
 			continue
 		}
 		found = true
-		output.Header(product.GetLabel() + ", in " + product.GetUnit())
+		datadogHeader(product.GetLabel() + ", in " + product.GetUnit())
 		rows := make([][]string, 0, len(product.GetMonths()))
 		for index, month := range product.GetMonths() {
 			rows = append(rows, []string{
@@ -437,7 +471,7 @@ func renderDatadogProductMonths(months *levelfourgo.DatadogMonthsData, name stri
 				moneyOrNotMeasured(month.GetCostUsd()),
 			})
 		}
-		output.Table([]string{columnMonth, "Usage", "Cost"}, rows)
+		datadogTable([]string{columnMonth, "Usage", "Cost"}, rows)
 	}
 	if !found {
 		return fmt.Errorf("the bill holds no product %q", name)
@@ -475,8 +509,8 @@ func datadogSeller(seller *string) string {
 
 func renderDatadogAWS(resp *levelfourgo.DatadogAwsReconciliationResponse) error {
 	reconciliation := resp.GetData()
-	output.KeyValue("Invoiced", reconciliation.GetBilledVia())
-	output.KeyValue("Seller on the AWS bill", datadogSeller(reconciliation.GetSeller()))
+	datadogKeyValue("Invoiced", reconciliation.GetBilledVia())
+	datadogKeyValue("Seller on the AWS bill", datadogSeller(reconciliation.GetSeller()))
 	rows := make([][]string, 0, len(reconciliation.GetMonths()))
 	for _, month := range reconciliation.GetMonths() {
 		rows = append(rows, []string{
@@ -486,7 +520,7 @@ func renderDatadogAWS(resp *levelfourgo.DatadogAwsReconciliationResponse) error 
 			moneyOrNotMeasured(month.GetDifferenceUsd()),
 		})
 	}
-	output.Table([]string{columnMonth, "AWS billed", "Datadog reports", "Difference"}, rows)
+	datadogTable([]string{columnMonth, "AWS billed", "Datadog reports", "Difference"}, rows)
 	return nil
 }
 

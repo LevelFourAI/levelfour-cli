@@ -82,7 +82,7 @@ var providersViewCmd = &cobra.Command{
 			return output.PrintResult(resp)
 		}
 		summary := resp.GetData()
-		output.Header(summary.GetProviderName())
+		output.Header(output.Sanitize(summary.GetProviderName()))
 		renderCostsSummaryKPIs(summary, nil)
 		renderTopServices(summary.GetTopServices())
 		return nil

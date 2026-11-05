@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LevelFourAI/levelfour-cli/internal/output"
 	kr "github.com/zalando/go-keyring"
 )
 
@@ -661,4 +662,94 @@ func TestDatadogBoolAndNumberFiltersSendWhatTheAPITakes(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--queried") {
 		t.Errorf("err = %v, a flag that takes true or false should say so", err)
 	}
+}
+
+// Anyone who can send a metric or register a host in a Datadog account picks its
+// name, so a name must not reach the terminal able to move the cursor or plant a link.
+const datadogEscape = "\\u001b[2J\\u001b]8;;https://example.com\\u0007"
+
+func assertNoTerminalControl(t *testing.T, out string) {
+	t.Helper()
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Errorf("output should carry no terminal control characters:\n%q", out)
+	}
+	if !strings.Contains(out, "�") {
+		t.Errorf("output should mark what it removed:\n%q", out)
+	}
+}
+
+func TestDatadogNamesCannotReachTheTerminalRaw(t *testing.T) {
+	escaped := func(body, name string) string {
+		return strings.ReplaceAll(body, name, datadogEscape+name)
+	}
+	for _, test := range []struct {
+		name, route, body string
+		args              []string
+	}{
+		{"list", "/hosts", escaped(datadogHostsBody, "web-1"), []string{"hosts", "list"}},
+		{"view", "/hosts/c:web-1", escaped(datadogHostBody, "web-1"), []string{"hosts", "view", "c:web-1"}},
+		{"view changes", "/hosts/c:web-1", escaped(datadogHostBody, "someone@example.com"), []string{"hosts", "view", "c:web-1"}},
+		{"renewal", "/renewal", escaped(datadogRenewalBody, "Infra Hosts"), []string{"renewal"}},
+		{"renewal product", "/renewal", escaped(datadogRenewalBody, "Infra Hosts"), []string{"renewal", "infra_host"}},
+		{"plan", "/renewal/plan", escaped(datadogPlanBody, "Infra Hosts"), []string{"plan"}},
+		{"contract", "/contract", escaped(datadogContractBody, "ctr-1"), []string{"contract"}},
+		{"contract line", "/contract", escaped(datadogContractBody, "infra_host"), []string{"contract"}},
+		{"hygiene", "/hygiene", escaped(datadogHygieneBody, "Idle hosts"), []string{"hygiene"}},
+		{"months", "/months", escaped(datadogMonthsBody, "Infra Hosts"), []string{"months"}},
+		{"months product", "/months", escaped(datadogMonthsBody, "Infra Hosts"), []string{"months", "infra_host"}},
+		{"month state", "/months", escaped(datadogMonthsBody, "estimated"), []string{"months"}},
+		{"seller", "/aws-reconciliation", strings.Replace(datadogAWSBody, `"seller":null`, `"seller":"`+datadogEscape+`Datadog"`, 1), []string{"aws-reconciliation"}},
+		{"invoiced", "/aws-reconciliation", escaped(datadogAWSBody, "direct"), []string{"aws-reconciliation"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Cleanup(resetFlags)
+			out, err := runDatadog(t, map[string]string{test.route: test.body}, test.args...)
+			if err != nil {
+				t.Fatalf("%v error: %v", test.args, err)
+			}
+			assertNoTerminalControl(t, out)
+		})
+	}
+}
+
+func TestDatadogRenewalCSVIsCleanOnATerminalAndExactInAPipe(t *testing.T) {
+	body := "product,label\r\ninfra_host,\x1b[2JInfra Hosts\r\n"
+
+	piped, err := runDatadog(t, map[string]string{"/renewal.csv": body}, "renewal", "--format", "csv")
+	if err != nil {
+		t.Fatalf("renewal --format csv error: %v", err)
+	}
+	if piped != body {
+		t.Errorf("a pipe should get the API's bytes, got %q", piped)
+	}
+	resetFlags()
+
+	original := output.IsTTY
+	output.IsTTY = func() bool { return true }
+	t.Cleanup(func() { output.IsTTY = original })
+	shown, err := runDatadog(t, map[string]string{"/renewal.csv": body}, "renewal", "--format", "csv")
+	if err != nil {
+		t.Fatalf("renewal --format csv error: %v", err)
+	}
+	assertNoTerminalControl(t, shown)
+	if strings.Count(shown, "\n") != 2 || strings.Contains(shown, "\r") {
+		t.Errorf("a terminal should keep the rows on their own lines, got %q", shown)
+	}
+}
+
+func TestProvidersViewCleansWhatTheBillNames(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"data":{"provider_name":"`+datadogEscape+`Datadog","top_services":[{"service":"`+datadogEscape+`logs","cost":1}]}}`)
+	}))
+	t.Cleanup(srv.Close)
+	kr.MockInit()
+	flagAPI = srv.URL
+	flagToken = "l4_test_testkey123456789a"
+	t.Cleanup(resetFlags)
+
+	out, _, err := executeCommand(t, "providers", "view", "datadog")
+	if err != nil {
+		t.Fatalf("providers view error: %v", err)
+	}
+	assertNoTerminalControl(t, out.String())
 }
