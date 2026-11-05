@@ -112,7 +112,7 @@ func renderTopServices(top []*levelfourgo.ProviderTopService) {
 	rows := make([][]string, 0, len(top))
 	for _, t := range top {
 		rows = append(rows, []string{
-			t.GetService(),
+			output.Sanitize(t.GetService()),
 			fmt.Sprintf("$%.2f", t.GetCost()),
 			formatChangePercentage(t.GetChangePercentage()),
 		})

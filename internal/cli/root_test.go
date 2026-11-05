@@ -16,6 +16,22 @@ import (
 	kr "github.com/zalando/go-keyring"
 )
 
+// A list's flags live on its own command rather than in a package variable, and
+// every test drives the one shared command tree.
+func resetCommandFlags(cmd *cobra.Command) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if list, ok := f.Value.(pflag.SliceValue); ok {
+			_ = list.Replace(nil)
+		} else {
+			_ = f.Value.Set(f.DefValue)
+		}
+		f.Changed = false
+	})
+	for _, child := range cmd.Commands() {
+		resetCommandFlags(child)
+	}
+}
+
 func resetFlags() {
 	flagToken = ""
 	flagAPI = ""
@@ -146,6 +162,8 @@ func resetFlags() {
 	flagCoverageInstrument = ""
 	flagPlanFormat = ""
 	flagRenewalFormat = ""
+	flagDatadogFormat = ""
+	resetCommandFlags(datadogCmd)
 
 	// pflag never clears Changed once a flag has been set, and every test in
 	// this package drives the one shared rootCmd, so a window set by one test
