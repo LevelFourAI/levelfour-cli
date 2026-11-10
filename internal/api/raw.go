@@ -62,7 +62,7 @@ func (c *RawClient) DoRawWithHeaders(method, path string, body io.Reader, header
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "LevelFour-CLI/"+c.version)
+	req.Header.Set("User-Agent", UserAgent(c.version))
 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -121,6 +121,11 @@ func ValidateBaseURL(rawURL string) error {
 		return fmt.Errorf("insecure HTTP not allowed for non-localhost URLs: use HTTPS")
 	}
 	return nil
+}
+
+// UserAgent is how every request the CLI makes names it.
+func UserAgent(version string) string {
+	return "LevelFour-CLI/" + version
 }
 
 func SecureHTTPClient() *http.Client {

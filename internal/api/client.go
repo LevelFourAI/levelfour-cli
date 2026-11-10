@@ -99,7 +99,7 @@ func (c *Client) do(req *http.Request) (map[string]interface{}, error) {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "LevelFour-CLI/"+c.version)
+	req.Header.Set("User-Agent", UserAgent(c.version))
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
