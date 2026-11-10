@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http"
+
 	"github.com/LevelFourAI/levelfour-go/levelfour"
 )
 
@@ -18,7 +20,7 @@ func NewSDKClient(baseURL, token, version string) (*SDKClient, error) {
 
 	sdk, err := levelfour.NewClient(token,
 		levelfour.WithBaseURL(baseURL),
-		levelfour.WithHTTPClient(SecureHTTPClient()),
+		levelfour.WithHTTPClient(sdkHTTPClient(version)),
 	)
 	if err != nil {
 		return nil, err
@@ -32,6 +34,25 @@ func NewSDKClient(baseURL, token, version string) (*SDKClient, error) {
 		BaseURL: baseURL,
 		version: version,
 	}, nil
+}
+
+// The SDK sends its own User-Agent, so without this its calls would not say
+// they come from the CLI, the way the CLI's direct calls do.
+type userAgentTransport struct {
+	base  http.RoundTripper
+	agent string
+}
+
+func (t *userAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("User-Agent", t.agent)
+	return t.base.RoundTrip(req)
+}
+
+func sdkHTTPClient(version string) *http.Client {
+	client := SecureHTTPClient()
+	client.Transport = &userAgentTransport{base: client.Transport, agent: UserAgent(version)}
+	return client
 }
 
 func NewUnauthSDKClient(baseURL, version string) *SDKClient {
