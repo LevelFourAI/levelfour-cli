@@ -135,8 +135,8 @@ func TestIntegrationsStaysAnAliasOfProviders(t *testing.T) {
 }
 
 const providerSummaryBody = `{"success":true,"data":{"provider_id":"datadog","provider_name":"Datadog",` +
-	`"monthly_spending":66000,"forecasted_monthly_costs":70000,"potential_savings":450,"potential_savings_percentage":0.7,` +
-	`"top_services":[{"service":"infra_host","cost":10900,"change_percentage":2.5}]}}`
+	`"monthly_spending":1250,"forecasted_monthly_costs":1300,"potential_savings":45,"potential_savings_percentage":3.6,` +
+	`"top_services":[{"service":"infra_host","cost":800,"change_percentage":2.5}]}}`
 
 func providerSummaryServer(t *testing.T) {
 	t.Helper()
@@ -160,7 +160,7 @@ func TestProvidersViewShowsTheProviderItsSpendAndItsTopServices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("view error: %v", err)
 	}
-	for _, want := range []string{"Datadog", "$66000.00", "$70000.00", "$450.00", "infra_host", "$10900.00"} {
+	for _, want := range []string{"Datadog", "$1250.00", "$1300.00", "$45.00", "infra_host", "$800.00"} {
 		if !strings.Contains(outBuf.String(), want) {
 			t.Errorf("view should show %q:\n%s", want, outBuf)
 		}
@@ -174,7 +174,7 @@ func TestProvidersViewWithFormattingFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("view --jq error: %v", err)
 	}
-	if !strings.Contains(outBuf.String(), "66000") {
+	if !strings.Contains(outBuf.String(), "1250") {
 		t.Errorf("--jq should read under .data, the path every view uses: %s", outBuf)
 	}
 }

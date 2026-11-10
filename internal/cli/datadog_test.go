@@ -27,7 +27,7 @@ const (
 		`"recommended":{"quantity":40,"annual_usd":8800,"price_basis":"current"},` +
 		`"recommended_after_findings":{"quantity":0,"annual_usd":8000,"price_basis":"current"}}]}}`
 
-	datadogPlanBody = `{"data":{"as_of":"2026-11-04","last_12_usd":700000,"monthly_now_usd":66000,"term_months":24,` +
+	datadogPlanBody = `{"data":{"as_of":"2026-11-04","last_12_usd":14400,"monthly_now_usd":1250,"term_months":24,` +
 		`"points":[` +
 		`{"label":"Infra Hosts","rule":"grew","usage_median":40,"usage_now":60,"monthly_usd":500,"term_usd":12000},` +
 		`{"label":"Logs","rule":"above_contract","usage_median":null,"usage_now":null,"monthly_usd":40,"term_usd":960},` +
@@ -40,7 +40,7 @@ const (
 		`{"dimension":"logs","unit":"USD","committed":50,"month_to_date":1,"projected_month_end":null,` +
 		`"projected_overage":null,"crossing_day":null,"projection_note":"Too early in the month"}]}]}}`
 
-	datadogHygieneBody = `{"data":{"score":87,"monthly_spend":66000,"rules":[` +
+	datadogHygieneBody = `{"data":{"score":87,"monthly_spend":1250,"rules":[` +
 		`{"label":"Unused custom metrics","passed":false,"finding_count":3,"monthly_savings":450,"bill":"datadog"},` +
 		`{"label":"Idle hosts","passed":true,"finding_count":0,"monthly_savings":0,"bill":"aws"}]}}`
 
@@ -242,7 +242,7 @@ func TestDatadogPlanNamesWhyEachProductCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan error: %v", err)
 	}
-	assertShows(t, out, "$700000.00", "24 months", "Grew past its median", "Above the contract",
+	assertShows(t, out, "$14400.00", "24 months", "Grew past its median", "Above the contract",
 		"Another tool also covers it", "a_new_rule", "$12000.00", notMeasured)
 }
 
