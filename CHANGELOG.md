@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.6...v0.2.7) (2026-11-10)
+
+
+### Bug Fixes
+
+* move to levelfour-go v0.6.0 ([#72](https://github.com/LevelFourAI/levelfour-cli/issues/72)) ([ac139b1](https://github.com/LevelFourAI/levelfour-cli/commit/ac139b127bbb2043b4fe1f35f8b8834cf1b45f74))
+
+
+### Continuous Integration
+
+* release on green and follow the SDK every week ([#67](https://github.com/LevelFourAI/levelfour-cli/issues/67)) ([df4686b](https://github.com/LevelFourAI/levelfour-cli/commit/df4686b7ffedd933055d79ebbbdc8e398d5c13b5))
+
 ## [0.2.6](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.5...v0.2.6) (2026-11-04)
 
 
