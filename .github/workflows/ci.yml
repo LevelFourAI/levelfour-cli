@@ -162,7 +162,7 @@ jobs:
 
       - name: OSV dependency scan
         if: always()
-        uses: google/osv-scanner-action/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc  # v2.6.0
+        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36  # v2.7.0
         with:
           scan-args: |-
             --recursive
@@ -170,7 +170,7 @@ jobs:
 
       - name: Workflow security audit (zizmor)
         if: always()
-        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482  # v0.6.4
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b  # v0.8.0
         with:
           advanced-security: false
 
