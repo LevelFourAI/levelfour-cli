@@ -244,8 +244,6 @@ func runCostsBreakdownVirtualTag(client *api.SDKClient, providerID string, state
 	return renderVirtualTagBreakdown(raw.Body, state.groupBy)
 }
 
-// Read alongside the typed items rather than inside them: the generated item type carries its own
-// UnmarshalJSON, so a field added by embedding it is never populated.
 func decodeVirtualTagBreakdown(body []byte) (*levelfourgo.ProviderServiceBreakdownData, []costItem, error) {
 	var typed struct {
 		Data *levelfourgo.ProviderServiceBreakdownData `json:"data"`
@@ -253,22 +251,12 @@ func decodeVirtualTagBreakdown(body []byte) (*levelfourgo.ProviderServiceBreakdo
 	if err := json.Unmarshal(body, &typed); err != nil || typed.Data == nil {
 		return nil, nil, fmt.Errorf("unexpected response from the API: %s", strings.TrimSpace(string(body)))
 	}
-	var values struct {
-		Data struct {
-			Items []struct {
-				VirtualTag string `json:"virtual_tag"`
-			} `json:"items"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &values); err != nil {
-		return nil, nil, fmt.Errorf("unexpected response from the API: %w", err)
-	}
 	items := typed.Data.GetItems()
 	rows := make([]costItem, 0, len(items))
-	for i, item := range items {
+	for _, item := range items {
 		row := costItem{ProviderServiceBreakdownItem: item}
-		if i < len(values.Data.Items) {
-			row.virtualTag = values.Data.Items[i].VirtualTag
+		if tag := item.GetVirtualTag(); tag != nil {
+			row.virtualTag = *tag
 		}
 		rows = append(rows, row)
 	}

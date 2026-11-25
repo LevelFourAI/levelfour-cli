@@ -22,3 +22,16 @@ jobs:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
         with:
           token: ${{ secrets.AUTOMATION_PAT || github.token }}
+
+      # Selected by the exact branch Release Please uses, in this repository and into main. The required
+      # checks decide, and the tag this merge produces is what runs the release.
+      - name: Merge the release pull request once CI passes
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
+        run: |
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main \
+            --head release-please--branches--main \
+            --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr merge "$number" --repo "$GITHUB_REPOSITORY" --auto --squash
+          fi

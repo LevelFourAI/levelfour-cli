@@ -271,11 +271,11 @@ func TestRecommendationDisplayStatusFromExtraRefusesToGuess(t *testing.T) {
 
 func TestToMapKeepsFieldsTheSdkDoesNotModelYet(t *testing.T) {
 	// Every Fern model's MarshalJSON re-encodes through an embedded copy of the struct and
-	// never re-emits extraProperties, so display_status vanished on the way to populateData
-	// and the detail view could only ever print the raw enum.
+	// never re-emits extraProperties, so a field the API adds before the SDK models it would
+	// vanish on the way to populateData.
 	detail := &levelfourgo.RecommendationDetail{RecommendationID: "L4-002"}
 	if err := json.Unmarshal(
-		[]byte(`{"recommendation_id":"L4-002","display_status":"awaiting_approval"}`),
+		[]byte(`{"recommendation_id":"L4-002","field_added_after_this_sdk":"awaiting_approval"}`),
 		detail,
 	); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -283,8 +283,8 @@ func TestToMapKeepsFieldsTheSdkDoesNotModelYet(t *testing.T) {
 
 	got := toMap(detail)
 
-	if got["display_status"] != "awaiting_approval" {
-		t.Errorf("display_status = %v, want awaiting_approval", got["display_status"])
+	if got["field_added_after_this_sdk"] != "awaiting_approval" {
+		t.Errorf("field_added_after_this_sdk = %v, want awaiting_approval", got["field_added_after_this_sdk"])
 	}
 	if got["recommendation_id"] != "L4-002" {
 		t.Errorf("recommendation_id = %v, want L4-002", got["recommendation_id"])

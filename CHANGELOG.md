@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.7...v0.2.8) (2026-11-10)
+
+
+### Bug Fixes
+
+* **api:** send the CLI user agent on SDK calls ([#74](https://github.com/LevelFourAI/levelfour-cli/issues/74)) ([408a100](https://github.com/LevelFourAI/levelfour-cli/commit/408a100d8404f6afecba8af60a97f4ab4cdfe7a8))
+
+## [0.2.7](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.6...v0.2.7) (2026-11-10)
+
+
+### Bug Fixes
+
+* move to levelfour-go v0.6.0 ([#72](https://github.com/LevelFourAI/levelfour-cli/issues/72)) ([ac139b1](https://github.com/LevelFourAI/levelfour-cli/commit/ac139b127bbb2043b4fe1f35f8b8834cf1b45f74))
+
+
+### Continuous Integration
+
+* release on green and follow the SDK every week ([#67](https://github.com/LevelFourAI/levelfour-cli/issues/67)) ([df4686b](https://github.com/LevelFourAI/levelfour-cli/commit/df4686b7ffedd933055d79ebbbdc8e398d5c13b5))
+
+## [0.2.6](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.5...v0.2.6) (2026-11-04)
+
+
+### Bug Fixes
+
+* move to levelfour-go v0.4.0 ([#65](https://github.com/LevelFourAI/levelfour-cli/issues/65)) ([16df60c](https://github.com/LevelFourAI/levelfour-cli/commit/16df60ce1d8da0e687e06097a775cc80d2a07e92))
+
+## [0.2.5](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.4...v0.2.5) (2026-11-02)
+
+
+### Features
+
+* **tags:** apply and show a value from a key, an even split and a usage split ([#64](https://github.com/LevelFourAI/levelfour-cli/issues/64)) ([0449189](https://github.com/LevelFourAI/levelfour-cli/commit/0449189f22574d09f1929217d5b9c3b19157b0d5))
+
+
+### Bug Fixes
+
+* **license:** name the copyright holder by its legal name, LevelFour Inc. ([#62](https://github.com/LevelFourAI/levelfour-cli/issues/62)) ([ff7a323](https://github.com/LevelFourAI/levelfour-cli/commit/ff7a3234303adfe3c833e82bcfbe7e0523a584a7))
+
 ## [0.2.4](https://github.com/LevelFourAI/levelfour-cli/compare/v0.2.3...v0.2.4) (2026-10-27)
 
 
